@@ -1,8 +1,36 @@
+# dependencies
 node_modules/
+.pnp
+.pnp.js
+
+# next.js
+.next/
+out/
 build/
 dist/
-coverage/
+
+# environment — keep your Firebase config out of the repository
+.env
+.env.local
+.env*.local
+
+# firebase
+.firebase/
+firebase-debug.log
+firestore-debug.log
+*-debug.log
+
+# service account keys — never commit these
+*serviceAccount*.json
+*-firebase-adminsdk-*.json
+
+# editor and OS
+.vscode/
+.idea/
 .DS_Store
-*.log
-.env*
-!.env.example
+Thumbs.db
+desktop.ini
+
+# generated output
+*.tsbuildinfo
+coverage/
