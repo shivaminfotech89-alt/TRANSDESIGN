@@ -1,0 +1,38 @@
+{
+  "collections": [
+    {
+      "name": "projects",
+      "documentId": "projectId",
+      "description": "Transformer design projects saved by the user.",
+      "fields": [
+        { "name": "userId", "type": "string", "description": "ID of the user who owns the project" },
+        { "name": "projectName", "type": "string" },
+        { "name": "kVA", "type": "number" },
+        { "name": "hvVoltage", "type": "number" },
+        { "name": "lvVoltage", "type": "number" },
+        { "name": "phases", "type": "number" },
+        { "name": "conductor", "type": "string" },
+        { "name": "referenceStandard", "type": "string" },
+        { "name": "cooling", "type": "string" },
+        { "name": "tapChanger", "type": "string" },
+        { "name": "tapRangeAbove", "type": "number" },
+        { "name": "tapRangeBelow", "type": "number" },
+        { "name": "tapStepVariation", "type": "number" },
+        { "name": "targetImpedance", "type": "number" },
+        { "name": "targetLoadLoss", "type": "number" },
+        { "name": "targetNoLoadLoss", "type": "number" },
+        { "name": "maxFluxDensity", "type": "number" },
+        { "name": "maxCurrentDensityHv", "type": "number" },
+        { "name": "maxCurrentDensityLv", "type": "number" },
+        { "name": "updatedAt", "type": "timestamp" },
+        { "name": "createdAt", "type": "timestamp" }
+      ],
+      "securityRules": {
+        "read": "request.auth != null && request.auth.uid == resource.data.userId",
+        "create": "request.auth != null && request.resource.data.userId == request.auth.uid",
+        "update": "request.auth != null && request.auth.uid == resource.data.userId && request.resource.data.userId == request.auth.uid",
+        "delete": "request.auth != null && request.auth.uid == resource.data.userId"
+      }
+    }
+  ]
+}

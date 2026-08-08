@@ -1,0 +1,49 @@
+@import "tailwindcss";
+
+@layer utilities {
+  .scrollbar-hide {
+    /* IE and Edge */
+    -ms-overflow-style: none;
+    /* Firefox */
+    scrollbar-width: none;
+  }
+  .scrollbar-hide::-webkit-scrollbar {
+    /* Chrome, Safari and Opera */
+    display: none;
+  }
+}
+
+html, body {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+
+}
+
+#root {
+  height: 100%;
+}
+
+@media print {
+  body {
+    background: white;
+  }
+  .print\:hidden {
+    display: none !important;
+  }
+  .print-report-container {
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    box-shadow: none;
+    border: none;
+  }
+  .page-break-after {
+    page-break-after: always;
+  }
+  .report-page {
+    padding: 20px;
+    background: white;
+    min-height: 297mm; /* A4 height */
+  }
+}

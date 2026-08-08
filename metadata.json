@@ -1,0 +1,8 @@
+{
+  "name": "TransDesign Engine",
+  "description": "High-precision Electrical Transformer Design Tool",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

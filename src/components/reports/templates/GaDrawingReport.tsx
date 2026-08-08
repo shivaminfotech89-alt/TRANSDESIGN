@@ -1,0 +1,31 @@
+import React from 'react';
+import { TransformerOutputs, TransformerInputs } from '../../../types';
+import { ReportHeader } from './ReportHeader';
+
+export function GaDrawingReport({ inputs, outputs }: { inputs: TransformerInputs, outputs: TransformerOutputs }) {
+  return (
+    <div className="report-page">
+      <ReportHeader title="General Arrangement (GA)" inputs={inputs} />
+      
+      <div className="p-8 border-2 border-dashed border-slate-300 bg-slate-50 text-center rounded-lg mt-6">
+        <h3 className="font-bold text-lg text-slate-700 mb-2">Detailed General Arrangement (GA) View</h3>
+        <p className="text-slate-500 mb-4">
+          This report provides schematic and layout details based on the computed core and tank dimensions.
+        </p>
+        <div className="grid grid-cols-2 gap-4 text-left max-w-lg mx-auto bg-white p-4 border border-slate-200 rounded">
+          <div className="font-semibold text-slate-600">Core Diameter:</div>
+          <div className="font-mono text-slate-800">{outputs.coreDia?.toFixed(1) || 'N/A'} mm</div>
+          
+          <div className="font-semibold text-slate-600">Window Height:</div>
+          <div className="font-mono text-slate-800">{outputs.windowHeight?.toFixed(1) || 'N/A'} mm</div>
+          
+          <div className="font-semibold text-slate-600">Limb Center:</div>
+          <div className="font-mono text-slate-800">{outputs.limbCenter?.toFixed(1) || 'N/A'} mm</div>
+          
+          <div className="font-semibold text-slate-600">Tank Weight (Approx):</div>
+          <div className="font-mono text-slate-800">{(inputs.kVA * 0.9).toFixed(1)} kg</div>
+        </div>
+      </div>
+    </div>
+  );
+}
