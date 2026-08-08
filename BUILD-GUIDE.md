@@ -1,6 +1,12 @@
 # Building the web app on Firebase
 
-Project: `ai-studio-transdesignengin-41442703-2634-4bab-af2b-b96345bc6846`
+Firebase project: `tendermaster-ai`. This app's data lives in the named
+Firestore database `ai-studio-transdesignengin-41442703-2634-4bab-af2b-b96345bc6846`
+— it is not the project's default database. `tendermaster-ai` also hosts
+unrelated named databases for other apps on the same account, so every
+`firebase` CLI command below must pin this database explicitly (via
+`firebase.json`'s `firestore.database` field, or `--database` where the
+command supports it) or it will silently target the wrong database.
 
 This is the migration path from the single-file design tool to a real
 multi-tenant application, with the parts that are already done and the parts
@@ -136,7 +142,11 @@ Locking a revision when the quotation goes out is enforced in the rules: after
 ```bash
 npm i -g firebase-tools
 firebase login
-firebase use ai-studio-transdesignengin-41442703-2634-4bab-af2b-b96345bc6846
+firebase use tendermaster-ai
+# firebase.json must set firestore.database to
+# ai-studio-transdesignengin-41442703-2634-4bab-af2b-b96345bc6846 — this
+# project has other named databases, and an unpinned deploy targets the
+# project's default database, not this one.
 firebase deploy --only firestore:rules,firestore:indexes,storage
 ```
 

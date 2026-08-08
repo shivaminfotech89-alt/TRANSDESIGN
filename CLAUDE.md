@@ -1,8 +1,11 @@
 # Transformer Design & Costing Platform
 
 Enterprise transformer design, costing and documentation software for Indian
-manufacturers. Firebase project:
-`ai-studio-transdesignengin-41442703-2634-4bab-af2b-b96345bc6846`
+manufacturers. Firebase project: `tendermaster-ai`, Firestore database
+`ai-studio-transdesignengin-41442703-2634-4bab-af2b-b96345bc6846` (a named
+database, not the project's default — `tendermaster-ai` also hosts unrelated
+databases for other apps, so every `firebase` command must pin this database
+explicitly).
 
 Users are design engineers and estimators at transformer works. They enter an
 enquiry, the platform designs the transformer, prices it, re-engineers it to a
