@@ -12,6 +12,10 @@ interface TransformerFormProps {
   over: Record<string, any>;
   onCoreChange: (core: any) => void;
   onOverChange: (over: Record<string, any>) => void;
+  // Project metadata, not part of the engine's core enquiry -- see the
+  // TODO(persistence) note in App.tsx.
+  projectName: string;
+  onProjectNameChange: (name: string) => void;
 }
 
 /* Friendly labels for deriveSpec's keys. Anything missing here falls back to
@@ -162,7 +166,9 @@ function ParamRow({
   );
 }
 
-export function TransformerForm({ core, over, onCoreChange, onOverChange }: TransformerFormProps) {
+export function TransformerForm({
+  core, over, onCoreChange, onOverChange, projectName, onProjectNameChange,
+}: TransformerFormProps) {
   const [expandedSection, setExpandedSection] = useState<string>('rating');
 
   const spec = useMemo(() => deriveSpec(core, over), [core, over]);
@@ -194,6 +200,11 @@ export function TransformerForm({ core, over, onCoreChange, onOverChange }: Tran
         <SectionHeader id="rating" title="Rating & Enquiry" icon={Zap} />
         {expandedSection === 'rating' && (
           <div className="p-4 space-y-4">
+            {/* Project metadata, not part of core/over -- disconnected until
+                the projects/revisions persistence phase (see App.tsx). */}
+            <CoreField label="Project Name">
+              <input type="text" value={projectName} onChange={(e) => onProjectNameChange(e.target.value)} className={inputCls()} />
+            </CoreField>
             <CoreField label="Application">
               <CoreSelect value={core.application} onChange={(v) => setCore({ application: v })} options={APP_OPTS} />
             </CoreField>
