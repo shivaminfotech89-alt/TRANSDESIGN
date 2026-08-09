@@ -4,23 +4,35 @@ import { Card, DataRow, DerivedRow, CheckMark, Button, cardCls, cardHeaderCls, c
 import { Drawings2D } from './Drawings2D';
 import { CadViewerTab } from './cad/CadViewerTab';
 import { DocumentsTab } from './documents/DocumentsTab';
+import { BudgetTab } from './budget/BudgetTab';
 
 interface ResultsDisplayProps {
   core: any;
   design: any;
   bom: any;
   params: any;
+  /** The live design being edited, unaffected by any budget preview. Every
+   *  tab above follows `design`/`bom`/`params` (which track the preview when
+   *  one is active) -- only the Budget tab needs the real one underneath, so
+   *  it always searches and compares against what the user is actually
+   *  editing, not a candidate they haven't adopted yet. */
+  liveDesign: any;
+  liveBom: any;
+  liveParams: any;
   project: any;
   rates: Record<string, number>;
   onRatesChange: (rates: Record<string, number>) => void;
+  activePreviewKey: string | null;
+  onSelectPreview: (candidate: any | null) => void;
 }
 
-type Tab = 'overview' | 'calculations' | 'bom' | 'winding' | 'core' | 'drawings' | 'reports' | '3d-model';
+type Tab = 'overview' | 'calculations' | 'bom' | 'winding' | 'core' | 'drawings' | 'reports' | '3d-model' | 'budget';
 
 const TABS: { id: Tab; label: string; pending?: boolean }[] = [
   { id: 'overview', label: 'Overview' },
   { id: 'calculations', label: 'Calculations' },
   { id: 'bom', label: 'BOM & Cost' },
+  { id: 'budget', label: 'Fit to Budget' },
   { id: 'winding', label: 'Winding Design' },
   { id: 'core', label: 'Core Parts' },
   { id: 'drawings', label: '2D Drawings' },
@@ -42,7 +54,10 @@ function RateField({ label, k, rates, onRatesChange }: { label: string; k: strin
   );
 }
 
-export function ResultsDisplay({ core, design, bom, params, project, rates, onRatesChange }: ResultsDisplayProps) {
+export function ResultsDisplay({
+  core, design, bom, params, liveDesign, liveBom, liveParams, project, rates, onRatesChange,
+  activePreviewKey, onSelectPreview,
+}: ResultsDisplayProps) {
   const [activeTab, setActiveTab] = useState<Tab>('overview');
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
@@ -274,6 +289,15 @@ export function ResultsDisplay({ core, design, bom, params, project, rates, onRa
                 </p>
               </Card>
             </div>
+          )}
+
+          {/* FIT TO BUDGET -- searches and previews against the live design,
+              never the currently previewed one, see ResultsDisplayProps note. */}
+          {activeTab === 'budget' && (
+            <BudgetTab
+              design={liveDesign} bom={liveBom} params={liveParams} rates={rates}
+              activePreviewKey={activePreviewKey} onSelectPreview={onSelectPreview}
+            />
           )}
 
           {/* WINDING DESIGN -- design.* fields directly */}

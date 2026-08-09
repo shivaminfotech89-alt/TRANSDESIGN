@@ -9,7 +9,7 @@ import { NewProjectModal } from './components/NewProjectModal';
 import { Button } from './components/ui';
 import { useAuth } from './components/AuthContext';
 import { useOrg } from './components/OrgContext';
-import { computeDesign, impacts, summarise, ESSENTIALS, DEFAULT_RATES, STANDARDS } from '@/packages/engine';
+import { computeDesign, impacts, summarise, ESSENTIALS, DEFAULT_RATES, STANDARDS, inr } from '@/packages/engine';
 import {
   CLASS_B_TARGETS, OVER_KEY_LEVER, LEVER_OVER_KEYS, findConflictForPin, findConflictForOverride,
   type PinSet, type Conflict,
@@ -19,10 +19,21 @@ import { labelFor, fmtWithUnit } from './lib/paramLabels';
 import { diffDependents, type DependentChange } from './lib/impactSummary';
 import { createProject, renameProject, saveRevision, getRevision } from '../lib/projects';
 import type { ProjectMeta, Project } from '../lib/types';
+import { candidateKey } from './components/budget/BudgetTab';
 
 type PendingConflict =
   | { kind: 'pin'; targetId: string; value: number; conflict: Conflict }
   | { kind: 'override'; overKey: string; value: any; conflict: Conflict };
+
+/** The exact fields searchDesigns() varies between candidates (packages/engine
+ *  index.js, searchDesigns' `cand`). Adopting a budget option means copying
+ *  just these into `over` -- deriveSpec() re-derives everything else from
+ *  `core` exactly as it already does, and locking flux/deltaLV/deltaHV here
+ *  also locks autoFit, so the recompute reproduces the previewed numbers
+ *  exactly rather than a fresh auto-fit landing nearby. */
+const BUDGET_OVER_KEYS = [
+  'coreType', 'coreGrade', 'flux', 'condLV', 'condHV', 'deltaLV', 'deltaHV', 'tankType', 'oilRiseTarget', 'lvHvClr',
+] as const;
 
 type EditAction =
   | { kind: 'param'; key: string }
@@ -62,11 +73,17 @@ export default function App() {
   const [lastAction, setLastAction] = useState<EditAction | null>(null);
   const [summary, setSummary] = useState<SummaryData | null>(null);
 
+  // CLAUDE.md invariant 3: one design on screen at a time. A previewed budget
+  // option is a searchDesigns() result row -- {inputs, d, bom, price, tco...}
+  // -- shown everywhere in place of the live design until Adopt or Discard.
+  const [budgetPreview, setBudgetPreview] = useState<any | null>(null);
+
   const resetDesignState = () => {
     setPins({});
     setPendingConflict(null);
     setLastAction(null);
     setSummary(null);
+    setBudgetPreview(null);
   };
 
   /** Minimal ProjectMeta -- only projectName is exposed in the UI so far.
@@ -250,6 +267,27 @@ export default function App() {
     };
   }, [core, over, rates, pins]);
 
+  // CLAUDE.md invariant 3: while a budget option is previewed, every tab
+  // renders it -- the plate, the costing tab, all of them -- from this one
+  // place, never `result` in one spot and the candidate in another. The Fit
+  // to Budget tab itself is the one exception: it always searches and
+  // compares against `result` (the live design), never against whatever it
+  // is currently previewing.
+  const activeDesign = budgetPreview ? budgetPreview.d : result.design;
+  const activeBom = budgetPreview ? budgetPreview.bom : result.bom;
+  const activeParams = budgetPreview ? budgetPreview.d.p : result.params;
+  const activePreviewKey = budgetPreview ? candidateKey(budgetPreview) : null;
+
+  const handleAdoptBudget = () => {
+    if (!budgetPreview) return;
+    const patch: Record<string, any> = {};
+    for (const k of BUDGET_OVER_KEYS) patch[k] = budgetPreview.inputs[k];
+    setOverState({ ...over, ...patch });
+    resetDesignState();
+  };
+
+  const handleDiscardBudget = () => setBudgetPreview(null);
+
   // SOLVER.md step 4: Design Impact Summary, shown after every change, for
   // the one decision just made -- not a diff of the whole design. impacts()
   // supplies the design-level consequences (weight, losses, efficiency,
@@ -353,7 +391,26 @@ export default function App() {
           </div>
         </header>
 
-        <RatingPlate design={result.design} bom={result.bom} params={result.params} />
+        <RatingPlate design={activeDesign} bom={activeBom} params={activeParams} />
+
+        {budgetPreview && (
+          <div className="bg-white border border-copper rounded-[2px] px-4 py-3 print:hidden flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div>
+              <div className="text-[11px] font-display uppercase tracking-[0.14em] text-copper mb-1">
+                Previewing Budget Option
+              </div>
+              <p className="text-[11px] text-ink2">
+                {inr(budgetPreview.price)} ex-works against the current {inr(result.bom.exFactory)}. This design is
+                shown everywhere -- the plate, every tab -- until you adopt or discard it. Editing is disabled
+                until then.
+              </p>
+            </div>
+            <div className="flex gap-2 shrink-0">
+              <Button variant="confirm" onClick={handleAdoptBudget}>Adopt</Button>
+              <Button variant="secondary" onClick={handleDiscardBudget}>Discard</Button>
+            </div>
+          </div>
+        )}
 
         <ProjectBar
           projectName={projectName} onProjectNameChange={setProjectName}
@@ -390,7 +447,10 @@ export default function App() {
         )}
 
         <main className="grid grid-cols-1 lg:grid-cols-[340px_1fr] gap-4">
-          <aside className="print:hidden space-y-4">
+          {/* A previewed budget option isn't the design core/over/pins describe,
+              so editing it would be ambiguous about which design it applies to --
+              disabled until the preview is adopted or discarded. */}
+          <aside className={`print:hidden space-y-4 ${budgetPreview ? 'opacity-50 pointer-events-none' : ''}`}>
             <PinPanel
               pins={pins} over={over} solveResults={solveResults}
               converged={solveConverged} fighting={solveFighting}
@@ -403,9 +463,11 @@ export default function App() {
 
           <section>
             <ResultsDisplay
-              core={core} design={result.design} bom={result.bom} params={result.params}
+              core={core} design={activeDesign} bom={activeBom} params={activeParams}
+              liveDesign={result.design} liveBom={result.bom} liveParams={result.params}
               project={buildMeta(projectName)}
               rates={rates} onRatesChange={setRates}
+              activePreviewKey={activePreviewKey} onSelectPreview={setBudgetPreview}
             />
           </section>
         </main>
