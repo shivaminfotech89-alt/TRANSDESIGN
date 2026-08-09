@@ -16,8 +16,8 @@ const TABS: { id: Tab; label: string; pending?: boolean }[] = [
   { id: 'overview', label: 'Overview' },
   { id: 'calculations', label: 'Calculations' },
   { id: 'bom', label: 'BOM & Cost' },
-  { id: 'winding', label: 'Winding Design', pending: true },
-  { id: 'core', label: 'Core Parts', pending: true },
+  { id: 'winding', label: 'Winding Design' },
+  { id: 'core', label: 'Core Parts' },
   { id: 'reports', label: 'Reports & Docs', pending: true },
   { id: '3d-model', label: '3D CAD Model', pending: true },
 ];
@@ -278,8 +278,99 @@ export function ResultsDisplay({ design, bom, params, rates, onRatesChange }: Re
             </div>
           )}
 
-          {activeTab === 'winding' && <Pending label="Winding Design" />}
-          {activeTab === 'core' && <Pending label="Core Parts" />}
+          {/* WINDING DESIGN -- design.* fields directly */}
+          {activeTab === 'winding' && (
+            <div className="space-y-4">
+              <Card title="HV Winding" subtitle={`Layer winding, ${design.layers} layers`}>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-x-4">
+                  <DataRow label="Voltage" value={String(params.hv)} unit="V" />
+                  <DataRow label="Current" value={design.iHV.toFixed(2)} unit="A" />
+                  <DataRow label="Turns, Normal Tap" value={String(design.nHV)} />
+                  <DataRow label="Turns, Extreme Tap" value={String(design.nHVmax)} />
+                  <DataRow label="Conductor Area" value={design.aHVreq.toFixed(2)} unit="mm²" />
+                  <DataRow label="Conductor Section" value={`${design.axHV.toFixed(1)} x ${design.rdHV.toFixed(1)}`} unit="mm" />
+                  <DataRow label="Turns per Layer" value={String(design.turnsPerLayer)} />
+                  <DataRow label="Volts per Layer" value={Math.round(design.voltsPerLayer).toString()} unit="V" />
+                  <DataRow label="Inner Diameter" value={Math.round(design.hvID).toString()} unit="mm" />
+                  <DataRow label="Outer Diameter" value={Math.round(design.hvOD).toString()} unit="mm" />
+                  <DataRow label="Mean Turn Length" value={design.lmtHV.toFixed(3)} unit="m" />
+                  <DataRow label="Resistance" value={design.rHV.toFixed(4)} unit="ohm" />
+                  <DataRow label="I2R Loss" value={Math.round(design.i2rHV).toString()} unit="W" />
+                </div>
+              </Card>
+
+              <Card title="LV Winding" subtitle={design.lvTurnLayers === design.nLV ? 'Full-height foil' : `Helical, ${design.lvTurnLayers} layers`}>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-x-4">
+                  <DataRow label="Voltage" value={String(params.lv)} unit="V" />
+                  <DataRow label="Current" value={design.iLV.toFixed(1)} unit="A" />
+                  <DataRow label="Turns" value={String(design.nLV)} />
+                  <DataRow label="Conductor Area" value={design.aLVreq.toFixed(2)} unit="mm²" />
+                  <DataRow label="Foil" value={`${design.tLV.toFixed(2)} x ${Math.round(design.foilW)}`} unit="mm" />
+                  <DataRow label="Radial Layers" value={String(design.lvTurnLayers)} />
+                  <DataRow label="Inner Diameter" value={Math.round(design.lvID).toString()} unit="mm" />
+                  <DataRow label="Outer Diameter" value={Math.round(design.lvOD).toString()} unit="mm" />
+                  <DataRow label="Mean Turn Length" value={design.lmtLV.toFixed(3)} unit="m" />
+                  <DataRow label="Resistance" value={design.rLV.toExponential(3)} unit="ohm" />
+                  <DataRow label="I2R Loss" value={Math.round(design.i2rLV).toString()} unit="W" />
+                </div>
+              </Card>
+
+              <Card title="Tappings">
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-x-4">
+                  <DataRow label="Tap Type" value={params.tapType === 'oltc' ? 'On-load' : params.tapType === 'octc' ? 'Off-circuit' : 'None'} />
+                  <DataRow label="Tap Positions" value={String(design.tapSteps)} />
+                  <DataRow label="Turns per Step" value={design.turnsPerStep.toFixed(2)} />
+                  <DataRow label="Ratio Error" value={design.ratioErr.toFixed(4)} unit="%" tone={Math.abs(design.ratioErr) <= 0.5 ? 'ink' : 'alert'} />
+                </div>
+              </Card>
+
+              <Card title="Insulation">
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-x-4">
+                  <DataRow label="Cylinder Thickness" value={params.cylThk.toFixed(1)} unit="mm" />
+                  <DataRow label="HV Interlayer" value={params.hvInterlayer.toFixed(1)} unit="mm" />
+                  <DataRow label="HV Paper Covering" value={params.hvPaper.toFixed(2)} unit="mm" />
+                  <DataRow label="LV Interturn" value={params.lvIns.toFixed(2)} unit="mm" />
+                  <DataRow label="HV Ducts" value={String(design.hvDucts)} />
+                </div>
+              </Card>
+            </div>
+          )}
+
+          {/* CORE PARTS -- design.* fields directly */}
+          {activeTab === 'core' && (
+            <div className="space-y-4">
+              <Card title="Core Geometry" subtitle={design.shape === 'circ' ? 'Circular stepped' : 'Rectangular / wound'}>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-x-4">
+                  {design.shape === 'circ' ? (
+                    <DataRow label="Core Diameter" value={design.dCore.toFixed(1)} unit="mm" />
+                  ) : (
+                    <DataRow label="Limb Section" value={`${design.coreW.toFixed(1)} x ${design.coreD.toFixed(1)}`} unit="mm" />
+                  )}
+                  <DataRow label="Net Core Area" value={design.aNet.toFixed(1)} unit="cm²" />
+                  <DataRow label="Gross Core Area" value={design.aGross.toFixed(1)} unit="cm²" />
+                  <DataRow label="Window Height" value={Math.round(design.Hw).toString()} unit="mm" />
+                  <DataRow label="Window Width" value={Math.round(design.Ww).toString()} unit="mm" />
+                  <DataRow label="Limb Centre Distance" value={Math.round(design.cc).toString()} unit="mm" />
+                  <DataRow label="Core Height, Overall" value={Math.round(design.coreHeight).toString()} unit="mm" />
+                  <DataRow label="Core Width, Overall" value={Math.round(design.coreWidth).toString()} unit="mm" />
+                  <DataRow label="Yoke Depth" value={Math.round(design.yokeDepth).toString()} unit="mm" />
+                </div>
+              </Card>
+
+              <Card title="Core Steel and Excitation" subtitle={design.grade.name}>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-x-4">
+                  <DataRow label="Joint Construction" value={design.ct.name.split(',')[0]} />
+                  <DataRow label="Flux Density" value={design.B.toFixed(2)} unit="T" />
+                  <DataRow label="Building Factor" value={params.buildFactor.toFixed(2)} />
+                  <DataRow label="Specific Core Loss" value={design.wPerKg.toFixed(3)} unit="W/kg" />
+                  <DataRow label="No-Load Loss" value={Math.round(design.noLoad).toString()} unit="W" tone="copper" />
+                  <DataRow label="Exciting VA" value={design.vaPerKg.toFixed(2)} unit="VA/kg" />
+                  <DataRow label="No-Load Current" value={design.i0pct.toFixed(2)} unit="%" />
+                  <DataRow label="Sound Level" value={Math.round(design.noise).toString()} unit="dB(A)" />
+                </div>
+              </Card>
+            </div>
+          )}
           {activeTab === 'reports' && <Pending label="Reports & Docs" />}
           {activeTab === '3d-model' && <Pending label="3D CAD Model" />}
         </div>
