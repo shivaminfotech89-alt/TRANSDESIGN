@@ -37,6 +37,27 @@ export function DataRow({ label, value, unit, tone = 'ink' }: { label: string; v
   );
 }
 
+/**
+ * SOLVER.md section 1, Class D: derived-only parameters. Cannot be set, only
+ * influenced -- greyed and explicit about what to edit instead, never a field
+ * that quietly accepts a number and ignores it.
+ */
+export function DerivedRow({ label, value, unit, editInstead }: { label: string; value: string; unit?: string; editInstead: string }) {
+  return (
+    <div className="py-1.5 border-b border-dashed border-line last:border-0">
+      <div className="flex items-baseline justify-between">
+        <span className="text-[11px] text-ink2">{label}</span>
+        <span className="font-mono text-[11px] font-semibold text-steel">
+          {value}{unit && <span className="font-normal text-steel ml-1">{unit}</span>}
+        </span>
+      </div>
+      <div className="text-[9px] font-mono text-steel mt-0.5">
+        Derived from {editInstead}, edit {editInstead} instead.
+      </div>
+    </div>
+  );
+}
+
 export function CheckMark({ ok }: { ok: boolean }) {
   return <span className={ok ? 'text-good' : 'text-alert'}>{ok ? '✓' : '✗'}</span>;
 }

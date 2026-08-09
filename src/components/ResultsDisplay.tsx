@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { calcSheet, inr } from '@/packages/engine';
-import { Card, DataRow, CheckMark, Button, cardCls, cardHeaderCls, cardTitleCls, cardSubtitleCls, cardBodyCls, thCls, tdCls } from './ui';
+import { Card, DataRow, DerivedRow, CheckMark, Button, cardCls, cardHeaderCls, cardTitleCls, cardSubtitleCls, cardBodyCls, thCls, tdCls } from './ui';
 
 interface ResultsDisplayProps {
   design: any;
@@ -63,6 +63,9 @@ export function ResultsDisplay({ design, bom, params, rates, onRatesChange }: Re
 
   const designId = `TDE-${params.kva}-${Math.round(params.hv / 1000)}-${params.lv}`;
   const sheet = calcSheet(design, bom);
+  const totalMass = design.wCore + design.wLV + design.wHV + design.wIns
+    + design.wFrame + design.wTank + design.wFin + design.wEnclosure
+    + design.fluidLitres * design.fluid.dens;
 
   return (
     <div className="flex flex-col lg:flex-row gap-4">
@@ -133,6 +136,34 @@ export function ResultsDisplay({ design, bom, params, rates, onRatesChange }: Re
                     <DataRow label="Conductor Area" value={design.aLVreq.toFixed(2)} unit="mm²" />
                   </div>
                 </div>
+              </Card>
+
+              <Card title="Derived Only" subtitle="Class D, cannot be set directly">
+                <DerivedRow label="Window Width" value={design.Ww.toFixed(1)} unit="mm" editInstead="conductor sizes, clearances and layers" />
+                <DerivedRow
+                  label={design.dry ? 'Enclosure Dimensions' : 'Tank Dimensions'}
+                  value={`${Math.round(design.tankL)} x ${Math.round(design.tankW)} x ${Math.round(design.tankH)}`}
+                  unit="mm"
+                  editInstead="clearances, cooling type and core diameter"
+                />
+                <DerivedRow
+                  label="Oil Quantity"
+                  value={design.dry ? 'Not applicable, dry type' : Math.round(design.fluidLitres).toString()}
+                  unit={design.dry ? undefined : 'L'}
+                  editInstead="the tank size drivers above"
+                />
+                <DerivedRow label="Core Weight" value={Math.round(design.wCore).toString()} unit="kg" editInstead="flux density, K and steps" />
+                <DerivedRow label="LV Winding Mass" value={Math.round(design.wLV).toString()} unit="kg" editInstead="the geometry driver" />
+                <DerivedRow label="HV Winding Mass" value={Math.round(design.wHV).toString()} unit="kg" editInstead="the geometry driver" />
+                <DerivedRow label="Insulation Mass" value={Math.round(design.wIns).toString()} unit="kg" editInstead="the geometry driver" />
+                <DerivedRow label="Frame Mass" value={Math.round(design.wFrame).toString()} unit="kg" editInstead="the geometry driver" />
+                <DerivedRow
+                  label={design.dry ? 'Enclosure Mass' : 'Tank and Fin Mass'}
+                  value={Math.round(design.dry ? design.wEnclosure : design.wTank + design.wFin).toString()}
+                  unit="kg"
+                  editInstead="the geometry driver"
+                />
+                <DerivedRow label="Total Mass" value={Math.round(totalMass).toString()} unit="kg" editInstead="the geometry driver" />
               </Card>
 
               <Card title="Compliance" subtitle={`${params.effLevel} loss schedule`}>
