@@ -221,8 +221,8 @@ function deriveSpec(core, over = {}) {
   put("steps", stepsSuggest(kva), null, Object.keys(STEP_UTIL).map((k) => [+k, k + " steps"]), "More steps fill the coil circle better and save steel, but cost more to cut and stack.");
   put("etK", app.etK, [0.35, 0.62, 0.01], null, `Volts per turn = K\u221AkVA. ${app.name} practice sits near ${app.etK}.`);
   put("aspect", aspectSuggest(umHV), [2.0, 3.8, 0.05], null, "Starting window shape. The final height is solved to hit the declared impedance unless you turn that off.");
-  put("autoWindow", true, null, [[true, "Solve height for the declared impedance"], [false, "Use the output equation only"]], "With this on, the window height is adjusted until the calculated impedance matches the declared value \u2014 which is what a designer does by hand.");
-  put("autoFit", true, null, [[true, "Fit flux and current density to the loss limits"], [false, "Use the rating-based values only"]], "With this on, the flux density and the current densities are trimmed until the calculated losses sit just inside the declared limits \u2014 the cheapest core and coil that still passes.");
+  put("autoWindow", true, null, [[true, "Solve height for the declared impedance"], [false, "Use the output equation only"]], "With this on, the window height is adjusted until the calculated impedance matches the declared value, which is what a designer does by hand.");
+  put("autoFit", true, null, [[true, "Fit flux and current density to the loss limits"], [false, "Use the rating-based values only"]], "With this on, the flux density and the current densities are trimmed until the calculated losses sit just inside the declared limits, the cheapest core and coil that still passes.");
   put("windowSpace", 8, [6, 12, 0.5], null, "Numerator of the window space factor 8/(30+kV). Raise it if your coils pack tighter than average.");
 
   /* --- windings --- */
@@ -620,10 +620,10 @@ function buildBOM(d, r, extras = []) {
 
   return {
     segments: [
-      { title: "A \u2014 Core & coil assembly", rows: A, total: matA },
-      { title: d.dry ? "B \u2014 Enclosure & finishing" : "B \u2014 Tank, cooling & fluid", rows: Bseg, total: matB },
-      { title: "C \u2014 Accessories & terminations", rows: Cseg, total: matC },
-      ...(extras.length ? [{ title: "D \u2014 Additional items", rows: extras, total: extraCost }] : []),
+      { title: "A: Core & coil assembly", rows: A, total: matA },
+      { title: d.dry ? "B: Enclosure & finishing" : "B: Tank, cooling & fluid", rows: Bseg, total: matB },
+      { title: "C: Accessories & terminations", rows: Cseg, total: matC },
+      ...(extras.length ? [{ title: "D: Additional items", rows: extras, total: extraCost }] : []),
     ],
     labour, material, labourCost, scrap, overhead, freight: r.freight,
     factory, works, margin, exFactory, gst, withGst: exFactory + gst, energy,
@@ -723,14 +723,14 @@ function impacts(a, ba, b, bb, p) {
     const up = b.B > a.B;
     out.push({
       k: "Flux density", from: f2(a.B) + " T", to: f2(b.B) + " T", good: !up,
-      body: `Core weight ${up ? "falls" : "rises"} by ${Math.abs(b.wCore - a.wCore).toFixed(0)} kg. No-load loss ${up ? "rises" : "falls"} by ${Math.abs(dNLL).toFixed(0)} W and no-load current moves ${f2(a.i0pct)}% to ${f2(b.i0pct)}%. Noise ${up ? "up" : "down"} about ${Math.abs((b.B - a.B) * 28).toFixed(0)} dB. ${up ? "Over-excitation margin at +10% system voltage narrows and inrush rises \u2014 flag the inrush restraint setting to the protection engineer." : "More margin against over-fluxing and softer inrush."}`,
+      body: `Core weight ${up ? "falls" : "rises"} by ${Math.abs(b.wCore - a.wCore).toFixed(0)} kg. No-load loss ${up ? "rises" : "falls"} by ${Math.abs(dNLL).toFixed(0)} W and no-load current moves ${f2(a.i0pct)}% to ${f2(b.i0pct)}%. Noise ${up ? "up" : "down"} about ${Math.abs((b.B - a.B) * 28).toFixed(0)} dB. ${up ? "Over-excitation margin at +10% system voltage narrows and inrush rises. Flag the inrush restraint setting to the protection engineer." : "More margin against over-fluxing and softer inrush."}`,
     });
   }
   if (Math.abs(b.dLV - a.dLV) > 0.02) {
     const up = b.dLV > a.dLV;
     out.push({
       k: "Current density", from: `${f2(a.dLV)} / ${f2(a.dHV)} A/mm\u00B2`, to: `${f2(b.dLV)} / ${f2(b.dHV)} A/mm\u00B2`, good: !up,
-      body: `Conductor weight ${up ? "down" : "up"} ${Math.abs(b.wLV + b.wHV - a.wLV - a.wHV).toFixed(0)} kg. Load loss ${up ? "rises" : "falls"} ${Math.abs(dLL).toFixed(0)} W at the ${b.refT} \u00B0C reference. Gradient ${f1(a.grad)} to ${f1(b.grad)} K, hot-spot ${f1(a.hotspot)} to ${f1(b.hotspot)} \u00B0C at ${p.ambient} \u00B0C ambient. Paper ageing rate changes ${(a.lifeFactor / b.lifeFactor).toFixed(2)} times. ${up ? "Permissible cyclic overload drops \u2014 state the derating in the offer." : "More headroom for cyclic overload."}`,
+      body: `Conductor weight ${up ? "down" : "up"} ${Math.abs(b.wLV + b.wHV - a.wLV - a.wHV).toFixed(0)} kg. Load loss ${up ? "rises" : "falls"} ${Math.abs(dLL).toFixed(0)} W at the ${b.refT} \u00B0C reference. Gradient ${f1(a.grad)} to ${f1(b.grad)} K, hot-spot ${f1(a.hotspot)} to ${f1(b.hotspot)} \u00B0C at ${p.ambient} \u00B0C ambient. Paper ageing rate changes ${(a.lifeFactor / b.lifeFactor).toFixed(2)} times. ${up ? "Permissible cyclic overload drops. State the derating in the offer." : "More headroom for cyclic overload."}`,
     });
   }
   if (b.cLV.short !== a.cLV.short) {
@@ -738,14 +738,14 @@ function impacts(a, ba, b, bb, p) {
     out.push({
       k: "Conductor material", from: a.cLV.name, to: b.cLV.name, good: !toAl,
       body: toAl
-        ? `Aluminium needs about 1.6 times the section for the same loss, so coils grow radially and the tank and fluid grow with them \u2014 part of the metal saving comes back as steel and oil. Proof stress is roughly half that of copper, so with ${f2(b.pctZ)}% impedance and ${f1(b.iscMult)} times rated fault current the hoop and bending stress must be re-checked. On site: bimetallic lugs, Belleville washers, joints re-torqued at year one and year three.`
+        ? `Aluminium needs about 1.6 times the section for the same loss, so coils grow radially and the tank and fluid grow with them; part of the metal saving comes back as steel and oil. Proof stress is roughly half that of copper, so with ${f2(b.pctZ)}% impedance and ${f1(b.iscMult)} times rated fault current the hoop and bending stress must be re-checked. On site: bimetallic lugs, Belleville washers, joints re-torqued at year one and year three.`
         : "Copper cuts the coil build, tank size and fluid volume, raises short-circuit strength and simplifies terminations. It is also the largest single line in the bill.",
     });
   }
   if (b.grade.name !== a.grade.name || b.ct.name !== a.ct.name) {
     out.push({
       k: "Core steel and joint", from: `${a.grade.name.split(",")[0]}, ${a.ct.name.split(",")[0]}`, to: `${b.grade.name.split(",")[0]}, ${b.ct.name.split(",")[0]}`, good: b.wPerKg < a.wPerKg,
-      body: `Specific loss ${f2(a.wPerKg)} to ${f2(b.wPerKg)} W/kg including the building factor (${f2(a.p.buildFactor)} to ${f2(b.p.buildFactor)}), and exciting current ${f2(a.i0pct)}% to ${f2(b.i0pct)}%. No-load loss is paid for 8,760 hours a year regardless of load \u2014 over ${p.years} years this line alone is worth ${inr(Math.abs(dNLL) * 8760 * p.years * p.tariff / 1000)}.${b.ct.name.includes("Amorphous") ? " Amorphous ribbon is brittle, needs its own core-building line, and gives a larger and noisier core." : ""}${b.ct.name.includes("butt-lap") ? " A butt-lap joint is quicker to build but the joint region carries most of the exciting current penalty." : ""}`,
+      body: `Specific loss ${f2(a.wPerKg)} to ${f2(b.wPerKg)} W/kg including the building factor (${f2(a.p.buildFactor)} to ${f2(b.p.buildFactor)}), and exciting current ${f2(a.i0pct)}% to ${f2(b.i0pct)}%. No-load loss is paid for 8,760 hours a year regardless of load; over ${p.years} years this line alone is worth ${inr(Math.abs(dNLL) * 8760 * p.years * p.tariff / 1000)}.${b.ct.name.includes("Amorphous") ? " Amorphous ribbon is brittle, needs its own core-building line, and gives a larger and noisier core." : ""}${b.ct.name.includes("butt-lap") ? " A butt-lap joint is quicker to build but the joint region carries most of the exciting current penalty." : ""}`,
     });
   }
   if (b.p.tankType !== a.p.tankType && !b.dry && !a.dry) {
@@ -774,7 +774,7 @@ function impacts(a, ba, b, bb, p) {
       k: "Declared losses", from: a.compliant ? "Meets the schedule" : "Outside the schedule", to: b.compliant ? "Meets the schedule" : "Outside the schedule", good: b.compliant,
       body: b.compliant
         ? `The budget design still sits inside the ${EFF_LEVELS[p.effLevel].name} loss schedule with the ${b.std.name} tolerance applied.`
-        : `The budget design breaches the ${EFF_LEVELS[p.effLevel].name} schedule: no-load ${f0(b.noLoad)} W against ${f0(b.sch.nll)} W and load loss ${f0(b.loadLoss)} W against ${f0(b.sch.ll)} W. For a distribution transformer sold in India this is a labelling and acceptance problem, not just a commercial one \u2014 either the customer raises the budget or the enquiry has to be re-tendered at a lower efficiency level.`,
+        : `The budget design breaches the ${EFF_LEVELS[p.effLevel].name} schedule: no-load ${f0(b.noLoad)} W against ${f0(b.sch.nll)} W and load loss ${f0(b.loadLoss)} W against ${f0(b.sch.ll)} W. For a distribution transformer sold in India this is a labelling and acceptance problem, not just a commercial one: either the customer raises the budget or the enquiry has to be re-tendered at a lower efficiency level.`,
     });
   }
 
@@ -799,7 +799,7 @@ function impacts(a, ba, b, bb, p) {
   if (Math.abs(bMass - aMass) > 1) {
     out.push({
       k: "Weight", from: f0(aMass) + " kg total", to: f0(bMass) + " kg total", good: bMass < aMass,
-      body: `Core ${f0(a.wCore)} to ${f0(b.wCore)} kg, conductor ${f0(aCond)} to ${f0(bCond)} kg, total ${f0(aMass)} to ${f0(bMass)} kg. ${bMass > aMass ? "Heavier active part \u2014 check crane, foundation loading and transport limits." : "Lighter active part eases handling and transport."}`,
+      body: `Core ${f0(a.wCore)} to ${f0(b.wCore)} kg, conductor ${f0(aCond)} to ${f0(bCond)} kg, total ${f0(aMass)} to ${f0(bMass)} kg. ${bMass > aMass ? "Heavier active part: check crane, foundation loading and transport limits." : "Lighter active part eases handling and transport."}`,
     });
   }
 
@@ -837,16 +837,16 @@ function impacts(a, ba, b, bb, p) {
    ============================================================ */
 
 const REFS = {
-  S: "Sawhney \u2014 Principles / Course in Electrical Machine Design, transformer design chapter",
-  K: "Kulkarni & Khaparde \u2014 Transformer Engineering: Design, Technology and Diagnostics",
-  B: "BHEL \u2014 Transformers, design and manufacturing practice",
-  IEC1: "IEC 60076-1 \u2014 general, losses and tolerances",
-  IEC2: "IEC 60076-2 \u2014 temperature rise",
-  IEC3: "IEC 60076-3 \u2014 insulation levels and dielectric tests",
-  IS2026: "IS 2026 \u2014 power transformers",
-  IS1180: "IS 1180 \u2014 energy efficiency levels for distribution transformers",
-  IEEE12: "IEEE C57.12.00 \u2014 general requirements",
-  IEEE91: "IEEE C57.91 \u2014 loading guide and insulation ageing",
+  S: "Sawhney: Principles / Course in Electrical Machine Design, transformer design chapter",
+  K: "Kulkarni & Khaparde, Transformer Engineering: Design, Technology and Diagnostics",
+  B: "BHEL: Transformers, design and manufacturing practice",
+  IEC1: "IEC 60076-1: general, losses and tolerances",
+  IEC2: "IEC 60076-2: temperature rise",
+  IEC3: "IEC 60076-3: insulation levels and dielectric tests",
+  IS2026: "IS 2026: power transformers",
+  IS1180: "IS 1180: energy efficiency levels for distribution transformers",
+  IEEE12: "IEEE C57.12.00: general requirements",
+  IEEE91: "IEEE C57.91: loading guide and insulation ageing",
 };
 
 function calcSheet(d, bom) {
@@ -860,7 +860,7 @@ function calcSheet(d, bom) {
   const star = (c) => (c === "y" || c === "Y");
 
   sec("1. Ratings, connections and currents", REFS.S, [
-    row("Rated power", "S", "given", "\u2014", `${p.kva} kVA`, "Enquiry", "input"),
+    row("Rated power", "S", "given", "n/a", `${p.kva} kVA`, "Enquiry", "input"),
     row("HV phase voltage", "V\u2081\u209A\u2095", d.hvConn === "D" ? "V\u2081\u209A\u2095 = V\u2081\u2097" : `V\u2081\u209A\u2095 = V\u2081\u2097 / ${R3}`,
       d.hvConn === "D" ? `= ${n(d.hvDesign, 0)}` : `= ${n(d.hvDesign, 0)} / 1.732`, `${n(d.hvPh, 1)} V`, REFS.S, "HV voltage, vector group"),
     row("LV phase voltage", "V\u2082\u209A\u2095", star(d.lvConn) ? `V\u2082\u209A\u2095 = V\u2082\u2097 / ${R3}` : "V\u2082\u209A\u2095 = V\u2082\u2097",
@@ -896,7 +896,7 @@ function calcSheet(d, bom) {
     row("Final window height", "H\u1D65\u1D65", p.autoWindow !== false
       ? "bisection on H\u1D65\u1D65 until the calculated %Z equals the declared value"
       : "H\u1D65\u1D65 = H\u1D65\u1D65\u2080 (impedance not enforced)",
-      p.autoWindow !== false ? `target %Z = ${n(p.targetZ)} \u2192 converged ${d.solvedZ ? "yes" : "hit a bound"}` : "\u2014",
+      p.autoWindow !== false ? `target %Z = ${n(p.targetZ)} \u2192 converged ${d.solvedZ ? "yes" : "hit a bound"}` : "n/a",
       `${n(d.Hw, 0)} mm`, REFS.K + " \u00B7 leakage reactance control", "declared impedance, coil builds"),
     row("Window width, built", "W\u1D65\u1D65", "W\u1D65\u1D65 = C \u2212 d", `= ${n(d.cc, 0)} \u2212 ${n(d.dCore, 0)}`, `${n(d.Ww, 0)} mm`, REFS.S, "coil radial builds, clearances"),
     row("Limb centre distance", "C", "C = D\u2081\u2092 + phase clearance", `= ${n(d.hvOD, 0)} + ${n(p.phaseClr, 0)}`, `${n(d.cc, 0)} mm`, REFS.IEC3, "HV outer diameter, clearance"),
@@ -908,7 +908,7 @@ function calcSheet(d, bom) {
     row("LV foil / strip", "t\u2082 \u00D7 b\u2082", "t\u2082 = a\u2082 / b\u2082", `= ${n(d.aLVreq)} / ${n(d.foilW, 0)}`, `${n(d.tLV)} \u00D7 ${n(d.foilW, 0)} mm, ${d.lvTurnLayers} radial layers`, REFS.B, "conductor area, coil height"),
     row("LV radial build", "b\u2082", "b\u2082 = layers \u00D7 (t\u2082 + insulation) + ducts", `= ${d.lvTurnLayers} \u00D7 (${n(d.tLV)} + ${n(p.lvIns)}) + ducts`, `${n(d.lvRadial, 1)} mm`, REFS.B, "turns, foil thickness, insulation"),
     row("HV conductor area", "a\u2081", "a\u2081 = I\u2081\u209A\u2095 / \u03B4\u2081", `= ${n(d.iHV, 2)} / ${n(d.dHV)}`, `${n(d.aHVreq)} mm\u00B2`, REFS.S, "HV current, HV current density"),
-    row("HV conductor section", "ax \u00D7 rd", "rectangular 2.1:1, or round of equal area", "\u2014", `${n(d.axHV)} \u00D7 ${n(d.rdHV)} mm`, REFS.B, "HV conductor area"),
+    row("HV conductor section", "ax \u00D7 rd", "rectangular 2.1:1, or round of equal area", "n/a", `${n(d.axHV)} \u00D7 ${n(d.rdHV)} mm`, REFS.B, "HV conductor area"),
     row("Turns per layer", "n\u2097", "n\u2097 = floor(h\u2081 / (ax + paper))", `= floor(${n(d.hHV, 0)} / (${n(d.axHV)} + ${n(p.hvPaper)}))`, `${d.turnsPerLayer}`, REFS.B, "coil height, conductor size"),
     row("Number of layers", "L", "L = ceil(N\u2081\u2098\u2090\u2093 / n\u2097)", `= ceil(${d.nHVmax} / ${d.turnsPerLayer})`, `${d.layers}`, REFS.B, "HV turns, turns per layer"),
     row("Volts per layer", "V\u2097", "V\u2097 = E\u209C \u00D7 n\u2097", `= ${n(d.et, 3)} \u00D7 ${d.turnsPerLayer}`, `${n(d.voltsPerLayer, 0)} V`, REFS.IEC3 + " \u00B7 interlayer stress", "E\u209C, turns per layer"),
@@ -948,7 +948,7 @@ function calcSheet(d, bom) {
 
   const thermal = d.dry
     ? [
-      row("Coil cooling surface", "A\u1D04", "sum of inner and outer cylindrical surfaces of both windings", "\u2014", `${n(d.coilArea)} m\u00B2`, REFS.K, "coil geometry"),
+      row("Coil cooling surface", "A\u1D04", "sum of inner and outer cylindrical surfaces of both windings", "n/a", `${n(d.coilArea)} m\u00B2`, REFS.K, "coil geometry"),
       row("Winding rise", "\u0394\u03B8\u1D65\u1D65", "\u0394\u03B8 = [P\u209C\u2092\u209C / (k A\u1D04 \u00D7 1.35)]^0.8", `= [${n(d.totalLoss, 0)} / (${n(p.airDiss, 1)}\u00D7${n(d.coilArea)}\u00D71.35)]^0.8`, `${n(d.windRise, 1)} K`, REFS.IEC2, "total loss, coil surface"),
     ]
     : [
@@ -957,7 +957,7 @@ function calcSheet(d, bom) {
       row("Design temperature rise", "\u03B8\u209C", "\u03B8\u209C = min(target, oil limit, (winding limit \u2212 gradient)/0.8)", `= min(${n(p.oilRiseTarget, 0)}, ${n(d.riseLimit, 0)}, (${n(d.wRiseLimit, 0)}\u2212${n(d.grad, 1)})/0.8)`, `${n(d.riseTarget, 1)} K`, REFS.IEC2 + " \u00B7 " + REFS.IS2026, "limits, gradient"),
       row("Dissipation law", "P", "P = k A \u03B8^1.25", `k\u209C\u2090\u2099\u2096 = ${n(d.kTank, 3)}, k\u1da0\u1D62\u2099 = ${n(d.kFin, 3)}${d.forcedMul > 1 ? `, forced \u00D7${n(d.forcedMul, 2)}` : ""}`, `tank dissipates ${n(d.tankDissip, 0)} W`, REFS.B + " \u00B7 " + REFS.IEC2, "surface, rise, fluid"),
       row("Cooling surface required", "A\u1da0\u1D62\u2099", "A = (P\u209C\u2092\u209C \u2212 P\u209C\u2090\u2099\u2096) / (k\u1da0\u1D62\u2099 \u00B7 \u03B8^1.25)", `= (${n(d.totalLoss, 0)} \u2212 ${n(d.tankDissip, 0)}) / (${n(d.kFin, 3)}\u00D7${n(d.riseTarget, 1)}^1.25)`, `${n(d.finAreaReq)} m\u00B2`, REFS.B, "losses, tank area, target rise"),
-      row("Top-fluid rise achieved", "\u0394\u03B8\u2092", "\u0394\u03B8 = [P\u209C\u2092\u209C / (k\u209C A\u209C + k\u1da0 A\u1da0)]^(1/1.25)", "\u2014", `${n(d.oilRise, 1)} K, limit ${n(d.riseLimit, 0)} K`, REFS.IEC2, "loss, total surface"),
+      row("Top-fluid rise achieved", "\u0394\u03B8\u2092", "\u0394\u03B8 = [P\u209C\u2092\u209C / (k\u209C A\u209C + k\u1da0 A\u1da0)]^(1/1.25)", "n/a", `${n(d.oilRise, 1)} K, limit ${n(d.riseLimit, 0)} K`, REFS.IEC2, "loss, total surface"),
       row("Winding gradient", "g", "g = 2.4 \u03B4\u00B2 (material factor)", `= 2.4 \u00D7 ${n((d.dLV + d.dHV) / 2)}\u00B2`, `${n(d.grad, 1)} K`, REFS.K, "current density, material"),
       row("Average winding rise", "\u0394\u03B8\u1D65\u1D65", "\u0394\u03B8\u1D65\u1D65 = 0.8\u0394\u03B8\u2092 + g", `= 0.8\u00D7${n(d.oilRise, 1)} + ${n(d.grad, 1)}`, `${n(d.windRise, 1)} K, limit ${n(d.wRiseLimit, 0)} K`, REFS.IEC2 + " \u00B7 " + REFS.IS2026, "oil rise, gradient"),
     ];
@@ -976,11 +976,11 @@ function calcSheet(d, bom) {
 
   if (bom) {
     sec("10. Materials and cost build-up", "Works costing practice \u00B7 rates are yours to set", [
-      row("Fluid volume", "V\u2092", d.dry ? "not applicable" : "V = tank volume \u2212 active part volume, \u00D7 fittings factor", d.dry ? "\u2014" : `tank ${n((d.tankL * d.tankW * d.tankH) / 1e9, 3)} m\u00B3`, d.dry ? "\u2014" : `${n(d.fluidLitres, 0)} L`, REFS.B, "tank size, active part"),
-      row("Raw material", "\u2014", "\u03A3 (quantity \u00D7 rate) over segments A, B, C", "see the costing tab", inr(bom.material), "Your rates", "weights, rates"),
-      row("Factory cost", "\u2014", "material + conversion + scrap", `= ${inr(bom.material)} + ${inr(bom.labourCost)} + ${inr(bom.scrap)}`, inr(bom.factory), "Your rates", "material, labour"),
-      row("Ex-works price", "\u2014", "factory + overhead + freight + margin", `= ${inr(bom.factory)} + ${inr(bom.overhead)} + ${inr(bom.freight)} + ${inr(bom.margin)}`, inr(bom.exFactory), "Your rates", "factory cost, percentages"),
-      row("Cost of losses over life", "\u2014", "(P\u2080 + k\u00B2P\u1D04) \u00D7 8760 \u00D7 years \u00D7 tariff / 1000", `= (${n(d.noLoad, 0)} + ${n(p.loadFactor)}\u00B2\u00D7${n(d.loadLoss, 0)}) \u00D7 8760 \u00D7 ${p.years} \u00D7 ${n(p.tariff)}/1000`, inr(bom.energy.total), "Evaluation practice", "losses, tariff, load factor"),
+      row("Fluid volume", "V\u2092", d.dry ? "not applicable" : "V = tank volume \u2212 active part volume, \u00D7 fittings factor", d.dry ? "n/a" : `tank ${n((d.tankL * d.tankW * d.tankH) / 1e9, 3)} m\u00B3`, d.dry ? "n/a" : `${n(d.fluidLitres, 0)} L`, REFS.B, "tank size, active part"),
+      row("Raw material", "n/a", "\u03A3 (quantity \u00D7 rate) over segments A, B, C", "see the costing tab", inr(bom.material), "Your rates", "weights, rates"),
+      row("Factory cost", "n/a", "material + conversion + scrap", `= ${inr(bom.material)} + ${inr(bom.labourCost)} + ${inr(bom.scrap)}`, inr(bom.factory), "Your rates", "material, labour"),
+      row("Ex-works price", "n/a", "factory + overhead + freight + margin", `= ${inr(bom.factory)} + ${inr(bom.overhead)} + ${inr(bom.freight)} + ${inr(bom.margin)}`, inr(bom.exFactory), "Your rates", "factory cost, percentages"),
+      row("Cost of losses over life", "n/a", "(P\u2080 + k\u00B2P\u1D04) \u00D7 8760 \u00D7 years \u00D7 tariff / 1000", `= (${n(d.noLoad, 0)} + ${n(p.loadFactor)}\u00B2\u00D7${n(d.loadLoss, 0)}) \u00D7 8760 \u00D7 ${p.years} \u00D7 ${n(p.tariff)}/1000`, inr(bom.energy.total), "Evaluation practice", "losses, tariff, load factor"),
     ]);
   }
   return S;
@@ -1078,23 +1078,23 @@ function documentRegister(core, d, bom, project) {
       "Positions are indicative. Buchholz, OTI, WTI, MOG and CT selection need your accessory standard"),
     r(12, "Complete Bill of Materials", "part", "Costing tab, fully editable",
       "Item codes, supplier names, part numbers and per-line GST are not held. Add them or import your item master"),
-    r(13, "Material Requirement Planning", "need", "\u2014",
+    r(13, "Material Requirement Planning", "need", "n/a",
       "Requires stock on hand, supplier master, lead times and open purchase orders. None of this exists in the platform"),
-    r(14, "Manufacturing Process Sheet", "need", "\u2014", "Requires your routing, standard times and work-centre list"),
-    r(15, "Production Routing Sheet", "need", "\u2014", "Requires machine list, operator allocation and standard times"),
+    r(14, "Manufacturing Process Sheet", "need", "n/a", "Requires your routing, standard times and work-centre list"),
+    r(15, "Production Routing Sheet", "need", "n/a", "Requires machine list, operator allocation and standard times"),
     r(16, "Cost Estimation Report", "done", "Costing tab with the full build-up to selling price"),
     r(17, "Cost Comparison Report", "done", "Compare and quote tab"),
-    r(18, "Supplier Comparison Report", "need", "\u2014", "Requires a supplier master with rates, lead time, quality rating and freight"),
-    r(19, "Quality Inspection Report", "need", "\u2014", "Requires your quality assurance plan and inspection stages"),
+    r(18, "Supplier Comparison Report", "need", "n/a", "Requires a supplier master with rates, lead time, quality rating and freight"),
+    r(19, "Quality Inspection Report", "need", "n/a", "Requires your quality assurance plan and inspection stages"),
     r(20, "Routine Test Report", "part", "Predicted values below",
       "Design values are generated as the expected result. Measured values must come from the test floor"),
-    r(21, "Type Test Report", "need", "\u2014", "Requires results from a test laboratory. Temperature rise, impulse and short-circuit results cannot be predicted as certificates"),
-    r(22, "FAT Report", "need", "\u2014", "Requires witnessed test results and customer sign-off"),
+    r(21, "Type Test Report", "need", "n/a", "Requires results from a test laboratory. Temperature rise, impulse and short-circuit results cannot be predicted as certificates"),
+    r(22, "FAT Report", "need", "n/a", "Requires witnessed test results and customer sign-off"),
     r(23, "Packing List", "part", "Total mass and overall dimensions are known",
       "Packaging scheme, case sizes and accessory crating are not modelled"),
     r(24, "Name Plate", "done", "Name plate drawing below"),
-    r(25, "Dispatch Documents", "need", "\u2014", "Requires commercial data: invoice terms, warranty text, transport booking"),
-    r(26, "Revision Report", "need", "\u2014", "Requires stored revisions. This build holds one live design in memory and does not persist history"),
+    r(25, "Dispatch Documents", "need", "n/a", "Requires commercial data: invoice terms, warranty text, transport booking"),
+    r(26, "Revision Report", "need", "n/a", "Requires stored revisions. This build holds one live design in memory and does not persist history"),
     r(27, "Compliance Report", "part", "Compliance block on the design sheet",
       "Losses, impedance, temperature rise and ratio error are checked. A clause-by-clause report needs the licensed standard text"),
     r(28, "PDF Generation", "part", "PDF report button on the drawings tab",
@@ -1115,7 +1115,7 @@ function routineTestSchedule(d) {
     { t: "Separate source AC withstand, LV", ref: "IEC 60076-3", exp: `${p.acLV} kV for 60 s`, lim: "No breakdown" },
     { t: "Induced overvoltage withstand", ref: "IEC 60076-3", exp: "Twice rated voltage, duration per clause", lim: "No breakdown" },
     { t: "Insulation resistance", ref: "Works practice", exp: "Record HV-E, LV-E, HV-LV", lim: "Record" },
-    { t: "Oil dielectric strength", ref: "IEC 60296", exp: d.dry ? "Not applicable" : "Sample before and after filling", lim: d.dry ? "\u2014" : "60 kV minimum" },
+    { t: "Oil dielectric strength", ref: "IEC 60296", exp: d.dry ? "Not applicable" : "Sample before and after filling", lim: d.dry ? "n/a" : "60 kV minimum" },
   ];
 }
 

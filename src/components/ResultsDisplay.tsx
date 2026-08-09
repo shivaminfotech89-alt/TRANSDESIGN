@@ -237,7 +237,7 @@ export function ResultsDisplay({ design, bom, params, rates, onRatesChange }: Re
                       <tr>
                         <th className={thCls}>Code</th><th className={thCls}>Description</th>
                         <th className={`${thCls} text-right`}>Quantity</th><th className={thCls}>Unit</th>
-                        <th className={`${thCls} text-right`}>Rate</th><th className={`${thCls} text-right`}>Total</th>
+                        <th className={`${thCls} text-right`}>Rate (₹)</th><th className={`${thCls} text-right`}>Total (₹)</th>
                       </tr>
                     </thead>
                     <tbody>
