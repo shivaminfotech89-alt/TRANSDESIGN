@@ -150,6 +150,12 @@ const { design, bom, params, spec } = computeDesign(core, over, rates, extras);
   Design Impact Summary. Implement it in the order given in its section 6.
   Never let a user set two pins that solve through the same lever without
   asking which to release first.
+- **Drawings follow `DRAWINGS.md` exactly** — the universal requirements
+  (dimension lines, title block, projection symbol, geometry-driven
+  scaling) apply to all twenty-one drawings before any of their individual
+  content. A drawing without dimension lines on it is a picture, not a
+  drawing. Where a field is not held by the engine, print the label with
+  "to be specified" rather than filling it or leaving it blank.
 - British spelling in user-facing copy. Indian number formatting (`en-IN`,
   lakh and crore) for currency.
 - No em dashes in UI copy.

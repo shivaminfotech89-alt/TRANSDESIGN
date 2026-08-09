@@ -5,6 +5,7 @@ import { finLayout } from '@/packages/engine';
 import {
   limbSlabs, yokeSlabs, coreCrossSectionSpan, hvBushingSpec, lvBushingSpec, finPlacements,
 } from './geometry';
+import { PART_NUMBERS } from '../drawings/partNumbers';
 
 export interface PartInfo {
   name: string; partNumber: string; material: string; dimensions: string; mass: string;
@@ -143,7 +144,7 @@ export function TransformerParts({
         <group
           name="Core"
           onPointerDown={(e) => select(e, {
-            name: 'Stepped Core Assembly', partNumber: 'CR-001', material: design.grade.name,
+            name: 'Stepped Core Assembly', partNumber: PART_NUMBERS.core, material: design.grade.name,
             dimensions: `${design.coreWidth.toFixed(0)} x ${design.coreHeight.toFixed(0)} x ${crossSpan.toFixed(0)} mm`,
             mass: `${design.wCore.toFixed(1)} kg`,
           })}
@@ -177,7 +178,7 @@ export function TransformerParts({
         <group
           name="LV Windings" position={[0, lvExplodeY, 0]}
           onPointerDown={(e) => select(e, {
-            name: 'LV Coil Assembly, 3 Phases', partNumber: 'WD-LV-001', material: design.cLV.name,
+            name: 'LV Coil Assembly, 3 Phases', partNumber: PART_NUMBERS.lvCoil, material: design.cLV.name,
             dimensions: `ID ${design.lvID.toFixed(0)} / OD ${design.lvOD.toFixed(0)} / Ht ${design.hLV.toFixed(0)} mm`,
             mass: `${design.wLV.toFixed(1)} kg`,
           })}
@@ -193,7 +194,7 @@ export function TransformerParts({
         <group
           name="HV Windings" position={[0, hvExplodeY, 0]}
           onPointerDown={(e) => select(e, {
-            name: 'HV Coil Assembly, 3 Phases', partNumber: 'WD-HV-001', material: design.cHV.name,
+            name: 'HV Coil Assembly, 3 Phases', partNumber: PART_NUMBERS.hvCoil, material: design.cHV.name,
             dimensions: `ID ${design.hvID.toFixed(0)} / OD ${design.hvOD.toFixed(0)} / Ht ${design.hHV.toFixed(0)} mm`,
             mass: `${design.wHV.toFixed(1)} kg`,
           })}
@@ -210,7 +211,7 @@ export function TransformerParts({
           <mesh
             position={[0, 0, 0]} material={tankMaterial} castShadow receiveShadow
             onPointerDown={(e) => select(e, {
-              name: 'Main Tank', partNumber: 'TNK-001', material: 'Mild steel, IS 2062',
+              name: 'Main Tank', partNumber: PART_NUMBERS.tank, material: 'Mild steel, IS 2062',
               dimensions: `${design.tankL.toFixed(0)} x ${design.tankW.toFixed(0)} x ${design.tankH.toFixed(0)} mm`,
               mass: `${design.wTank.toFixed(1)} kg`,
             })}
@@ -220,7 +221,7 @@ export function TransformerParts({
           <mesh
             position={[0, design.tankH / 2 + 10 + coverExplodeY, 0]} material={tankMaterial} castShadow receiveShadow
             onPointerDown={(e) => select(e, {
-              name: 'Tank Cover', partNumber: 'TNK-002', material: 'Mild steel, IS 2062',
+              name: 'Tank Cover', partNumber: PART_NUMBERS.tankCover, material: 'Mild steel, IS 2062',
               dimensions: `${(design.tankL + 20).toFixed(0)} x ${(design.tankW + 20).toFixed(0)} x 20 mm`,
               mass: `${steelMass((design.tankL + 20) * (design.tankW + 20) * 20).toFixed(1)} kg`,
             })}
@@ -235,7 +236,7 @@ export function TransformerParts({
         <group
           name="Fins" position={[0, tankExplodeY, 0]}
           onPointerDown={(e) => select(e, {
-            name: 'Radiator Fins', partNumber: 'RAD-001', material: 'CRCA steel',
+            name: 'Radiator Fins', partNumber: PART_NUMBERS.fins, material: 'CRCA steel',
             dimensions: `${fins.n} fins, ${fins.depth.toFixed(0)} x ${fins.height.toFixed(0)} mm each`,
             mass: `${design.wFin.toFixed(1)} kg`,
           })}
@@ -256,7 +257,7 @@ export function TransformerParts({
             <mesh
               key={`hv-${i}`} position={[x, hvBush.height / 2, design.tankW * 0.15]} material={porcelainMaterial} castShadow receiveShadow
               onPointerDown={(e) => select(e, {
-                name: `HV Bushing, Phase ${i + 1}`, partNumber: 'BSH-HV-01', material: 'Porcelain, oil-filled',
+                name: `HV Bushing, Phase ${i + 1}`, partNumber: PART_NUMBERS.hvBushing, material: 'Porcelain, oil-filled',
                 dimensions: `${params.umHV} kV, Ht ${hvBush.height} mm`, mass: `${(hvBush.height * 0.05).toFixed(1)} kg`,
               })}
             >
@@ -267,7 +268,7 @@ export function TransformerParts({
             <mesh
               key={`lv-${i}`} position={[x, lvBush.height / 2, -design.tankW * 0.15]} material={porcelainMaterial} castShadow receiveShadow
               onPointerDown={(e) => select(e, {
-                name: `LV Bushing, Phase ${i + 1}`, partNumber: 'BSH-LV-01', material: 'Porcelain, oil-filled',
+                name: `LV Bushing, Phase ${i + 1}`, partNumber: PART_NUMBERS.lvBushing, material: 'Porcelain, oil-filled',
                 dimensions: `${params.umLV} kV, Ht ${lvBush.height} mm`, mass: `${(lvBush.height * 0.04).toFixed(1)} kg`,
               })}
             >
@@ -281,7 +282,7 @@ export function TransformerParts({
       {visibility.baseChannel && (
         <group name="Base Channel" position={[0, tankExplodeY - design.tankH / 2 - channelH / 2, 0]}
           onPointerDown={(e) => select(e, {
-            name: 'Base Channel, 2 Beams', partNumber: 'FR-BASE-01', material: 'Mild steel channel',
+            name: 'Base Channel, 2 Beams', partNumber: PART_NUMBERS.baseChannel, material: 'Mild steel channel',
             dimensions: `${channelLen.toFixed(0)} x ${channelH} x ${channelW} mm, x2`,
             mass: `${channelMass.toFixed(1)} kg`,
           })}
@@ -300,7 +301,7 @@ export function TransformerParts({
         <group
           name="Clamping Frame"
           onPointerDown={(e) => select(e, {
-            name: 'Core Clamping Frame and Tie Rods', partNumber: 'FR-CLAMP-01', material: 'Mild steel',
+            name: 'Core Clamping Frame and Tie Rods', partNumber: PART_NUMBERS.clampingFrame, material: 'Mild steel',
             dimensions: `Frame ${frameLen.toFixed(0)} mm, ${4} tie rods dia ${tieRodDia} mm`,
             mass: `${(frameMass + tieRodMass).toFixed(1)} kg`,
           })}
@@ -322,7 +323,7 @@ export function TransformerParts({
       {visibility.tank && (
         <mesh position={[design.tankL / 2 + 3, 0, 0]} material={namePlateMaterial} castShadow receiveShadow
           onPointerDown={(e) => select(e, {
-            name: 'Rating Name Plate', partNumber: 'ACC-NP-01', material: 'Anodised aluminium',
+            name: 'Rating Name Plate', partNumber: PART_NUMBERS.namePlate, material: 'Anodised aluminium',
             dimensions: '300 x 200 x 2 mm', mass: '0.5 kg',
           })}
         >

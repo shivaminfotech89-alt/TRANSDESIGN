@@ -407,7 +407,7 @@ export function ResultsDisplay({
               </Card>
             </div>
           )}
-          {activeTab === 'drawings' && <Drawings2D design={design} params={params} />}
+          {activeTab === 'drawings' && <Drawings2D design={design} params={params} project={project} />}
           {activeTab === 'reports' && (
             <DocumentsTab core={core} design={design} bom={bom} params={params} project={project} />
           )}
