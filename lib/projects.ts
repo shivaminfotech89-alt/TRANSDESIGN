@@ -12,7 +12,7 @@
  */
 import {
   collection, doc, getDoc, getDocs, setDoc, addDoc, updateDoc, deleteDoc,
-  query, where, orderBy, limit, serverTimestamp, writeBatch,
+  query, where, orderBy, limit, serverTimestamp, writeBatch, arrayUnion,
 } from "firebase/firestore";
 import { db } from "./firebase";
 import { DEFAULT_RATES } from "@/packages/engine";
@@ -33,9 +33,17 @@ const pad = (n: number) => String(n).padStart(3, "0");
 /* ---------------- organisations ---------------- */
 
 /**
- * TASKS.md item 3. Two separate writes, not a batch: the member document's
- * create rule reads the org document to check `ownerUid`, and the rules
- * cannot see an org that does not exist yet -- BUILD-GUIDE.md section 7.
+ * TASKS.md item 3. Three separate writes, not a batch, in this order:
+ * 1. The org document, so the next write's rule (which reads it back to
+ *    check `ownerUid`) has something to see -- rules cannot see an org that
+ *    does not exist yet -- BUILD-GUIDE.md section 7.
+ * 2. The member document under it.
+ * 3. This user's own users/{uid} index, appending the new org. This is the
+ *    other half of membership (see lib/types.ts UserIndex) -- without it
+ *    listMyOrgs() has no way to find this org again, which is the bug a
+ *    memberUids array-contains query on `orgs` was papering over: Firestore
+ *    cannot authorise that query against a rule that needs a per-document
+ *    exists() check on the members subcollection.
  * Then seed a rate card from the engine defaults so pricing has somewhere
  * to come from on day one.
  */
@@ -45,13 +53,19 @@ export async function createOrganisation(uid: string, email: string, name: strin
 
   const org: Org = {
     name, ownerUid: uid, createdAt: Date.now(),
-    country: "IN", currency: "INR", memberUids: [uid],
+    country: "IN", currency: "INR",
   };
   await setDoc(ref, org);
 
   await setDoc(doc(db, "orgs", orgId, "members", uid), {
     uid, email, role: "owner", addedAt: Date.now(),
   });
+
+  await setDoc(
+    doc(db, "users", uid),
+    { email, updatedAt: Date.now(), orgs: arrayUnion(orgId) },
+    { merge: true },
+  );
 
   await saveRateCard(orgId, uid, "default", {
     name: "Standard rates", currency: "INR",
@@ -60,6 +74,46 @@ export async function createOrganisation(uid: string, email: string, name: strin
 
   return orgId;
 }
+
+/**
+ * One-time repair for an account whose org and members/{uid} documents
+ * predate the users/{uid} index (exactly the state this bug left behind):
+ * verifies real membership first, so this cannot be used to graft onto an
+ * organisation the caller does not already belong to, then writes the
+ * missing half.
+ */
+export async function linkExistingOrg(orgId: string, uid: string, email: string): Promise<void> {
+  let memberSnap;
+  try {
+    memberSnap = await getDoc(doc(db, "orgs", orgId, "members", uid));
+  } catch {
+    // Firestore does not distinguish "that document does not exist" from
+    // "you may not read it" for an unauthorised caller -- both come back as
+    // permission-denied, not a clean not-found. Either way it means the
+    // same thing here: nothing to link.
+    throw new Error(`No membership found for you in organisation "${orgId}". Check the ID and try again.`);
+  }
+  if (!memberSnap.exists()) {
+    throw new Error(`No membership found for you in organisation "${orgId}". Check the ID and try again.`);
+  }
+  await setDoc(
+    doc(db, "users", uid),
+    { email, updatedAt: Date.now(), orgs: arrayUnion(orgId) },
+    { merge: true },
+  );
+}
+
+/**
+ * No "owner invites a teammate" feature exists in this codebase yet. When one
+ * is built, it cannot simply write orgs/{orgId}/members/{uid} for the invitee
+ * the way createOrganisation() does for its own uid: firestore.rules lets a
+ * user write only their own users/{uid} document, so the inviter can create
+ * the members/{uid} doc but cannot also write the invitee's users/{uid} --
+ * that write would be denied. The invite flow needs a pending-invite document
+ * the invitee accepts by writing their own users/{uid} on first sign-in (the
+ * same shape as linkExistingOrg() above). Writing members/{uid} without the
+ * invitee ever getting their users/{uid} appended is exactly this bug again.
+ */
 
 /* ---------------- projects ---------------- */
 
@@ -231,10 +285,41 @@ export async function getMyRole(orgId: string, uid: string): Promise<string | nu
   return s.exists() ? (s.data().role as string) : null;
 }
 
+/**
+ * Cannot query `orgs` directly -- see lib/types.ts UserIndex for why a
+ * memberUids array-contains query is incompatible with the per-document
+ * membership check the org-read rule needs. Reads this user's own index
+ * instead, then one getDoc per org it names, both of which the rules permit
+ * (your own users/{uid}; orgs you are a member of). A missing users/{uid}
+ * document is a legitimate "no organisation yet" result, not an error.
+ *
+ * A per-org lookup is wrapped so one bad entry -- membership revoked since,
+ * or a stale/foreign id -- drops from the list instead of failing the whole
+ * sign-in the way one bad row in the old array-contains query never could
+ * (it either matched or it did not; this shape can now be inconsistent
+ * because the two documents are written separately). Any other failure
+ * (users/{uid} itself denied, network) still propagates and is shown.
+ */
 export async function listMyOrgs(uid: string): Promise<Array<{ id: string; name: string; role: string }>> {
-  // Requires a collection-group index on `members` keyed by uid.
-  const snap = await getDocs(query(collection(db, "orgs"), where("memberUids", "array-contains", uid)));
-  return snap.docs.map((d) => ({ id: d.id, name: d.data().name as string, role: "member" }));
+  const userSnap = await getDoc(doc(db, "users", uid));
+  if (!userSnap.exists()) return [];
+  const orgIds = (userSnap.data().orgs as string[] | undefined) ?? [];
+
+  const orgs = await Promise.all(orgIds.map(async (orgId) => {
+    try {
+      const [orgSnap, role] = await Promise.all([
+        getDoc(doc(db, "orgs", orgId)),
+        getMyRole(orgId, uid),
+      ]);
+      if (!orgSnap.exists()) return null;
+      return { id: orgId, name: orgSnap.data().name as string, role: role ?? "member" };
+    } catch (e) {
+      console.warn(`[listMyOrgs] could not read org ${orgId}, dropping it from the list`, e);
+      return null;
+    }
+  }));
+
+  return orgs.filter((o): o is { id: string; name: string; role: string } => o !== null);
 }
 
 export { orgRef, serverTimestamp };

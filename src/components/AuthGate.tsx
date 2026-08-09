@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from './AuthContext';
 import { OrgProvider } from './OrgContext';
-import { createOrganisation, listMyOrgs, getMyRole } from '../../lib/projects';
+import { createOrganisation, linkExistingOrg, listMyOrgs, getMyRole } from '../../lib/projects';
 import { Card, Button, inputCls, labelCls } from './ui';
 
 /**
@@ -39,21 +39,67 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
   const [emailDraft, setEmailDraft] = useState('');
   const [linkSent, setLinkSent] = useState(false);
   const [orgNameDraft, setOrgNameDraft] = useState('');
+  const [linkOrgIdDraft, setLinkOrgIdDraft] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Diagnostic only: the last step reached, and whether the org query has
+  // been pending for more than 10s -- shown on the "Checking your
+  // organisation" screen instead of spinning forever with no indication of
+  // where it stopped.
+  const [lastStep, setLastStep] = useState('not started');
+  const [orgCheckTimedOut, setOrgCheckTimedOut] = useState(false);
+  const [retryToken, setRetryToken] = useState(0);
+
+  useEffect(() => {
+    console.log('[AuthGate] auth state observed: loading =', loading, 'user =', user ? user.uid : null);
+  }, [loading, user]);
 
   useEffect(() => {
     if (!user) { setOrgId(undefined); return; }
     let cancelled = false;
+    setError(null);
+    setOrgCheckTimedOut(false);
+    setLastStep(`org query started for uid ${user.uid}`);
+    console.log('[AuthGate] org query started for uid', user.uid);
+    const timeoutId = setTimeout(() => {
+      if (!cancelled) {
+        console.warn('[AuthGate] org query has not settled after 10s -- last step:', `org query started for uid ${user.uid}`);
+        setOrgCheckTimedOut(true);
+      }
+    }, 10000);
     listMyOrgs(user.uid)
-      .then((orgs) => { if (!cancelled) setOrgId(orgs.length ? orgs[0].id : null); })
-      .catch((e) => { if (!cancelled) setError(String(e)); });
-    return () => { cancelled = true; };
-  }, [user]);
+      .then((orgs) => {
+        console.log('[AuthGate] org query returned', orgs);
+        setLastStep(`org query returned, ${orgs.length} org(s)`);
+        if (!cancelled) setOrgId(orgs.length ? orgs[0].id : null);
+      })
+      .catch((e) => {
+        // Fail loudly: a permission error (or any other rejection) must be
+        // shown, not leave orgId stuck at undefined with the "Checking your
+        // organisation" screen spinning over a state nothing ever surfaces.
+        console.error('[AuthGate] org query failed', e);
+        setLastStep(`org query failed: ${String(e)}`);
+        if (!cancelled) setError(String(e));
+      })
+      .finally(() => clearTimeout(timeoutId));
+    return () => { cancelled = true; clearTimeout(timeoutId); };
+  }, [user, retryToken]);
 
   useEffect(() => {
     if (!user || !orgId) { setRole(null); return; }
-    getMyRole(orgId, user.uid).then(setRole).catch(() => setRole(null));
+    console.log('[AuthGate] membership query started for org', orgId);
+    setLastStep(`membership query started for org ${orgId}`);
+    getMyRole(orgId, user.uid)
+      .then((r) => {
+        console.log('[AuthGate] membership resolved, role =', r);
+        setLastStep(`membership resolved, role = ${r}`);
+        setRole(r);
+      })
+      .catch((e) => {
+        console.error('[AuthGate] membership query failed', e);
+        setLastStep(`membership query failed: ${String(e)}`);
+        setRole(null);
+      });
   }, [user, orgId]);
 
   if (loading) {
@@ -90,7 +136,17 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
     return (
       <Screen title="Sign In">
         <div className="space-y-4">
-          <Button variant="primary" onClick={signIn}>Sign In With Google</Button>
+          <Button
+            variant="primary"
+            disabled={busy}
+            onClick={async () => {
+              setBusy(true); setError(null);
+              try { await signIn(); } catch (err) { setError(String(err)); }
+              setBusy(false);
+            }}
+          >
+            {busy ? 'Signing In' : 'Sign In With Google'}
+          </Button>
           <div className="text-center text-[10px] font-display uppercase tracking-[0.14em] text-steel">Or</div>
           {linkSent ? (
             <p className="text-[11px] text-good">Sign-in link sent to {emailDraft}. Check your inbox.</p>
@@ -118,7 +174,45 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
   }
 
   if (orgId === undefined) {
-    return <Screen title="Loading"><p className="text-[11px] text-ink2">Checking your organisation.</p></Screen>;
+    if (error) {
+      // A rejected promise here used to be caught, stored in `error`, and
+      // never rendered -- the screen stayed on "Checking your organisation"
+      // forever with the failure sitting silently in state. This is the fix:
+      // an error ends the spinner and is shown, always.
+      return (
+        <Screen title="Could Not Check Your Organisation">
+          <p className="text-[11px] text-ink2 mb-2">
+            The organisation lookup failed. This is the actual error, not a hang.
+          </p>
+          <ErrorNote error={error} />
+          <p className="text-[10px] font-mono text-steel mt-2">Last step: {lastStep}</p>
+          <Button
+            variant="primary"
+            onClick={() => { setError(null); setRetryToken((t) => t + 1); }}
+            disabled={busy}
+          >
+            Retry
+          </Button>
+        </Screen>
+      );
+    }
+    return (
+      <Screen title="Loading">
+        <p className="text-[11px] text-ink2">Checking your organisation.</p>
+        {orgCheckTimedOut && (
+          <div className="mt-3 pt-3 border-t border-line">
+            <p className="text-[10px] text-alert mb-1">
+              This has taken more than 10 seconds. The query is neither succeeding nor throwing, which usually
+              means a Firestore request is not resolving at all rather than failing cleanly.
+            </p>
+            <p className="text-[10px] font-mono text-steel">Last step: {lastStep}</p>
+            <p className="text-[10px] text-steel mt-1">
+              Check the browser console for [firebase]/[AuthContext]/[AuthGate] diagnostic logs.
+            </p>
+          </div>
+        )}
+      </Screen>
+    );
   }
 
   if (orgId === null) {
@@ -148,6 +242,34 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
           <Button type="submit" variant="primary" disabled={busy}>{busy ? 'Creating' : 'Create Organisation'}</Button>
         </form>
         <ErrorNote error={error} />
+
+        <div className="mt-5 pt-4 border-t border-line">
+          <p className="text-[10px] text-ink2 mb-2">
+            Already a member of an organisation, but it is not showing up? That happens for an account created
+            before this account-linking record existed. Enter the organisation ID to link it to your account --
+            you can find it in the Firebase console, Firestore, the <span className="font-mono">orgs</span>{' '}
+            collection.
+          </p>
+          <form
+            className="space-y-2"
+            onSubmit={async (e) => {
+              e.preventDefault();
+              setBusy(true); setError(null);
+              try {
+                await linkExistingOrg(linkOrgIdDraft.trim(), user.uid, user.email || '');
+                setOrgId(linkOrgIdDraft.trim());
+              } catch (err) { setError(String(err)); }
+              setBusy(false);
+            }}
+          >
+            <div className="space-y-1">
+              <label className={labelCls}>Organisation ID</label>
+              <input required value={linkOrgIdDraft} onChange={(e) => setLinkOrgIdDraft(e.target.value)} className={inputCls} />
+            </div>
+            <Button type="submit" variant="secondary" disabled={busy}>{busy ? 'Linking' : 'Link Existing Organisation'}</Button>
+          </form>
+        </div>
+
         <button onClick={logOut} className="text-[10px] font-display uppercase tracking-[0.1em] text-steel mt-4 underline underline-offset-2">
           Sign Out
         </button>

@@ -29,10 +29,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [awaitingEmailForLink, setAwaitingEmailForLink] = useState(false);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (u) => {
-      setUser(u);
-      setLoading(false);
-    });
+    console.log('[AuthContext] subscribing to onAuthStateChanged');
+    const unsubscribe = onAuthStateChanged(
+      auth,
+      (u) => {
+        console.log('[AuthContext] onAuthStateChanged fired, user =', u ? { uid: u.uid, email: u.email } : null);
+        setUser(u);
+        setLoading(false);
+      },
+      (error) => {
+        // onAuthStateChanged's callback almost never sees an error, but if
+        // Firebase Auth itself is misconfigured (bad API key, wrong
+        // authDomain) this is the one place it would surface -- otherwise
+        // the callback above simply never fires, which is the silent-hang
+        // this instrumentation exists to catch.
+        console.error('[AuthContext] onAuthStateChanged error', error);
+      },
+    );
     return unsubscribe;
   }, []);
 
@@ -54,11 +67,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const signIn = async () => {
-    try {
-      await signInWithPopup(auth, new GoogleAuthProvider());
-    } catch (error) {
-      console.error(error);
-    }
+    // Popup blocked, closed by the user, or an unauthorised-domain
+    // misconfiguration all reject this promise. Swallowing it here (as this
+    // used to) means clicking "Sign In With Google" does nothing visible at
+    // all -- the same silent-failure shape as the org-lookup hang. Let it
+    // propagate so AuthGate's caller can show it.
+    await signInWithPopup(auth, new GoogleAuthProvider());
   };
 
   const sendEmailLink = async (email: string) => {

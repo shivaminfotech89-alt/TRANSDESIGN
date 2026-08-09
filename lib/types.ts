@@ -15,9 +15,6 @@ export interface Org {
   createdAt: number;
   country: string;   // "IN"
   currency: string;  // "INR"
-  /** So a user can list the orgs they belong to with one query (listMyOrgs).
-   *  The members subcollection is still what the rules check. */
-  memberUids: string[];
 }
 
 export interface Member {
@@ -25,6 +22,21 @@ export interface Member {
   email: string;
   role: Role;
   addedAt: number;
+}
+
+/**
+ * users/{uid}. The other half of every membership: `orgs/{orgId}/members/{uid}`
+ * says an org has this member, `users/{uid}` says this member has that org.
+ * listMyOrgs() reads only this document plus a getDoc() per org it names --
+ * it cannot query `orgs` directly, because the org-read rule requires
+ * checking membership per document (exists() on the members subcollection),
+ * which Firestore cannot evaluate across an arbitrary collection query.
+ * Readable and writable only by the uid it belongs to (firestore.rules).
+ */
+export interface UserIndex {
+  orgs: string[];
+  email: string;
+  updatedAt: number;
 }
 
 /** Editable raw-material and conversion rates. Mirrors DEFAULT_RATES in the engine. */

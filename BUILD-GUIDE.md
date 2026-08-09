@@ -99,6 +99,7 @@ firestore.indexes.json     (provided)
 ## 5. Data model, and the rule that keeps prices honest
 
 ```
+users/{uid}                    orgs: [orgId, ...] -- the other half of membership, see below
 orgs/{orgId}
   members/{uid}                role: owner | engineer | estimator | viewer
   rateCards/{cardId}           copper, CRGO, oil, labour, overhead, margin, GST
@@ -168,28 +169,62 @@ Take the values from Project settings → Your apps → Web app.
 ## 7. First-run sequence for a new company
 
 Because a member document cannot be written before the organisation exists, do
-these as two separate writes, not one batch:
+these as three separate writes, not one batch:
 
 ```ts
 // 1. create the organisation
 await setDoc(doc(db, "orgs", orgId), {
   name: "Your company", ownerUid: uid, createdAt: Date.now(),
-  country: "IN", currency: "INR", memberUids: [uid],
+  country: "IN", currency: "INR",
 });
 // 2. then your own member document
 await setDoc(doc(db, "orgs", orgId, "members", uid), {
   uid, email, role: "owner", addedAt: Date.now(),
 });
-// 3. seed a rate card from the engine defaults
+// 3. then your own half of the index, so listMyOrgs() can find this org again
+await setDoc(doc(db, "users", uid), {
+  email, updatedAt: Date.now(), orgs: arrayUnion(orgId),
+}, { merge: true });
+// 4. seed a rate card from the engine defaults
 await saveRateCard(orgId, uid, "default", {
   name: "Standard rates", currency: "INR",
   rates: DEFAULT_RATES, effectiveFrom: Date.now(),
 });
 ```
 
-`memberUids` on the org document is only there so a user can list the
-organisations they belong to with one query. The `members` subcollection holds
-the role and is what the rules check.
+An earlier version of this guide had `memberUids` on the org document so a
+user could list their organisations with a single `array-contains` query
+against the `orgs` collection. That does not work: the org-read rule
+(`allow read: if member(orgId)`) requires a per-document `exists()` check
+against the `members` subcollection, and Firestore cannot authorise a
+collection query against a rule shaped like that. `users/{uid}` (step 3
+above) replaces it: `listMyOrgs()` reads your own index, then does one
+`getDoc()` per org it names, both of which the rules permit outright (your
+own `users/{uid}`; an org you are a member of). Skipping step 3 is exactly
+the bug that made an organisation invisible to its own owner: the org and
+member documents existed, but nothing pointed back to them.
+
+**Ownership, and who can add whom.** `orgs/{orgId}.ownerUid` can only ever be
+set to the uid creating the document (`allow create: if ... ownerUid ==
+request.auth.uid`) — you cannot create an organisation and name someone
+else its owner. Day-to-day authorisation, though, runs entirely off the
+`members/{uid}.role` field via `isOwner()`/`canEdit()`, not off `ownerUid`;
+an owner can promote another member to `role: "owner"` later, which is the
+closest thing to an ownership transfer these rules support; the app does
+not currently expose that as a feature, and `ownerUid` itself is never
+revised after creation.
+
+Adding a member is two writes that two different people must make, and
+that is a rule, not an oversight: the existing owner can write the new
+member's `orgs/{orgId}/members/{uid}` document (`allow create: if ...
+isOwner(orgId)`), but `users/{uid}` can only be written by
+`request.auth.uid == uid` (see firestore.rules) — an owner cannot also
+write the invitee's half. Writing only the member document is exactly this
+bug again, just for a second person instead of the first: the invitee has
+a real membership and still cannot find the organisation. A working invite
+flow needs a pending-invite document the invitee accepts by writing their
+own `users/{uid}` on first sign-in (the same shape as `linkExistingOrg()`
+in `lib/projects.ts`) — nothing in this codebase implements that yet.
 
 ---
 

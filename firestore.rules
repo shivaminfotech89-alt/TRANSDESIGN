@@ -23,6 +23,14 @@ service cloud.firestore {
       return member(orgId) && role(orgId) == 'owner';
     }
 
+    // The other half of membership, see lib/types.ts UserIndex. A user may
+    // read and write only their own index -- never another member's, which
+    // means an invite flow cannot write it on someone else's behalf and must
+    // instead have the invitee accept and write their own on first sign-in.
+    match /users/{uid} {
+      allow read, write: if signedIn() && request.auth.uid == uid;
+    }
+
     match /orgs/{orgId} {
       allow read:   if member(orgId);
       allow create: if signedIn() && request.resource.data.ownerUid == request.auth.uid;

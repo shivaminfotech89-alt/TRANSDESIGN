@@ -28,3 +28,13 @@ export const app: FirebaseApp = getApps().length ? getApps()[0] : initializeApp(
 export const auth: Auth = getAuth(app);
 export const db: Firestore = getFirestore(app, DATABASE_ID);
 export const storage: FirebaseStorage = getStorage(app);
+
+// Diagnostic only, for the "Checking your organisation" hang: prove the env
+// vars actually reached the bundle (Vite requires the VITE_ prefix and a dev
+// server restart after .env.local changes) and prove which database the SDK
+// actually resolved to, not just which one this file asked for. `_databaseId`
+// is an internal field, not public API, but it is the only way to see what
+// getFirestore() actually resolved rather than what we intended.
+console.log('[firebase] config.projectId =', config.projectId || '(undefined -- VITE_FIREBASE_PROJECT_ID did not reach the app)');
+console.log('[firebase] requested database =', DATABASE_ID);
+console.log('[firebase] db._databaseId resolved to =', (db as unknown as { _databaseId?: unknown })._databaseId);
