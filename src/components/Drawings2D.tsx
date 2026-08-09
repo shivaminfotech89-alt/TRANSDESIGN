@@ -3,8 +3,10 @@ import { stepWidths, stampingSchedule, finLayout } from '@/packages/engine';
 import { Card, DataRow, thCls, tdCls } from './ui';
 import {
   fitToViewBox, dimText, DimensionArrow, DimensionHorizontal, DimensionVertical, UnitsNote, TitleBlock,
+  drawingNo, ratingLabel,
 } from './drawings/DrawingPrimitives';
 import { PART_NUMBERS } from './drawings/partNumbers';
+import { OrthographicDrawing } from './drawings/OrthographicDrawing';
 
 interface Drawings2DProps {
   design: any;
@@ -15,26 +17,11 @@ interface Drawings2DProps {
 /**
  * DRAWINGS.md, "Start with the universal requirements" -- this file applies
  * the three universal pieces (DrawingPrimitives.tsx: dimension lines, the
- * title block, the fit-to-viewBox scale) to the four drawings that already
- * existed. The other seventeen are TASKS.md/DRAWINGS.md future work, built
- * one at a time on top of this once dimensioning is confirmed to render.
+ * title block, the fit-to-viewBox scale) to the drawings that already
+ * existed, plus the orthographic set (1 to 5, DrawingPrimitives.tsx's
+ * neighbour OrthographicDrawing.tsx). The rest of DRAWINGS.md's twenty-one
+ * are future work, built one at a time on top of this.
  */
-
-const pad2 = (n: number) => String(Math.max(0, n) || 0).padStart(2, '0');
-
-/** `{docPrefix}-{tender}-R{rev}-D{seq}` -- same family as documentRegister()'s
- *  own numbering (docPrefix-tender-Rrev-seq), with a D so a drawing number
- *  never collides with that register's own sequence 1-28. */
-function drawingNo(project: any, seq: string): string {
-  const prefix = project?.docPrefix || 'TDE';
-  const tender = project?.tender || 'ENQ';
-  const rev = pad2(project?.revision ?? 0);
-  return `${prefix}-${tender}-R${rev}-D${seq}`;
-}
-
-function ratingLabel(params: any): string {
-  return `${params.kva} kVA, ${params.hv / 1000} kV / ${params.lv} V`;
-}
 
 /** DRAWINGS.md, drawing 7: cross-section through one limb, circumscribing
  *  circle dashed in copper, every pocket a rectangle, widest at the stack
@@ -299,67 +286,17 @@ function TankAndFinLayout({ design, params, project }: Drawings2DProps) {
   );
 }
 
-/** Not one of the numbered drawings yet -- a preliminary outline ahead of
- *  the real orthographic set (drawings 1 to 5, one component with a view
- *  parameter) built to DRAWINGS.md in a later pass.
- *
- *  A front elevation's horizontal axis runs along the limb row, which is
- *  design.tankL (buildBOM: tankL = coreWidth + 2*endTankClr), not
- *  design.tankW (the side-view depth, matching hvOD -- DRAWINGS.md draws
- *  that dimension on drawing 3, the side view, not here). The previous
- *  version of this drawing compared coreWidth against tankW, the wrong
- *  axis, which is why adding a real dimension line here would otherwise
- *  have shown the active part overhanging the tank on both sides. */
-function GaElevation({ design, params, project }: Drawings2DProps) {
-  const arrowId = useId();
-  if (design.dry) return null;
-  const box = { w: 360, h: 320 };
-  const margin = { side: 34, top: 20, bottom: 46 };
-  const fit = fitToViewBox(design.tankL, design.tankH, box.w - 2 * margin.side, box.h - margin.top - margin.bottom, 10);
-  const tankL = design.tankL * fit.scale, tankH = design.tankH * fit.scale;
-  const tx = margin.side + fit.offsetX, ty = margin.top + fit.offsetY;
-  const coreW = design.coreWidth * fit.scale, coreH = design.coreHeight * fit.scale;
-  const cx = tx + (tankL - coreW) / 2, cy = ty + (tankH - coreH) / 2 + tankH * 0.08;
-
-  const lengthDimY = ty + tankH + 16;
-  const heightDimX = tx + tankL + 14;
-
-  return (
-    <Card title="General Arrangement, Elevation" subtitle="Preliminary · front view, tank envelope and active part">
-      <svg width={box.w} height={box.h} viewBox={`0 0 ${box.w} ${box.h}`}>
-        <DimensionArrow id={arrowId} />
-        <rect x={tx} y={ty} width={tankL} height={tankH} fill="none" stroke="var(--color-ink)" strokeWidth={1} />
-        <rect x={cx} y={cy} width={coreW} height={coreH} fill="none" stroke="var(--color-copper)" strokeWidth={1} strokeDasharray="4 2" />
-        <DimensionHorizontal
-          x1={tx} x2={tx + tankL} featureY={ty + tankH} dimY={lengthDimY}
-          label={dimText(design.tankL)} arrowId={arrowId}
-        />
-        <DimensionVertical
-          y1={ty} y2={ty + tankH} featureX={tx + tankL} dimX={heightDimX}
-          label={dimText(design.tankH)} arrowId={arrowId}
-        />
-        <UnitsNote x={6} y={box.h - 6} />
-      </svg>
-      <div className="grid grid-cols-2 gap-x-4 mt-2">
-        <DataRow label="Tank Length x Height" value={`${Math.round(design.tankL)} x ${Math.round(design.tankH)}`} unit="mm" />
-        <DataRow label="Active Part Width x Height" value={`${Math.round(design.coreWidth)} x ${Math.round(design.coreHeight)}`} unit="mm" />
-      </div>
-      <TitleBlock
-        drawingNo={`${project?.docPrefix || 'TDE'}-PRELIM-GA`} title="General Arrangement (Preliminary)"
-        rev={project?.revision ?? 0} sheet={1} totalSheets={21} fit={fit} standard={params.standard}
-        projectName={project?.projectName} customer={project?.customer} ratingLabel={ratingLabel(params)}
-      />
-    </Card>
-  );
-}
-
 export function Drawings2D({ design, params, project }: Drawings2DProps) {
   return (
     <div className="space-y-4">
+      <OrthographicDrawing design={design} params={params} project={project} view="ga" />
+      <OrthographicDrawing design={design} params={params} project={project} view="front" />
+      <OrthographicDrawing design={design} params={params} project={project} view="side" />
+      <OrthographicDrawing design={design} params={params} project={project} view="top" />
+      <OrthographicDrawing design={design} params={params} project={project} view="bottom" />
       <CoreCrossSection design={design} params={params} project={project} />
       <StampingSchedule design={design} params={params} project={project} />
       <TankAndFinLayout design={design} params={params} project={project} />
-      <GaElevation design={design} params={params} project={project} />
     </div>
   );
 }

@@ -48,6 +48,27 @@ export function dimText(value: number, opts?: { diameter?: boolean; radius?: boo
 }
 
 /* ------------------------------------------------------------------
+   Shared across every drawing: numbering and the rating line, so no two
+   drawings derive them differently.
+   ------------------------------------------------------------------ */
+
+const pad2 = (n: number) => String(Math.max(0, n) || 0).padStart(2, '0');
+
+/** `{docPrefix}-{tender}-R{rev}-D{seq}` -- same family as documentRegister()'s
+ *  own numbering (docPrefix-tender-Rrev-seq), with a D so a drawing number
+ *  never collides with that register's own sequence 1-28. */
+export function drawingNo(project: any, seq: string): string {
+  const prefix = project?.docPrefix || 'TDE';
+  const tender = project?.tender || 'ENQ';
+  const rev = pad2(project?.revision ?? 0);
+  return `${prefix}-${tender}-R${rev}-D${seq}`;
+}
+
+export function ratingLabel(params: any): string {
+  return `${params.kva} kVA, ${params.hv / 1000} kV / ${params.lv} V`;
+}
+
+/* ------------------------------------------------------------------
    Dimension lines: two extension lines, a dimension line with arrow
    terminators at both ends, the value in monospace centred on it.
    ------------------------------------------------------------------ */
