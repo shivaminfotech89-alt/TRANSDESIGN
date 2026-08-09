@@ -154,59 +154,81 @@ export default function App() {
   // SOLVER.md step 4: Design Impact Summary, shown after every change, for
   // the one decision just made -- not a diff of the whole design. impacts()
   // supplies the design-level consequences (weight, losses, efficiency,
-  // compliance, money); this effect adds what only the app knows (what was
+  // compliance, money); buildSummary adds what only the app knows (what was
   // edited, which lever the solver moved and why, what else moved).
-  const prevResultRef = useRef(result);
-  useEffect(() => {
-    const prev = prevResultRef.current;
-    if (prev !== result && lastAction) {
-      let skip = false;
-      let editTitle = '', editFrom = '', editTo = '';
-      let excludeKeys: string[] = [];
-      let lever: SummaryData['lever'];
+  //
+  // `result` itself is never debounced -- the useMemo above recomputes on
+  // every tick so the rating plate and results track the slider live. Only
+  // the summary's own build+display is debounced: `anchor` holds the result
+  // from before the current burst of edits started, fixed for the whole
+  // burst, and the actual summary is built once 300ms passes with no further
+  // change, comparing anchor -> the result at rest, described by whichever
+  // action was most recent.
+  const buildSummary = (anchor: typeof result, latest: typeof result, action: EditAction): SummaryData | null => {
+    let editTitle = '', editFrom = '', editTo = '';
+    let excludeKeys: string[] = [];
+    let lever: SummaryData['lever'];
 
-      if (lastAction.kind === 'param') {
-        const { key } = lastAction;
-        editTitle = `Parameter Edited: ${labelFor(key)}`;
-        editFrom = fmtWithUnit(key, prev.params[key]);
-        editTo = fmtWithUnit(key, result.params[key]);
-        excludeKeys = [key];
+    if (action.kind === 'param') {
+      const { key } = action;
+      editTitle = `Parameter Edited: ${labelFor(key)}`;
+      editFrom = fmtWithUnit(key, anchor.params[key]);
+      editTo = fmtWithUnit(key, latest.params[key]);
+      excludeKeys = [key];
+    } else {
+      const target = CLASS_B_TARGETS.find((t) => t.id === action.targetId)!;
+      if (action.kind === 'pin-release') {
+        editTitle = `Pin Released: ${target.label}`;
+        editFrom = `${action.releasedValue} ${target.unit}`;
+        editTo = 'Not pinned';
       } else {
-        const target = CLASS_B_TARGETS.find((t) => t.id === lastAction.targetId)!;
-        if (lastAction.kind === 'pin-release') {
-          editTitle = `Pin Released: ${target.label}`;
-          editFrom = `${lastAction.releasedValue} ${target.unit}`;
-          editTo = 'Not pinned';
-        } else {
-          const solve = solveResults[lastAction.targetId];
-          if (!solve?.reachable) {
-            // Nothing actually changed -- PinPanel already shows the
-            // unreachable message in red. A summary of zero change here
-            // would just be noise.
-            skip = true;
-          } else {
-            editTitle = `Pin Set: ${target.label}`;
-            editFrom = 'Not pinned';
-            editTo = `${pins[lastAction.targetId]?.value} ${target.unit}`;
-            const overKeys = LEVER_OVER_KEYS[target.lever];
-            if (overKeys.length) {
-              lever = {
-                label: target.leverLabel,
-                from: overKeys.map((k) => fmtWithUnit(k, prev.params[k])).join(' / '),
-                to: overKeys.map((k) => fmtWithUnit(k, result.params[k])).join(' / '),
-                why: target.relationship,
-              };
-              excludeKeys = overKeys;
-            }
-          }
+        const solve = solveResults[action.targetId];
+        if (!solve?.reachable) {
+          // Nothing actually changed -- PinPanel already shows the
+          // unreachable message in red. A summary of zero change here
+          // would just be noise.
+          return null;
+        }
+        editTitle = `Pin Set: ${target.label}`;
+        editFrom = 'Not pinned';
+        editTo = `${pins[action.targetId]?.value} ${target.unit}`;
+        const overKeys = LEVER_OVER_KEYS[target.lever];
+        if (overKeys.length) {
+          lever = {
+            label: target.leverLabel,
+            from: overKeys.map((k) => fmtWithUnit(k, anchor.params[k])).join(' / '),
+            to: overKeys.map((k) => fmtWithUnit(k, latest.params[k])).join(' / '),
+            why: target.relationship,
+          };
+          excludeKeys = overKeys;
         }
       }
+    }
 
-      if (!skip) {
-        const engineImpacts = impacts(prev.design, prev.bom, result.design, result.bom, result.params);
-        const dependents = diffDependents(prev.params, result.params, excludeKeys);
-        setSummary({ editTitle, editFrom, editTo, lever, dependents, engineImpacts });
-      }
+    const engineImpacts = impacts(anchor.design, anchor.bom, latest.design, latest.bom, latest.params);
+    const dependents = diffDependents(anchor.params, latest.params, excludeKeys);
+    return { editTitle, editFrom, editTo, lever, dependents, engineImpacts };
+  };
+
+  const prevResultRef = useRef(result);
+  const anchorRef = useRef<typeof result | null>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => () => { if (debounceRef.current) clearTimeout(debounceRef.current); }, []);
+
+  useEffect(() => {
+    if (prevResultRef.current !== result && lastAction) {
+      if (anchorRef.current === null) anchorRef.current = prevResultRef.current;
+      const anchor = anchorRef.current;
+      const action = lastAction;
+
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+      debounceRef.current = setTimeout(() => {
+        const built = buildSummary(anchor, result, action);
+        if (built) setSummary(built);
+        anchorRef.current = null;
+        debounceRef.current = null;
+      }, 300);
     }
     prevResultRef.current = result;
     setLastAction(null);
