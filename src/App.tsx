@@ -4,8 +4,12 @@ import { ResultsDisplay } from './components/ResultsDisplay';
 import { RatingPlate } from './components/RatingPlate';
 import { PinPanel } from './components/PinPanel';
 import { DesignImpactSummary } from './components/DesignImpactSummary';
+import { ProjectBar } from './components/ProjectBar';
+import { NewProjectModal } from './components/NewProjectModal';
 import { Button } from './components/ui';
-import { computeDesign, impacts, ESSENTIALS, DEFAULT_RATES, STANDARDS } from '@/packages/engine';
+import { useAuth } from './components/AuthContext';
+import { useOrg } from './components/OrgContext';
+import { computeDesign, impacts, summarise, ESSENTIALS, DEFAULT_RATES, STANDARDS } from '@/packages/engine';
 import {
   CLASS_B_TARGETS, OVER_KEY_LEVER, LEVER_OVER_KEYS, findConflictForPin, findConflictForOverride,
   type PinSet, type Conflict,
@@ -13,12 +17,8 @@ import {
 import { solveAllPins } from './lib/classBSolver';
 import { labelFor, fmtWithUnit } from './lib/paramLabels';
 import { diffDependents, type DependentChange } from './lib/impactSummary';
-
-// TODO(persistence): NewProjectModal.tsx still exists but is intentionally
-// unwired -- its output shape (kVA, hvVoltage, referenceStandard,
-// targetImpedance...) predates core/over. It becomes the quotation/project
-// creation flow once orgs/projects/revisions land (TASKS.md item 5), driven
-// off ProjectMeta (lib/types.ts) rather than the engine's own enquiry shape.
+import { createProject, renameProject, saveRevision, getRevision } from '../lib/projects';
+import type { ProjectMeta, Project } from '../lib/types';
 
 type PendingConflict =
   | { kind: 'pin'; targetId: string; value: number; conflict: Conflict }
@@ -37,14 +37,21 @@ interface SummaryData {
 }
 
 export default function App() {
+  const { user } = useAuth();
+  const { orgId } = useOrg();
+
   const [core, setCoreState] = useState<any>(ESSENTIALS);
   const [over, setOverState] = useState<Record<string, any>>({});
   // Seeded from DEFAULT_RATES, but this is a real rate card once orgs/rateCards
   // (TASKS.md item 4) exists -- never hardcode a rate value in a display component.
   const [rates, setRates] = useState<Record<string, number>>(DEFAULT_RATES);
-  // TODO(persistence): belongs to ProjectMeta.projectName once projects/revisions
-  // land (TASKS.md item 5). Local-only for now, disconnected from any storage.
+  // Mirrors ProjectMeta.projectName (lib/types.ts). TASKS.md item 5: persisted
+  // via lib/projects.ts against orgs/{orgId}/projects/{id}/revisions/{rev}.
   const [projectName, setProjectName] = useState('Untitled Design');
+  const [currentProjectId, setCurrentProjectId] = useState<string | null>(null);
+  const [savingProject, setSavingProject] = useState(false);
+  const [projectListVersion, setProjectListVersion] = useState(0);
+  const [showNewProjectModal, setShowNewProjectModal] = useState(false);
 
   // SOLVER.md step 1: the pin registry. Step 3 solves against it.
   const [pins, setPins] = useState<PinSet>({});
@@ -55,14 +62,106 @@ export default function App() {
   const [lastAction, setLastAction] = useState<EditAction | null>(null);
   const [summary, setSummary] = useState<SummaryData | null>(null);
 
-  const handleNewProject = () => {
-    setCoreState(ESSENTIALS);
-    setOverState({});
-    setProjectName('Untitled Design');
+  const resetDesignState = () => {
     setPins({});
     setPendingConflict(null);
     setLastAction(null);
     setSummary(null);
+  };
+
+  /** Minimal ProjectMeta -- only projectName is exposed in the UI so far.
+   *  The rest (customer, tender, docPrefix...) are TASKS.md item 5/document
+   *  register territory; defaulted here so a revision can be saved at all. */
+  const buildMeta = (name: string): ProjectMeta => ({
+    customer: '', contractor: '', projectName: name, tender: '', revision: 0,
+    docPrefix: 'TDE', maker: '', designer: '', serial: '', year: new Date().getFullYear(),
+    altitude: 0, site: '', paint: '',
+  });
+
+  const handleNewProjectStart = (name: string, corePatch: Record<string, any>) => {
+    setCoreState({ ...ESSENTIALS, ...corePatch });
+    setOverState({});
+    setRates(DEFAULT_RATES);
+    setProjectName(name);
+    setCurrentProjectId(null);
+    resetDesignState();
+    setShowNewProjectModal(false);
+  };
+
+  const handleSave = async () => {
+    if (!user) return;
+    setSavingProject(true);
+    try {
+      let projectId = currentProjectId;
+      if (!projectId) {
+        projectId = await createProject(orgId, user.uid, projectName, buildMeta(projectName));
+        setCurrentProjectId(projectId);
+      } else {
+        await renameProject(orgId, projectId, projectName, user.uid);
+      }
+      await saveRevision(orgId, projectId, user.uid, {
+        input: {
+          core, over, meta: buildMeta(projectName), extras: [],
+          budgetMin: 0, budgetMax: 0, searchOpts: {},
+        },
+        rateCardId: 'default',
+        rateSnapshot: rates,
+        engineVersion: result.engineVersion,
+        summary: summarise(core, result.design, result.bom),
+      });
+      setProjectListVersion((v) => v + 1);
+    } catch (err) {
+      window.alert(`Save failed: ${err}`);
+    }
+    setSavingProject(false);
+  };
+
+  const handleSaveAsCopy = async () => {
+    if (!user || !currentProjectId) return;
+    setSavingProject(true);
+    try {
+      const newName = `${projectName} (Copy)`;
+      const newId = await createProject(orgId, user.uid, newName, buildMeta(newName));
+      await saveRevision(orgId, newId, user.uid, {
+        input: {
+          core, over, meta: buildMeta(newName), extras: [],
+          budgetMin: 0, budgetMax: 0, searchOpts: {},
+        },
+        rateCardId: 'default',
+        rateSnapshot: rates,
+        engineVersion: result.engineVersion,
+        summary: summarise(core, result.design, result.bom),
+        note: `Copied from ${projectName}`,
+      });
+      setProjectName(newName);
+      setCurrentProjectId(newId);
+      setProjectListVersion((v) => v + 1);
+    } catch (err) {
+      window.alert(`Save as copy failed: ${err}`);
+    }
+    setSavingProject(false);
+  };
+
+  const handleOpenProject = async (project: Project & { id: string }) => {
+    if (project.currentRevision < 0) {
+      window.alert(`${project.name} has no saved revision yet.`);
+      return;
+    }
+    setSavingProject(true);
+    try {
+      const rev = await getRevision(orgId, project.id, project.currentRevision);
+      if (rev) {
+        setCoreState(rev.input.core);
+        setOverState(rev.input.over);
+        setRates(rev.rateSnapshot);
+        setProjectName(rev.input.meta?.projectName || project.name);
+        setCurrentProjectId(project.id);
+        resetDesignState();
+      }
+    } catch (err) {
+      window.alert(`Open failed: ${err}`);
+    }
+    setSavingProject(false);
   };
 
   // Core-level enquiry edits (kva, hv, vector...) are direct inputs too --
@@ -254,14 +353,14 @@ export default function App() {
           </div>
         </header>
 
-        <RatingPlate design={result.design} bom={result.bom} params={result.params} />
+        <ProjectBar
+          projectName={projectName} onProjectNameChange={setProjectName}
+          onSave={handleSave} onSaveAsCopy={handleSaveAsCopy}
+          onNew={() => setShowNewProjectModal(true)} onOpen={handleOpenProject}
+          currentProjectId={currentProjectId} busy={savingProject} refreshKey={projectListVersion}
+        />
 
-        <div className="flex items-center justify-between gap-4 bg-white border border-rule rounded-[2px] px-4 py-2 print:hidden">
-          <div className="text-[11px] text-ink2">
-            <span className="font-mono text-ink">{projectName}</span>
-          </div>
-          <Button variant="primary" onClick={handleNewProject}>New Project</Button>
-        </div>
+        <RatingPlate design={result.design} bom={result.bom} params={result.params} />
 
         {pendingConflict && (
           <div className="bg-white border border-amber rounded-[2px] px-4 py-3 print:hidden">
@@ -299,7 +398,6 @@ export default function App() {
             />
             <TransformerForm
               core={core} over={over} onCoreChange={handleCoreChange} onOverChange={handleOverChange}
-              projectName={projectName} onProjectNameChange={setProjectName}
             />
           </aside>
 
@@ -311,6 +409,10 @@ export default function App() {
           </section>
         </main>
       </div>
+
+      {showNewProjectModal && (
+        <NewProjectModal onClose={() => setShowNewProjectModal(false)} onStart={handleNewProjectStart} />
+      )}
     </div>
   );
 }
