@@ -1,14 +1,43 @@
 @import "tailwindcss";
 
+/* Visual specification: DESIGN.md. Palette and type stacks are theme tokens,
+   not Tailwind defaults -- see DESIGN.md before changing any of this. */
+@theme {
+  --color-sheet: #E4E8E3;
+  --color-sheetAlt: #DAE0DA;
+  --color-line: #C1CAC3;
+  --color-rule: #AEB9B1;
+  --color-ink: #13232E;
+  --color-ink2: #43565F;
+  --color-copper: #9C5A2B;
+  --color-copperLt: #C57E45;
+  --color-patina: #1D6B5E;
+  --color-steel: #78888D;
+  --color-alert: #A33C25;
+  --color-good: #2E6B4F;
+  --color-amber: #8A6A1E;
+  --color-plate: #1B2A32;
+  --color-plateTx: #DDE3DC;
+  --color-plateEtch: #8FA0A6;
+
+  --font-display: 'Arial Narrow', 'Helvetica Neue Condensed', 'Franklin Gothic Medium', Impact, sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  --font-body: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+
+  /* The only animation permitted by DESIGN.md: a 0.35s fade on tab content. */
+  --animate-fade: fade 0.35s ease;
+  @keyframes fade {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+}
+
 @layer utilities {
   .scrollbar-hide {
-    /* IE and Edge */
     -ms-overflow-style: none;
-    /* Firefox */
     scrollbar-width: none;
   }
   .scrollbar-hide::-webkit-scrollbar {
-    /* Chrome, Safari and Opera */
     display: none;
   }
 }
@@ -17,16 +46,41 @@ html, body {
   height: 100%;
   margin: 0;
   padding: 0;
-
+  background-color: var(--color-sheet);
+  font-family: var(--font-body);
+  color: var(--color-ink);
 }
 
 #root {
   height: 100%;
+  position: relative;
+}
+
+/* Fixed 24px graph paper behind the whole page, per DESIGN.md. */
+#root::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(var(--color-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--color-line) 1px, transparent 1px);
+  background-size: 24px 24px, 24px 24px;
+  opacity: 0.5;
+}
+
+#root > * {
+  position: relative;
+  z-index: 1;
 }
 
 @media print {
   body {
     background: white;
+  }
+  #root::before {
+    display: none;
   }
   .print\:hidden {
     display: none !important;

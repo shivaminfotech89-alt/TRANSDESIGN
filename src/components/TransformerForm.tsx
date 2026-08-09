@@ -2,10 +2,6 @@ import React, { useMemo, useState } from 'react';
 import {
   deriveSpec, APPS, STANDARDS, EFF_LEVELS, CONDUCTORS,
 } from '@/packages/engine';
-import {
-  ChevronDown, ChevronUp, Settings2, Zap, Thermometer, Box, Database,
-  DollarSign, ShieldCheck, Activity, SlidersHorizontal, Ruler,
-} from 'lucide-react';
 
 interface TransformerFormProps {
   core: any;
@@ -44,16 +40,30 @@ const LABELS: Record<string, string> = {
   tariff: 'Energy tariff', years: 'Evaluation period', loadFactor: 'Average load factor', pf: 'Power factor',
 };
 
-const SECTIONS: { id: string; title: string; icon: any; keys: string[] }[] = [
-  { id: 'insulation', title: 'Insulation Levels', icon: ShieldCheck, keys: ['umHV', 'bilHV', 'acHV', 'umLV', 'bilLV', 'acLV'] },
-  { id: 'system', title: 'Cooling & Insulation System', icon: Thermometer, keys: ['dryType', 'fluid', 'insClass', 'cooling', 'tankType', 'oilRiseTarget', 'refTemp', 'ambient', 'ambientAvg'] },
-  { id: 'losses', title: 'Losses & Impedance', icon: Activity, keys: ['limitNLL', 'limitLL', 'targetZ', 'zTol'] },
-  { id: 'core', title: 'Core', icon: Settings2, keys: ['coreGrade', 'coreType', 'buildFactor', 'flux', 'steps', 'etK', 'aspect', 'autoWindow', 'autoFit', 'windowSpace'] },
-  { id: 'windings', title: 'Windings', icon: Database, keys: ['condLV', 'condHV', 'deltaLV', 'deltaHV', 'stray'] },
-  { id: 'tappings', title: 'Tappings', icon: SlidersHorizontal, keys: ['tapType', 'tapPlus', 'tapMinus', 'tapStep'] },
-  { id: 'clearances', title: 'Clearances', icon: Ruler, keys: ['coreLvClr', 'lvHvClr', 'phaseClr', 'endClrLV', 'endClrHV', 'hvTankClr', 'endTankClr', 'cylThk'] },
-  { id: 'construction', title: 'Construction Constants', icon: Box, keys: ['lvIns', 'hvPaper', 'hvInterlayer', 'insFactor', 'topOilSpace', 'bottomClr', 'finDiss', 'tankDiss', 'airDiss'] },
-  { id: 'economics', title: 'Economics', icon: DollarSign, keys: ['tariff', 'years', 'loadFactor', 'pf'] },
+/* Compact units shown next to the collapsed value. */
+const UNITS: Record<string, string> = {
+  umHV: 'kV', bilHV: 'kVp', acHV: 'kV', umLV: 'kV', bilLV: 'kVp', acLV: 'kV',
+  oilRiseTarget: 'K', refTemp: '°C', ambient: '°C', ambientAvg: '°C',
+  limitNLL: 'W', limitLL: 'W', targetZ: '%', zTol: '%', buildFactor: '×', flux: 'T',
+  etK: '', aspect: '', windowSpace: '', deltaLV: 'A/mm²', deltaHV: 'A/mm²', stray: '%',
+  tapPlus: '%', tapMinus: '%', tapStep: '%',
+  coreLvClr: 'mm', lvHvClr: 'mm', phaseClr: 'mm', endClrLV: 'mm', endClrHV: 'mm',
+  hvTankClr: 'mm', endTankClr: 'mm', cylThk: 'mm',
+  lvIns: 'mm', hvPaper: 'mm', hvInterlayer: 'mm', insFactor: '×', topOilSpace: 'mm',
+  bottomClr: 'mm', finDiss: 'W/m²', tankDiss: 'W/m²', airDiss: '',
+  tariff: '₹/kWh', years: 'yr', loadFactor: '', pf: '',
+};
+
+const SECTIONS: { id: string; title: string; keys: string[] }[] = [
+  { id: 'insulation', title: 'Insulation Levels', keys: ['umHV', 'bilHV', 'acHV', 'umLV', 'bilLV', 'acLV'] },
+  { id: 'system', title: 'Cooling & Insulation System', keys: ['dryType', 'fluid', 'insClass', 'cooling', 'tankType', 'oilRiseTarget', 'refTemp', 'ambient', 'ambientAvg'] },
+  { id: 'losses', title: 'Losses & Impedance', keys: ['limitNLL', 'limitLL', 'targetZ', 'zTol'] },
+  { id: 'core', title: 'Core', keys: ['coreGrade', 'coreType', 'buildFactor', 'flux', 'steps', 'etK', 'aspect', 'autoWindow', 'autoFit', 'windowSpace'] },
+  { id: 'windings', title: 'Windings', keys: ['condLV', 'condHV', 'deltaLV', 'deltaHV', 'stray'] },
+  { id: 'tappings', title: 'Tappings', keys: ['tapType', 'tapPlus', 'tapMinus', 'tapStep'] },
+  { id: 'clearances', title: 'Clearances', keys: ['coreLvClr', 'lvHvClr', 'phaseClr', 'endClrLV', 'endClrHV', 'hvTankClr', 'endTankClr', 'cylThk'] },
+  { id: 'construction', title: 'Construction Constants', keys: ['lvIns', 'hvPaper', 'hvInterlayer', 'insFactor', 'topOilSpace', 'bottomClr', 'finDiss', 'tankDiss', 'airDiss'] },
+  { id: 'economics', title: 'Economics', keys: ['tariff', 'years', 'loadFactor', 'pf'] },
 ];
 
 const APP_OPTS = Object.entries(APPS).map(([k, v]: [string, any]) => [k, v.name]);
@@ -64,14 +74,13 @@ const COND_PREF_OPTS = [['auto', 'Auto, from rating and efficiency level'], ...O
 const VECTOR_OPTS = [['Dyn11', 'Dyn11'], ['Yyn0', 'Yyn0'], ['YNd11', 'YNd11'], ['Dd0', 'Dd0']];
 const FREQ_OPTS = [[50, '50 Hz'], [60, '60 Hz']];
 
-function inputCls(extra = '') {
-  return `w-full bg-white border border-slate-300 p-2 text-slate-900 rounded-md shadow-sm focus:ring-2 focus:ring-blue-500 text-sm ${extra}`;
-}
+const labelCls = 'text-[11px] font-display uppercase tracking-[0.1em] text-ink2';
+const inputCls = 'w-full bg-white border border-rule rounded-[2px] px-2 py-1.5 text-ink font-mono text-[11px] focus:outline-none focus:border-copper';
 
 function CoreField({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="space-y-1.5">
-      <label className="text-[11px] font-semibold text-slate-600 uppercase tracking-wide">{label}</label>
+    <div className="space-y-1">
+      <label className={labelCls}>{label}</label>
       {children}
     </div>
   );
@@ -86,7 +95,7 @@ function CoreSelect({ value, onChange, options }: { value: any; onChange: (v: an
         const orig = options.find((o) => String(o[0]) === raw)?.[0];
         onChange(orig !== undefined ? orig : raw);
       }}
-      className={inputCls()}
+      className={inputCls}
     >
       {options.map((o) => (
         <option key={String(o[0])} value={String(o[0])}>{o[1]}</option>
@@ -96,12 +105,14 @@ function CoreSelect({ value, onChange, options }: { value: any; onChange: (v: an
 }
 
 function ParamRow({
-  k, spec, over, onOverChange,
+  k, spec, over, onOverChange, expanded, onToggle,
 }: {
   k: string;
   spec: { S: any; SUG: any; RNG: any; OPT: any; NOTE: any };
   over: Record<string, any>;
   onOverChange: (next: Record<string, any>) => void;
+  expanded: boolean;
+  onToggle: () => void;
 }) {
   const { S, SUG, RNG, OPT, NOTE } = spec;
   if (!(k in SUG)) return null;
@@ -111,7 +122,9 @@ function ParamRow({
 
   const isSet = over[k] !== undefined;
   const value = S[k];
+  const sug = SUG[k];
   const label = LABELS[k] || k;
+  const unit = UNITS[k] || '';
 
   const setOverride = (v: any) => onOverChange({ ...over, [k]: v });
   const resetToSuggested = () => {
@@ -120,49 +133,96 @@ function ParamRow({
     onOverChange(next);
   };
 
+  const displayValue = typeof value === 'number'
+    ? (Number.isInteger(value) ? String(value) : value.toFixed(2))
+    : String(value);
+  const sugDisplay = typeof sug === 'number'
+    ? (Number.isInteger(sug) ? String(sug) : sug.toFixed(2))
+    : String(sug);
+
   return (
-    <div className="space-y-1.5">
-      <div className="flex items-center justify-between gap-2">
-        <label className="text-[11px] font-semibold text-slate-600 uppercase tracking-wide">{label}</label>
-        <div className="flex items-center gap-2 shrink-0">
-          <span className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded ${isSet ? 'bg-blue-50 text-blue-600' : 'bg-emerald-50 text-emerald-600'}`}>
+    <div className="border-b border-line last:border-0">
+      <button
+        type="button"
+        onClick={onToggle}
+        className="w-full flex items-center justify-between gap-2 py-1.5 text-left"
+      >
+        <span className="text-[11px] text-ink2">{label}</span>
+        <span className="flex items-center gap-2 shrink-0">
+          <span className={`font-mono text-[11px] ${isSet ? 'text-amber' : 'text-ink'}`}>
+            {displayValue}<span className="text-steel ml-0.5">{unit}</span>
+          </span>
+          <span className={`text-[9px] font-display uppercase px-1 ${isSet ? 'text-amber' : 'text-patina'}`}>
             {isSet ? 'SET' : 'AUTO'}
           </span>
+        </span>
+      </button>
+
+      {expanded && (
+        <div className="pb-2 space-y-1.5">
+          {opts ? (
+            <select
+              value={String(value)}
+              onChange={(e) => {
+                const raw = e.target.value;
+                const orig = opts.find((o: any[]) => String(o[0]) === raw)?.[0];
+                setOverride(orig !== undefined ? orig : raw);
+              }}
+              className={inputCls}
+            >
+              {opts.map((o: any[]) => (
+                <option key={String(o[0])} value={String(o[0])}>
+                  {o[1]}{String(o[0]) === String(sug) ? ' ✓ suggested' : ''}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <div className="flex items-center gap-2">
+              <span className="font-mono text-[9px] text-steel">{range[0]}</span>
+              <input
+                type="range"
+                min={range[0]} max={range[1]} step={range[2] ?? 1}
+                value={value}
+                onChange={(e) => setOverride(Number(e.target.value))}
+                className="w-full accent-copper h-1"
+              />
+              <span className="font-mono text-[9px] text-steel">{range[1]}</span>
+              <input
+                type="number"
+                step={range[2] ?? 1}
+                value={value}
+                onChange={(e) => setOverride(Number(e.target.value))}
+                className="w-16 shrink-0 bg-white border border-rule rounded-[2px] p-1 text-ink font-mono text-[10px] text-center"
+              />
+            </div>
+          )}
+
+          {NOTE[k] && <p className="text-[10px] font-body text-steel leading-snug">{NOTE[k]}</p>}
+
           {isSet && (
             <button
               type="button"
               onClick={resetToSuggested}
-              className="text-[9px] font-semibold text-slate-400 hover:text-blue-600 underline underline-offset-2"
+              className="text-[10px] font-display uppercase tracking-[0.1em] text-patina"
             >
-              Back to suggested
+              Back to Suggested: {sugDisplay}
             </button>
           )}
         </div>
-      </div>
-
-      {opts ? (
-        <CoreSelect value={value} onChange={setOverride} options={opts} />
-      ) : (
-        <div className="flex items-center gap-3">
-          <input
-            type="range"
-            min={range[0]} max={range[1]} step={range[2] ?? 1}
-            value={value}
-            onChange={(e) => setOverride(Number(e.target.value))}
-            className="w-full accent-blue-600 h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer"
-          />
-          <input
-            type="number"
-            step={range[2] ?? 1}
-            value={value}
-            onChange={(e) => setOverride(Number(e.target.value))}
-            className="w-20 shrink-0 bg-white border border-slate-300 p-1.5 text-slate-900 font-mono text-xs rounded-md text-center"
-          />
-        </div>
       )}
-
-      {NOTE[k] && <p className="text-[10px] text-slate-400 leading-snug">{NOTE[k]}</p>}
     </div>
+  );
+}
+
+function GroupHeader({ title, expanded, onToggle }: { title: string; expanded: boolean; onToggle: () => void }) {
+  return (
+    <button
+      onClick={onToggle}
+      className="w-full flex items-center justify-between px-4 py-2 border-b border-line bg-white hover:bg-sheetAlt transition-colors"
+    >
+      <span className="text-[11px] font-display uppercase tracking-[0.16em] text-ink2">{title}</span>
+      <span className="font-display text-ink2 text-[13px] leading-none">{expanded ? '−' : '+'}</span>
+    </button>
   );
 }
 
@@ -170,6 +230,7 @@ export function TransformerForm({
   core, over, onCoreChange, onOverChange, projectName, onProjectNameChange,
 }: TransformerFormProps) {
   const [expandedSection, setExpandedSection] = useState<string>('rating');
+  const [expandedParams, setExpandedParams] = useState<Set<string>>(new Set());
 
   const spec = useMemo(() => deriveSpec(core, over), [core, over]);
 
@@ -179,31 +240,27 @@ export function TransformerForm({
     setExpandedSection(expandedSection === section ? '' : section);
   };
 
-  const SectionHeader = ({ id, title, icon: Icon }: { id: string; title: string; icon: any }) => (
-    <button
-      onClick={() => toggleSection(id)}
-      className="w-full flex items-center justify-between py-3 px-4 bg-slate-50 border-b border-slate-200 hover:bg-slate-100 transition-colors"
-    >
-      <div className="flex items-center gap-2">
-        <Icon className="w-4 h-4 text-blue-600" />
-        <span className="text-xs font-bold text-slate-800 uppercase tracking-wide">{title}</span>
-      </div>
-      {expandedSection === id ? <ChevronUp className="w-4 h-4 text-slate-500" /> : <ChevronDown className="w-4 h-4 text-slate-500" />}
-    </button>
-  );
+  const toggleParam = (k: string) => {
+    const next = new Set(expandedParams);
+    if (next.has(k)) next.delete(k); else next.add(k);
+    setExpandedParams(next);
+  };
 
   return (
-    <div className="border border-slate-200 rounded-lg overflow-hidden bg-white">
+    <div className="border border-rule rounded-[2px] overflow-hidden bg-white">
+      <div className="bg-plate text-plateTx text-[11px] font-display uppercase tracking-[0.16em] px-4 py-2">
+        Specification
+      </div>
 
       {/* Rating & enquiry -- the core object itself, no AUTO/SET here */}
       <div>
-        <SectionHeader id="rating" title="Rating & Enquiry" icon={Zap} />
+        <GroupHeader title="Rating & Enquiry" expanded={expandedSection === 'rating'} onToggle={() => toggleSection('rating')} />
         {expandedSection === 'rating' && (
-          <div className="p-4 space-y-4">
+          <div className="p-4 space-y-3">
             {/* Project metadata, not part of core/over -- disconnected until
                 the projects/revisions persistence phase (see App.tsx). */}
             <CoreField label="Project Name">
-              <input type="text" value={projectName} onChange={(e) => onProjectNameChange(e.target.value)} className={inputCls()} />
+              <input type="text" value={projectName} onChange={(e) => onProjectNameChange(e.target.value)} className={inputCls} />
             </CoreField>
             <CoreField label="Application">
               <CoreSelect value={core.application} onChange={(v) => setCore({ application: v })} options={APP_OPTS} />
@@ -212,35 +269,35 @@ export function TransformerForm({
               <CoreSelect value={core.standard} onChange={(v) => setCore({ standard: v })} options={STANDARD_OPTS} />
             </CoreField>
             <CoreField label="Rating (kVA)">
-              <input type="number" value={core.kva} onChange={(e) => setCore({ kva: Number(e.target.value) })} className={inputCls('font-mono')} />
+              <input type="number" value={core.kva} onChange={(e) => setCore({ kva: Number(e.target.value) })} className={inputCls} />
             </CoreField>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-2 gap-3">
               <CoreField label="HV (V)">
-                <input type="number" value={core.hv} onChange={(e) => setCore({ hv: Number(e.target.value) })} className={inputCls('font-mono')} />
+                <input type="number" value={core.hv} onChange={(e) => setCore({ hv: Number(e.target.value) })} className={inputCls} />
               </CoreField>
               <CoreField label="LV (V)">
-                <input type="number" value={core.lv} onChange={(e) => setCore({ lv: Number(e.target.value) })} className={inputCls('font-mono')} />
+                <input type="number" value={core.lv} onChange={(e) => setCore({ lv: Number(e.target.value) })} className={inputCls} />
               </CoreField>
             </div>
-            <label className="flex items-center gap-2 text-[11px] font-semibold text-slate-600 uppercase tracking-wide">
+            <label className={`flex items-center gap-2 ${labelCls}`}>
               <input type="checkbox" checked={!!core.dualHV} onChange={(e) => setCore({ dualHV: e.target.checked })} />
               Dual HV voltage
             </label>
             {core.dualHV && (
               <CoreField label="HV, second (V)">
-                <input type="number" value={core.hv2} onChange={(e) => setCore({ hv2: Number(e.target.value) })} className={inputCls('font-mono')} />
+                <input type="number" value={core.hv2} onChange={(e) => setCore({ hv2: Number(e.target.value) })} className={inputCls} />
               </CoreField>
             )}
-            <label className="flex items-center gap-2 text-[11px] font-semibold text-slate-600 uppercase tracking-wide">
+            <label className={`flex items-center gap-2 ${labelCls}`}>
               <input type="checkbox" checked={!!core.dualLV} onChange={(e) => setCore({ dualLV: e.target.checked })} />
               Dual LV voltage
             </label>
             {core.dualLV && (
               <CoreField label="LV, second (V)">
-                <input type="number" value={core.lv2} onChange={(e) => setCore({ lv2: Number(e.target.value) })} className={inputCls('font-mono')} />
+                <input type="number" value={core.lv2} onChange={(e) => setCore({ lv2: Number(e.target.value) })} className={inputCls} />
               </CoreField>
             )}
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-2 gap-3">
               <CoreField label="Frequency">
                 <CoreSelect value={core.freq} onChange={(v) => setCore({ freq: v })} options={FREQ_OPTS} />
               </CoreField>
@@ -262,19 +319,21 @@ export function TransformerForm({
       </div>
 
       {/* Every derived parameter: AUTO from deriveSpec, or SET by the user */}
-      {SECTIONS.map(({ id, title, icon, keys }) => (
+      {SECTIONS.map(({ id, title, keys }) => (
         <div key={id}>
-          <SectionHeader id={id} title={title} icon={icon} />
+          <GroupHeader title={title} expanded={expandedSection === id} onToggle={() => toggleSection(id)} />
           {expandedSection === id && (
-            <div className="p-4 space-y-4">
+            <div className="px-4">
               {keys.map((k) => (
-                <ParamRow key={k} k={k} spec={spec} over={over} onOverChange={onOverChange} />
+                <ParamRow
+                  key={k} k={k} spec={spec} over={over} onOverChange={onOverChange}
+                  expanded={expandedParams.has(k)} onToggle={() => toggleParam(k)}
+                />
               ))}
             </div>
           )}
         </div>
       ))}
-
     </div>
   );
 }

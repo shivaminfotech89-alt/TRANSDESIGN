@@ -139,6 +139,12 @@ const { design, bom, params, spec } = computeDesign(core, over, rates, extras);
 
 ## Style
 
+- **Visual design follows `DESIGN.md` exactly** — palette, type stacks, the
+  rating plate, parameter rows, tabs, cards and tables. It is the visual
+  specification, not a suggestion. Read it before touching any component's
+  markup or classes. Do not introduce Tailwind's default palette, icon
+  components, drop shadows, gradients, or rounded pill shapes — `DESIGN.md`
+  prohibits all of them explicitly.
 - British spelling in user-facing copy. Indian number formatting (`en-IN`,
   lakh and crore) for currency.
 - No em dashes in UI copy.

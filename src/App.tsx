@@ -1,8 +1,8 @@
 import React, { useMemo, useState } from 'react';
 import { TransformerForm } from './components/TransformerForm';
 import { ResultsDisplay } from './components/ResultsDisplay';
-import { computeDesign, ESSENTIALS, DEFAULT_RATES } from '@/packages/engine';
-import { Zap, Activity, Plus } from 'lucide-react';
+import { RatingPlate } from './components/RatingPlate';
+import { computeDesign, ESSENTIALS, DEFAULT_RATES, STANDARDS } from '@/packages/engine';
 
 // TODO(persistence): NewProjectModal.tsx still exists but is intentionally
 // unwired -- its output shape (kVA, hvVoltage, referenceStandard,
@@ -31,57 +31,55 @@ export default function App() {
   // number> this state actually needs to be. Cast at this one boundary rather
   // than propagating that accidental strictness through the app.
   const result = useMemo(() => computeDesign(core, over, rates as any, []), [core, over, rates]);
+  const standardName = STANDARDS[core.standard]?.name || core.standard;
 
   return (
-    <div className="min-h-screen lg:h-screen bg-slate-50 text-slate-900 flex flex-col font-sans">
-      <header className="h-16 border-b border-slate-200 bg-white flex items-center justify-between px-6 shrink-0 print:hidden sticky top-0 z-10 shadow-sm">
-        <div className="flex items-center gap-4">
-          <div className="w-10 h-10 bg-blue-600 flex items-center justify-center rounded-lg shadow-sm">
-            <Zap className="w-5 h-5 text-white" />
-          </div>
+    <div className="min-h-screen text-ink font-body">
+      <div className="max-w-[1500px] mx-auto p-4 space-y-4">
+
+        <header className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-2 print:hidden">
           <div>
-            <h1 className="text-sm font-bold tracking-tight text-slate-900">
-              TransDesign Engine <span className="text-blue-600 font-mono ml-1">v4.02</span>
+            <div className="text-[10px] font-display uppercase tracking-[0.4em] text-copper">Design Office</div>
+            <h1 className="text-[30px] font-display uppercase text-ink leading-none mt-1">
+              Transformer Design &amp; Costing
             </h1>
-            <p className="text-[11px] text-slate-500 font-medium flex items-center gap-2">
-              <span>{projectName}</span>
-              <span className="text-slate-300">|</span>
-              <span>{core.kva} kVA, {core.hv / 1000} kV / {core.lv} V, {core.vector}</span>
-            </p>
           </div>
-        </div>
-        <div className="hidden md:flex items-center gap-6 text-[12px] font-medium text-slate-600">
-          <button onClick={handleNewProject} className="flex items-center gap-2 px-3 py-1.5 bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-md font-bold text-xs transition-colors border border-blue-200 shadow-sm mr-2">
-            <Plus className="w-4 h-4" /> NEW PROJECT
+          <div className="text-right font-mono text-[10px] text-ink2 leading-relaxed">
+            <div>{standardName}</div>
+            <div>All figures in Indian Rupees</div>
+          </div>
+        </header>
+
+        <RatingPlate design={result.design} bom={result.bom} params={result.params} />
+
+        <div className="flex items-center justify-between gap-4 bg-white border border-rule rounded-[2px] px-4 py-2 print:hidden">
+          <div className="text-[11px] text-ink2">
+            <span className="font-mono text-ink">{projectName}</span>
+          </div>
+          <button
+            onClick={handleNewProject}
+            className="font-display uppercase text-[11px] tracking-[0.14em] px-3 py-1.5 rounded-[2px] bg-copper text-white"
+          >
+            New Project
           </button>
-          <div className="flex items-center gap-2">
-            <Activity className="w-4 h-4 text-emerald-500" />
-            <span className="text-emerald-600 font-semibold">SYSTEM READY</span>
-          </div>
-          <div className="text-slate-400">IEC 60076 / IEEE C57 COMPLIANT</div>
-          <div className="px-3 py-1 bg-slate-100 rounded-md text-slate-500 border border-slate-200">
-            AUTH: ENGINEER_SYS_01
-          </div>
         </div>
-      </header>
 
-      <main className="flex-1 flex flex-col lg:flex-row lg:overflow-hidden print:overflow-visible print:block">
-        <aside className="w-full lg:w-[400px] shrink-0 border-r border-slate-200 bg-white p-6 lg:overflow-y-auto print:hidden shadow-[4px_0_24px_rgba(0,0,0,0.02)] z-0">
-          <TransformerForm
-            core={core} over={over} onCoreChange={setCore} onOverChange={setOver}
-            projectName={projectName} onProjectNameChange={setProjectName}
-          />
-        </aside>
+        <main className="grid grid-cols-1 lg:grid-cols-[340px_1fr] gap-4">
+          <aside className="print:hidden">
+            <TransformerForm
+              core={core} over={over} onCoreChange={setCore} onOverChange={setOver}
+              projectName={projectName} onProjectNameChange={setProjectName}
+            />
+          </aside>
 
-        <section className="flex-1 p-6 lg:p-8 lg:overflow-y-auto bg-slate-50 print:overflow-visible print:block print:bg-white print:p-0">
-          <div className="max-w-6xl mx-auto">
+          <section>
             <ResultsDisplay
               design={result.design} bom={result.bom} params={result.params}
               rates={rates} onRatesChange={setRates}
             />
-          </div>
-        </section>
-      </main>
+          </section>
+        </main>
+      </div>
     </div>
   );
 }
