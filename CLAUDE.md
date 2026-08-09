@@ -145,6 +145,11 @@ const { design, bom, params, spec } = computeDesign(core, over, rates, extras);
   markup or classes. Do not introduce Tailwind's default palette, icon
   components, drop shadows, gradients, or rounded pill shapes — `DESIGN.md`
   prohibits all of them explicitly.
+- **Parametric editing follows `SOLVER.md` exactly** — the four parameter
+  classes, the pin registry and conflict rules, solver behaviour, and the
+  Design Impact Summary. Implement it in the order given in its section 6.
+  Never let a user set two pins that solve through the same lever without
+  asking which to release first.
 - British spelling in user-facing copy. Indian number formatting (`en-IN`,
   lakh and crore) for currency.
 - No em dashes in UI copy.

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { calcSheet, inr } from '@/packages/engine';
+import { Card, DataRow, CheckMark, Button, cardCls, cardHeaderCls, cardTitleCls, cardSubtitleCls, cardBodyCls, thCls, tdCls } from './ui';
 
 interface ResultsDisplayProps {
   design: any;
@@ -21,48 +22,12 @@ const TABS: { id: Tab; label: string; pending?: boolean }[] = [
   { id: '3d-model', label: '3D CAD Model', pending: true },
 ];
 
-const cardCls = 'bg-white border border-rule rounded-[2px]';
-const cardHeaderCls = 'bg-sheetAlt border-b border-line px-3 py-2 flex items-center justify-between';
-const cardTitleCls = 'text-[11px] font-display uppercase tracking-[0.18em] text-ink';
-const cardSubtitleCls = 'font-mono text-[10px] text-steel';
-const cardBodyCls = 'px-3 py-2';
-const thCls = 'bg-sheetAlt text-[10px] font-display uppercase tracking-[0.14em] text-ink2 text-left py-1.5 px-2';
-const tdCls = 'py-1.5 px-2 border-b border-line';
-
-function Card({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
-  return (
-    <div className={cardCls}>
-      <div className={cardHeaderCls}>
-        <span className={cardTitleCls}>{title}</span>
-        {subtitle && <span className={cardSubtitleCls}>{subtitle}</span>}
-      </div>
-      <div className={cardBodyCls}>{children}</div>
-    </div>
-  );
-}
-
 function Pending({ label }: { label: string }) {
   return (
     <div className="border border-dashed border-rule rounded-[2px] bg-white p-8 text-center text-[11px] font-body text-steel">
       {label} still reads the old engine's output shape and has not been rewired to computeDesign yet.
     </div>
   );
-}
-
-function DataRow({ label, value, unit, tone = 'ink' }: { label: string; value: string; unit?: string; tone?: 'ink' | 'copper' | 'alert' }) {
-  const toneCls: Record<string, string> = { ink: 'text-ink', copper: 'text-copper', alert: 'text-alert' };
-  return (
-    <div className="flex items-baseline justify-between py-1.5 border-b border-dashed border-line last:border-0">
-      <span className="text-[11px] text-ink2">{label}</span>
-      <span className={`font-mono text-[11px] font-semibold ${toneCls[tone]}`}>
-        {value}{unit && <span className="font-normal text-steel ml-1">{unit}</span>}
-      </span>
-    </div>
-  );
-}
-
-function CheckMark({ ok }: { ok: boolean }) {
-  return <span className={ok ? 'text-good' : 'text-alert'}>{ok ? '✓' : '✗'}</span>;
 }
 
 function RateField({ label, k, rates, onRatesChange }: { label: string; k: string; rates: Record<string, number>; onRatesChange: (r: Record<string, number>) => void }) {
@@ -121,19 +86,10 @@ export function ResultsDisplay({ design, bom, params, rates, onRatesChange }: Re
             ))}
           </div>
           <div className="flex gap-2">
-            <button
-              onClick={handleSaveToCloud}
-              disabled={isSaving}
-              className="font-display uppercase text-[11px] tracking-[0.14em] px-3 py-1.5 rounded-[2px] bg-patina text-white disabled:bg-steel"
-            >
+            <Button variant="confirm" onClick={handleSaveToCloud} disabled={isSaving}>
               {saveSuccess ? 'Saved' : isSaving ? 'Saving' : 'Save'}
-            </button>
-            <button
-              onClick={generatePDF}
-              className="font-display uppercase text-[11px] tracking-[0.14em] px-3 py-1.5 rounded-[2px] bg-copper text-white"
-            >
-              PDF Report
-            </button>
+            </Button>
+            <Button variant="primary" onClick={generatePDF}>PDF Report</Button>
           </div>
         </div>
 

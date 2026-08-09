@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import {
   deriveSpec, APPS, STANDARDS, EFF_LEVELS, CONDUCTORS,
 } from '@/packages/engine';
+import { labelCls, inputCls } from './ui';
 
 interface TransformerFormProps {
   core: any;
@@ -73,9 +74,6 @@ const MEDIUM_OPTS = [['oil', 'Oil immersed'], ['dry', 'Dry type']];
 const COND_PREF_OPTS = [['auto', 'Auto, from rating and efficiency level'], ...Object.entries(CONDUCTORS).map(([k, v]: [string, any]) => [k, v.name])];
 const VECTOR_OPTS = [['Dyn11', 'Dyn11'], ['Yyn0', 'Yyn0'], ['YNd11', 'YNd11'], ['Dd0', 'Dd0']];
 const FREQ_OPTS = [[50, '50 Hz'], [60, '60 Hz']];
-
-const labelCls = 'text-[11px] font-display uppercase tracking-[0.1em] text-ink2';
-const inputCls = 'w-full bg-white border border-rule rounded-[2px] px-2 py-1.5 text-ink font-mono text-[11px] focus:outline-none focus:border-copper';
 
 function CoreField({ label, children }: { label: string; children: React.ReactNode }) {
   return (

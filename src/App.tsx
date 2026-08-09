@@ -2,13 +2,23 @@ import React, { useMemo, useState } from 'react';
 import { TransformerForm } from './components/TransformerForm';
 import { ResultsDisplay } from './components/ResultsDisplay';
 import { RatingPlate } from './components/RatingPlate';
+import { PinPanel } from './components/PinPanel';
+import { Button } from './components/ui';
 import { computeDesign, ESSENTIALS, DEFAULT_RATES, STANDARDS } from '@/packages/engine';
+import {
+  CLASS_B_TARGETS, OVER_KEY_LEVER, findConflictForPin, findConflictForOverride,
+  type PinSet, type Conflict,
+} from './lib/pinRegistry';
 
 // TODO(persistence): NewProjectModal.tsx still exists but is intentionally
 // unwired -- its output shape (kVA, hvVoltage, referenceStandard,
 // targetImpedance...) predates core/over. It becomes the quotation/project
 // creation flow once orgs/projects/revisions land (TASKS.md item 5), driven
 // off ProjectMeta (lib/types.ts) rather than the engine's own enquiry shape.
+
+type PendingConflict =
+  | { kind: 'pin'; targetId: string; value: number; conflict: Conflict }
+  | { kind: 'override'; overKey: string; value: any; conflict: Conflict };
 
 export default function App() {
   const [core, setCore] = useState<any>(ESSENTIALS);
@@ -20,10 +30,67 @@ export default function App() {
   // land (TASKS.md item 5). Local-only for now, disconnected from any storage.
   const [projectName, setProjectName] = useState('Untitled Design');
 
+  // SOLVER.md step 1: the pin registry. No solving happens against these yet --
+  // pinning a Class B target only registers intent and checks for conflicts.
+  const [pins, setPins] = useState<PinSet>({});
+  const [pendingConflict, setPendingConflict] = useState<PendingConflict | null>(null);
+
   const handleNewProject = () => {
     setCore(ESSENTIALS);
     setOver({});
     setProjectName('Untitled Design');
+    setPins({});
+    setPendingConflict(null);
+  };
+
+  // A Class A row (flux, deltaLV, deltaHV, etK, oilRiseTarget) is also a lever.
+  // If a Class B pin already claims that lever, block the direct edit and ask,
+  // per SOLVER.md section 2 rule 2 -- do not guess which one wins.
+  const handleOverChange = (nextOver: Record<string, any>) => {
+    for (const overKey of Object.keys(OVER_KEY_LEVER)) {
+      const changed = nextOver[overKey] !== over[overKey] && nextOver[overKey] !== undefined;
+      if (!changed) continue;
+      const conflict = findConflictForOverride(overKey, pins);
+      if (conflict) {
+        setPendingConflict({ kind: 'override', overKey, value: nextOver[overKey], conflict });
+        return;
+      }
+    }
+    setOver(nextOver);
+  };
+
+  const requestPin = (targetId: string, value: number) => {
+    const conflict = findConflictForPin(targetId, pins, over);
+    if (conflict) {
+      setPendingConflict({ kind: 'pin', targetId, value, conflict });
+      return;
+    }
+    setPins({ ...pins, [targetId]: { targetId, value } });
+  };
+
+  const releasePin = (targetId: string) => {
+    const next = { ...pins };
+    delete next[targetId];
+    setPins(next);
+  };
+
+  const resolveConflict = (release: boolean) => {
+    if (pendingConflict && release) {
+      const nextPins = { ...pins };
+      const nextOver = { ...over };
+      for (const h of pendingConflict.conflict.holders) {
+        if (h.kind === 'pin') delete nextPins[h.targetId];
+        else delete nextOver[h.overKey];
+      }
+      if (pendingConflict.kind === 'pin') {
+        nextPins[pendingConflict.targetId] = { targetId: pendingConflict.targetId, value: pendingConflict.value };
+      } else {
+        nextOver[pendingConflict.overKey] = pendingConflict.value;
+      }
+      setPins(nextPins);
+      setOver(nextOver);
+    }
+    setPendingConflict(null);
   };
 
   // packages/engine is plain JS; TS infers DEFAULT_RATES's exact literal shape
@@ -56,18 +123,33 @@ export default function App() {
           <div className="text-[11px] text-ink2">
             <span className="font-mono text-ink">{projectName}</span>
           </div>
-          <button
-            onClick={handleNewProject}
-            className="font-display uppercase text-[11px] tracking-[0.14em] px-3 py-1.5 rounded-[2px] bg-copper text-white"
-          >
-            New Project
-          </button>
+          <Button variant="primary" onClick={handleNewProject}>New Project</Button>
         </div>
 
+        {pendingConflict && (
+          <div className="bg-white border border-amber rounded-[2px] px-4 py-3 print:hidden">
+            <div className="text-[11px] font-display uppercase tracking-[0.14em] text-amber mb-1">
+              Pin Conflict, {pendingConflict.conflict.leverLabel}
+            </div>
+            <p className="text-[11px] text-ink2 mb-2">
+              {pendingConflict.kind === 'pin'
+                ? `Pinning ${CLASS_B_TARGETS.find((t) => t.id === pendingConflict.targetId)?.label} needs ${pendingConflict.conflict.leverLabel}, `
+                : `Setting ${pendingConflict.overKey} directly needs ${pendingConflict.conflict.leverLabel}, `}
+              which is already claimed by {pendingConflict.conflict.holders.map((h) => h.label).join(', ')}.
+              Release {pendingConflict.conflict.holders.length > 1 ? 'them' : 'it'} to proceed, or cancel.
+            </p>
+            <div className="flex gap-2">
+              <Button variant="primary" onClick={() => resolveConflict(true)}>Release and Apply</Button>
+              <Button variant="secondary" onClick={() => resolveConflict(false)}>Cancel</Button>
+            </div>
+          </div>
+        )}
+
         <main className="grid grid-cols-1 lg:grid-cols-[340px_1fr] gap-4">
-          <aside className="print:hidden">
+          <aside className="print:hidden space-y-4">
+            <PinPanel pins={pins} over={over} onRequestPin={requestPin} onReleasePin={releasePin} />
             <TransformerForm
-              core={core} over={over} onCoreChange={setCore} onOverChange={setOver}
+              core={core} over={over} onCoreChange={setCore} onOverChange={handleOverChange}
               projectName={projectName} onProjectNameChange={setProjectName}
             />
           </aside>
