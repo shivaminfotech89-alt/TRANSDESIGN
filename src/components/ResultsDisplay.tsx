@@ -5,6 +5,7 @@ import { Drawings2D } from './Drawings2D';
 import { CadViewerTab } from './cad/CadViewerTab';
 import { DocumentsTab } from './documents/DocumentsTab';
 import { BudgetTab } from './budget/BudgetTab';
+import { CompareQuoteTab } from './compare/CompareQuoteTab';
 
 interface ResultsDisplayProps {
   core: any;
@@ -26,13 +27,14 @@ interface ResultsDisplayProps {
   onSelectPreview: (candidate: any | null) => void;
 }
 
-type Tab = 'overview' | 'calculations' | 'bom' | 'winding' | 'core' | 'drawings' | 'reports' | '3d-model' | 'budget';
+type Tab = 'overview' | 'calculations' | 'bom' | 'winding' | 'core' | 'drawings' | 'reports' | '3d-model' | 'budget' | 'compare';
 
 const TABS: { id: Tab; label: string; pending?: boolean }[] = [
   { id: 'overview', label: 'Overview' },
   { id: 'calculations', label: 'Calculations' },
   { id: 'bom', label: 'BOM & Cost' },
   { id: 'budget', label: 'Fit to Budget' },
+  { id: 'compare', label: 'Compare & Quote' },
   { id: 'winding', label: 'Winding Design' },
   { id: 'core', label: 'Core Parts' },
   { id: 'drawings', label: '2D Drawings' },
@@ -297,6 +299,18 @@ export function ResultsDisplay({
             <BudgetTab
               design={liveDesign} bom={liveBom} params={liveParams} rates={rates}
               activePreviewKey={activePreviewKey} onSelectPreview={onSelectPreview}
+            />
+          )}
+
+          {/* COMPARE & QUOTE -- current working design (liveDesign/liveBom) vs
+              whatever is currently previewed (design/bom/params, which equal
+              the live ones when nothing is previewed -- the tab shows a
+              placeholder in that case instead of comparing a design to itself). */}
+          {activeTab === 'compare' && (
+            <CompareQuoteTab
+              liveDesign={liveDesign} liveBom={liveBom}
+              design={design} bom={bom} params={params}
+              activePreviewKey={activePreviewKey}
             />
           )}
 
