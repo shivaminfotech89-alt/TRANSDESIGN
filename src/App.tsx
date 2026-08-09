@@ -403,7 +403,8 @@ export default function App() {
 
           <section>
             <ResultsDisplay
-              design={result.design} bom={result.bom} params={result.params}
+              core={core} design={result.design} bom={result.bom} params={result.params}
+              project={buildMeta(projectName)}
               rates={rates} onRatesChange={setRates}
             />
           </section>

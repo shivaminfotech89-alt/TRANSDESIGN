@@ -3,11 +3,14 @@ import { calcSheet, inr } from '@/packages/engine';
 import { Card, DataRow, DerivedRow, CheckMark, Button, cardCls, cardHeaderCls, cardTitleCls, cardSubtitleCls, cardBodyCls, thCls, tdCls } from './ui';
 import { Drawings2D } from './Drawings2D';
 import { CadViewerTab } from './cad/CadViewerTab';
+import { DocumentsTab } from './documents/DocumentsTab';
 
 interface ResultsDisplayProps {
+  core: any;
   design: any;
   bom: any;
   params: any;
+  project: any;
   rates: Record<string, number>;
   onRatesChange: (rates: Record<string, number>) => void;
 }
@@ -21,17 +24,9 @@ const TABS: { id: Tab; label: string; pending?: boolean }[] = [
   { id: 'winding', label: 'Winding Design' },
   { id: 'core', label: 'Core Parts' },
   { id: 'drawings', label: '2D Drawings' },
-  { id: 'reports', label: 'Reports & Docs', pending: true },
+  { id: 'reports', label: 'Reports & Docs' },
   { id: '3d-model', label: '3D CAD Model' },
 ];
-
-function Pending({ label }: { label: string }) {
-  return (
-    <div className="border border-dashed border-rule rounded-[2px] bg-white p-8 text-center text-[11px] font-body text-steel">
-      {label} still reads the old engine's output shape and has not been rewired to computeDesign yet.
-    </div>
-  );
-}
 
 function RateField({ label, k, rates, onRatesChange }: { label: string; k: string; rates: Record<string, number>; onRatesChange: (r: Record<string, number>) => void }) {
   return (
@@ -47,7 +42,7 @@ function RateField({ label, k, rates, onRatesChange }: { label: string; k: strin
   );
 }
 
-export function ResultsDisplay({ design, bom, params, rates, onRatesChange }: ResultsDisplayProps) {
+export function ResultsDisplay({ core, design, bom, params, project, rates, onRatesChange }: ResultsDisplayProps) {
   const [activeTab, setActiveTab] = useState<Tab>('overview');
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
@@ -375,7 +370,9 @@ export function ResultsDisplay({ design, bom, params, rates, onRatesChange }: Re
             </div>
           )}
           {activeTab === 'drawings' && <Drawings2D design={design} params={params} />}
-          {activeTab === 'reports' && <Pending label="Reports & Docs" />}
+          {activeTab === 'reports' && (
+            <DocumentsTab core={core} design={design} bom={bom} params={params} project={project} />
+          )}
           {activeTab === '3d-model' && <CadViewerTab design={design} params={params} />}
         </div>
       </div>

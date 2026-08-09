@@ -7,7 +7,7 @@ interface RatingPlateProps {
   params: any;
 }
 
-function BoltHead({ corner }: { corner: 'tl' | 'tr' | 'bl' | 'br' }) {
+export function BoltHead({ corner }: { corner: 'tl' | 'tr' | 'bl' | 'br' }) {
   const pos: Record<string, string> = {
     tl: 'top-2 left-2', tr: 'top-2 right-2', bl: 'bottom-2 left-2', br: 'bottom-2 right-2',
   };
