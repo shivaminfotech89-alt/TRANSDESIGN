@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { calcSheet, inr } from '@/packages/engine';
 import { Card, DataRow, DerivedRow, CheckMark, Button, cardCls, cardHeaderCls, cardTitleCls, cardSubtitleCls, cardBodyCls, thCls, tdCls } from './ui';
+import { Drawings2D } from './Drawings2D';
 
 interface ResultsDisplayProps {
   design: any;
@@ -10,7 +11,7 @@ interface ResultsDisplayProps {
   onRatesChange: (rates: Record<string, number>) => void;
 }
 
-type Tab = 'overview' | 'calculations' | 'bom' | 'winding' | 'core' | 'reports' | '3d-model';
+type Tab = 'overview' | 'calculations' | 'bom' | 'winding' | 'core' | 'drawings' | 'reports' | '3d-model';
 
 const TABS: { id: Tab; label: string; pending?: boolean }[] = [
   { id: 'overview', label: 'Overview' },
@@ -18,6 +19,7 @@ const TABS: { id: Tab; label: string; pending?: boolean }[] = [
   { id: 'bom', label: 'BOM & Cost' },
   { id: 'winding', label: 'Winding Design' },
   { id: 'core', label: 'Core Parts' },
+  { id: 'drawings', label: '2D Drawings' },
   { id: 'reports', label: 'Reports & Docs', pending: true },
   { id: '3d-model', label: '3D CAD Model', pending: true },
 ];
@@ -371,6 +373,7 @@ export function ResultsDisplay({ design, bom, params, rates, onRatesChange }: Re
               </Card>
             </div>
           )}
+          {activeTab === 'drawings' && <Drawings2D design={design} params={params} />}
           {activeTab === 'reports' && <Pending label="Reports & Docs" />}
           {activeTab === '3d-model' && <Pending label="3D CAD Model" />}
         </div>
