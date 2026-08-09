@@ -9,6 +9,7 @@ import {
   CLASS_B_TARGETS, OVER_KEY_LEVER, findConflictForPin, findConflictForOverride,
   type PinSet, type Conflict,
 } from './lib/pinRegistry';
+import { solveAllPins } from './lib/classBSolver';
 
 // TODO(persistence): NewProjectModal.tsx still exists but is intentionally
 // unwired -- its output shape (kVA, hvVoltage, referenceStandard,
@@ -93,11 +94,25 @@ export default function App() {
     setPendingConflict(null);
   };
 
-  // packages/engine is plain JS; TS infers DEFAULT_RATES's exact literal shape
-  // from its default parameter, which is stricter than the editable Record<string,
-  // number> this state actually needs to be. Cast at this one boundary rather
-  // than propagating that accidental strictness through the app.
-  const result = useMemo(() => computeDesign(core, over, rates as any, []), [core, over, rates]);
+  // SOLVER.md step 3: solve every active pin against the design. Pins never
+  // share a lever (conflict detection above guarantees that), but a pin can
+  // still shift the design a different pin is evaluated against -- pinning
+  // core diameter changes the window, which changes load loss. solveAllPins
+  // re-solves in registration order until every pin's achieved value stops
+  // moving, or gives up after 5 passes and says which pins are still
+  // fighting rather than presenting an unsettled pass as final.
+  const { result, solveResults, solveConverged, solveFighting } = useMemo(() => {
+    // packages/engine is plain JS; TS infers DEFAULT_RATES's exact literal shape
+    // from its default parameter, which is stricter than the editable Record<string,
+    // number> this state actually needs to be. Cast at this one boundary rather
+    // than propagating that accidental strictness through the app.
+    const solved = solveAllPins(pins, core, over, rates as any);
+    const result = computeDesign(core, solved.effectiveOver, rates as any, []);
+    return {
+      result, solveResults: solved.results,
+      solveConverged: solved.converged, solveFighting: solved.fighting,
+    };
+  }, [core, over, rates, pins]);
   const standardName = STANDARDS[core.standard]?.name || core.standard;
 
   return (
@@ -147,7 +162,11 @@ export default function App() {
 
         <main className="grid grid-cols-1 lg:grid-cols-[340px_1fr] gap-4">
           <aside className="print:hidden space-y-4">
-            <PinPanel pins={pins} over={over} onRequestPin={requestPin} onReleasePin={releasePin} />
+            <PinPanel
+              pins={pins} over={over} solveResults={solveResults}
+              converged={solveConverged} fighting={solveFighting}
+              onRequestPin={requestPin} onReleasePin={releasePin}
+            />
             <TransformerForm
               core={core} over={over} onCoreChange={setCore} onOverChange={handleOverChange}
               projectName={projectName} onProjectNameChange={setProjectName}
