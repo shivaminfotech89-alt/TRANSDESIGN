@@ -3,6 +3,7 @@ import {
   deriveSpec, APPS, STANDARDS, EFF_LEVELS, CONDUCTORS,
 } from '@/packages/engine';
 import { labelCls, inputCls } from './ui';
+import { LABELS, UNITS } from '../lib/paramLabels';
 
 interface TransformerFormProps {
   core: any;
@@ -14,46 +15,6 @@ interface TransformerFormProps {
   projectName: string;
   onProjectNameChange: (name: string) => void;
 }
-
-/* Friendly labels for deriveSpec's keys. Anything missing here falls back to
-   the raw key name, which is how you notice a new deriveSpec parameter that
-   needs one added. */
-const LABELS: Record<string, string> = {
-  umHV: 'Um, HV', bilHV: 'BIL, HV', acHV: 'AC withstand, HV',
-  umLV: 'Um, LV', bilLV: 'BIL, LV', acLV: 'AC withstand, LV',
-  dryType: 'Dry-type construction', fluid: 'Insulating fluid', insClass: 'Insulation class',
-  cooling: 'Cooling', tankType: 'Tank type', oilRiseTarget: 'Rise target',
-  refTemp: 'Loss reference temperature', ambient: 'Ambient, maximum', ambientAvg: 'Ambient, yearly average',
-  limitNLL: 'No-load loss limit', limitLL: 'Load loss limit', targetZ: 'Target impedance', zTol: 'Impedance tolerance',
-  coreGrade: 'Core steel grade', coreType: 'Core / joint construction', buildFactor: 'Building factor',
-  flux: 'Flux density', steps: 'Core steps', etK: 'Volts-per-turn constant (K)', aspect: 'Window aspect ratio',
-  autoWindow: 'Solve window height for impedance', autoFit: 'Fit flux / current density to loss limits',
-  windowSpace: 'Window space factor numerator',
-  condLV: 'LV conductor material', condHV: 'HV conductor material',
-  deltaLV: 'LV current density', deltaHV: 'HV current density', stray: 'Stray loss allowance',
-  tapType: 'Tap changer type', tapPlus: 'Tap range above normal', tapMinus: 'Tap range below normal', tapStep: 'Tap step size',
-  coreLvClr: 'Core to LV clearance', lvHvClr: 'LV to HV clearance', phaseClr: 'Phase to phase clearance',
-  endClrLV: 'LV end clearance', endClrHV: 'HV end clearance', hvTankClr: 'HV to tank clearance',
-  endTankClr: 'End to tank clearance', cylThk: 'Insulating cylinder thickness',
-  lvIns: 'LV interturn insulation', hvPaper: 'HV conductor paper covering', hvInterlayer: 'HV interlayer insulation',
-  insFactor: 'Insulation mass factor', topOilSpace: 'Top oil / lead space', bottomClr: 'Bottom clearance',
-  finDiss: 'Fin/radiator dissipation @50K', tankDiss: 'Tank wall dissipation @50K', airDiss: 'Dry-type coil dissipation coefficient',
-  tariff: 'Energy tariff', years: 'Evaluation period', loadFactor: 'Average load factor', pf: 'Power factor',
-};
-
-/* Compact units shown next to the collapsed value. */
-const UNITS: Record<string, string> = {
-  umHV: 'kV', bilHV: 'kVp', acHV: 'kV', umLV: 'kV', bilLV: 'kVp', acLV: 'kV',
-  oilRiseTarget: 'K', refTemp: '°C', ambient: '°C', ambientAvg: '°C',
-  limitNLL: 'W', limitLL: 'W', targetZ: '%', zTol: '%', buildFactor: '×', flux: 'T',
-  etK: '', aspect: '', windowSpace: '', deltaLV: 'A/mm²', deltaHV: 'A/mm²', stray: '%',
-  tapPlus: '%', tapMinus: '%', tapStep: '%',
-  coreLvClr: 'mm', lvHvClr: 'mm', phaseClr: 'mm', endClrLV: 'mm', endClrHV: 'mm',
-  hvTankClr: 'mm', endTankClr: 'mm', cylThk: 'mm',
-  lvIns: 'mm', hvPaper: 'mm', hvInterlayer: 'mm', insFactor: '×', topOilSpace: 'mm',
-  bottomClr: 'mm', finDiss: 'W/m²', tankDiss: 'W/m²', airDiss: '',
-  tariff: '₹/kWh', years: 'yr', loadFactor: '', pf: '',
-};
 
 const SECTIONS: { id: string; title: string; keys: string[] }[] = [
   { id: 'insulation', title: 'Insulation Levels', keys: ['umHV', 'bilHV', 'acHV', 'umLV', 'bilLV', 'acLV'] },

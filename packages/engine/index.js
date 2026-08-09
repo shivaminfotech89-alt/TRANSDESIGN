@@ -778,9 +778,54 @@ function impacts(a, ba, b, bb, p) {
     });
   }
 
+  /* SOLVER.md section 4: compliance detail, every check that changed state --
+     not just the aggregate `compliant` verdict above, which can stay the same
+     while one check starts failing and another starts passing. */
+  const complianceLabel = { nll: "No-load loss", ll: "Load loss", total: "Total loss", z: "Impedance", rise: "Top rise", wRise: "Winding rise", ratio: "Ratio error", volley: "Interlayer voltage" };
+  const flippedChecks = Object.keys(complianceLabel).filter((k) => a.compliance[k].ok !== b.compliance[k].ok);
+  if (flippedChecks.length) {
+    out.push({
+      k: "Compliance", good: b.compliant || (!a.compliant && flippedChecks.some((k) => !a.compliance[k].ok && b.compliance[k].ok)),
+      from: flippedChecks.map((k) => `${complianceLabel[k]} ${a.compliance[k].ok ? "passed" : "failed"}`).join(", "),
+      to: flippedChecks.map((k) => `${complianceLabel[k]} ${b.compliance[k].ok ? "passes" : "fails"}`).join(", "),
+      body: `${flippedChecks.length} check${flippedChecks.length > 1 ? "s" : ""} changed state. Overall verdict: ${a.compliant ? "was compliant" : "was not compliant"}, now ${b.compliant ? "compliant" : "not compliant"}.`,
+    });
+  }
+
+  /* Weight impact: core, conductor, total. */
+  const totalMass = (d) => d.wCore + d.wLV + d.wHV + d.wIns + d.wFrame + d.wTank + d.wFin + d.wEnclosure + d.fluidLitres * d.fluid.dens;
+  const aMass = totalMass(a), bMass = totalMass(b);
+  const aCond = a.wLV + a.wHV, bCond = b.wLV + b.wHV;
+  if (Math.abs(bMass - aMass) > 1) {
+    out.push({
+      k: "Weight", from: f0(aMass) + " kg total", to: f0(bMass) + " kg total", good: bMass < aMass,
+      body: `Core ${f0(a.wCore)} to ${f0(b.wCore)} kg, conductor ${f0(aCond)} to ${f0(bCond)} kg, total ${f0(aMass)} to ${f0(bMass)} kg. ${bMass > aMass ? "Heavier active part \u2014 check crane, foundation loading and transport limits." : "Lighter active part eases handling and transport."}`,
+    });
+  }
+
+  /* Loss impact: no-load, load, and the life-cycle energy cost of the difference. */
+  if (Math.abs(dNLL) > 1 || Math.abs(dLL) > 1) {
+    const dNllEnergyCost = (dNLL * 8760 * p.years * p.tariff) / 1000;
+    const dLlEnergyCost = (dLL * p.loadFactor * p.loadFactor * 8760 * p.years * p.tariff) / 1000;
+    const dLossEnergyCost = dNllEnergyCost + dLlEnergyCost;
+    out.push({
+      k: "Losses", from: `${f0(a.noLoad)} W no-load, ${f0(a.loadLoss)} W load`, to: `${f0(b.noLoad)} W no-load, ${f0(b.loadLoss)} W load`, good: dNLL + dLL <= 0,
+      body: `No-load ${dNLL >= 0 ? "up" : "down"} ${f0(Math.abs(dNLL))} W, load ${dLL >= 0 ? "up" : "down"} ${f0(Math.abs(dLL))} W. Over ${p.years} years at \u20B9${p.tariff}/kWh this difference alone is worth ${inr(Math.abs(dLossEnergyCost))} ${dLossEnergyCost <= 0 ? "saved" : "spent"}.`,
+    });
+  }
+
+  /* Efficiency impact at full and half load. */
+  if (Math.abs(b.eff100 - a.eff100) > 0.005 || Math.abs(b.eff50 - a.eff50) > 0.005) {
+    out.push({
+      k: "Efficiency", from: `${f3(a.eff100)}% full, ${f3(a.eff50)}% half`, to: `${f3(b.eff100)}% full, ${f3(b.eff50)}% half`, good: b.eff100 >= a.eff100,
+      body: `Full-load efficiency ${b.eff100 >= a.eff100 ? "improves" : "drops"} by ${f3(Math.abs(b.eff100 - a.eff100))} points, half-load by ${f3(Math.abs(b.eff50 - a.eff50))} points. ${b.eff100 >= a.eff100 ? "Better figures for the name plate and the tender score." : "Efficiency label and tender scoring both take a hit."}`,
+    });
+  }
+
+  const pctChange = (d, base) => (base ? Math.abs((d / base) * 100).toFixed(1) : "0.0");
   out.push({
     k: "Money, all in", from: inr(ba.exFactory) + " ex-works", to: inr(bb.exFactory) + " ex-works", good: dCost + dEnergy <= 0, big: true,
-    body: `${dCost <= 0 ? "Saves" : "Adds"} ${inr(Math.abs(dCost))} today. Over ${p.years} years at \u20B9${p.tariff}/kWh and ${(p.loadFactor * 100).toFixed(0)}% load factor, energy cost ${dEnergy >= 0 ? "rises" : "falls"} by ${inr(Math.abs(dEnergy))}. Net over the life: ${inr(Math.abs(dCost + dEnergy))} ${dCost + dEnergy <= 0 ? "in the buyer's favour" : "against the buyer"}.`,
+    body: `${dCost <= 0 ? "Saves" : "Adds"} ${inr(Math.abs(dCost))} today, ${pctChange(dCost, ba.exFactory)}% on ex-works (delivered ${inr(ba.withGst)} to ${inr(bb.withGst)}). Over ${p.years} years at \u20B9${p.tariff}/kWh and ${(p.loadFactor * 100).toFixed(0)}% load factor, energy cost ${dEnergy >= 0 ? "rises" : "falls"} by ${inr(Math.abs(dEnergy))}. Net over the life: ${inr(Math.abs(dCost + dEnergy))} ${dCost + dEnergy <= 0 ? "in the buyer's favour" : "against the buyer"}.`,
   });
   return out;
 }

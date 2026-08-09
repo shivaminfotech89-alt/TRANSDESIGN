@@ -1,15 +1,18 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { TransformerForm } from './components/TransformerForm';
 import { ResultsDisplay } from './components/ResultsDisplay';
 import { RatingPlate } from './components/RatingPlate';
 import { PinPanel } from './components/PinPanel';
+import { DesignImpactSummary } from './components/DesignImpactSummary';
 import { Button } from './components/ui';
-import { computeDesign, ESSENTIALS, DEFAULT_RATES, STANDARDS } from '@/packages/engine';
+import { computeDesign, impacts, ESSENTIALS, DEFAULT_RATES, STANDARDS } from '@/packages/engine';
 import {
-  CLASS_B_TARGETS, OVER_KEY_LEVER, findConflictForPin, findConflictForOverride,
+  CLASS_B_TARGETS, OVER_KEY_LEVER, LEVER_OVER_KEYS, findConflictForPin, findConflictForOverride,
   type PinSet, type Conflict,
 } from './lib/pinRegistry';
 import { solveAllPins } from './lib/classBSolver';
+import { labelFor, fmtWithUnit } from './lib/paramLabels';
+import { diffDependents, type DependentChange } from './lib/impactSummary';
 
 // TODO(persistence): NewProjectModal.tsx still exists but is intentionally
 // unwired -- its output shape (kVA, hvVoltage, referenceStandard,
@@ -21,9 +24,21 @@ type PendingConflict =
   | { kind: 'pin'; targetId: string; value: number; conflict: Conflict }
   | { kind: 'override'; overKey: string; value: any; conflict: Conflict };
 
+type EditAction =
+  | { kind: 'param'; key: string }
+  | { kind: 'pin-set'; targetId: string }
+  | { kind: 'pin-release'; targetId: string; releasedValue: number };
+
+interface SummaryData {
+  editTitle: string; editFrom: string; editTo: string;
+  lever?: { label: string; from: string; to: string; why: string };
+  dependents: DependentChange[];
+  engineImpacts: any[];
+}
+
 export default function App() {
-  const [core, setCore] = useState<any>(ESSENTIALS);
-  const [over, setOver] = useState<Record<string, any>>({});
+  const [core, setCoreState] = useState<any>(ESSENTIALS);
+  const [over, setOverState] = useState<Record<string, any>>({});
   // Seeded from DEFAULT_RATES, but this is a real rate card once orgs/rateCards
   // (TASKS.md item 4) exists -- never hardcode a rate value in a display component.
   const [rates, setRates] = useState<Record<string, number>>(DEFAULT_RATES);
@@ -31,17 +46,31 @@ export default function App() {
   // land (TASKS.md item 5). Local-only for now, disconnected from any storage.
   const [projectName, setProjectName] = useState('Untitled Design');
 
-  // SOLVER.md step 1: the pin registry. No solving happens against these yet --
-  // pinning a Class B target only registers intent and checks for conflicts.
+  // SOLVER.md step 1: the pin registry. Step 3 solves against it.
   const [pins, setPins] = useState<PinSet>({});
   const [pendingConflict, setPendingConflict] = useState<PendingConflict | null>(null);
 
+  // SOLVER.md step 4: what the user just did, so the summary effect below
+  // can describe it. Cleared once consumed.
+  const [lastAction, setLastAction] = useState<EditAction | null>(null);
+  const [summary, setSummary] = useState<SummaryData | null>(null);
+
   const handleNewProject = () => {
-    setCore(ESSENTIALS);
-    setOver({});
+    setCoreState(ESSENTIALS);
+    setOverState({});
     setProjectName('Untitled Design');
     setPins({});
     setPendingConflict(null);
+    setLastAction(null);
+    setSummary(null);
+  };
+
+  // Core-level enquiry edits (kva, hv, vector...) are direct inputs too --
+  // track them the same way as a Class A row for the impact summary.
+  const handleCoreChange = (nextCore: Record<string, any>) => {
+    const key = Object.keys(nextCore).find((k) => nextCore[k] !== core[k]);
+    if (key) setLastAction({ kind: 'param', key });
+    setCoreState(nextCore);
   };
 
   // A Class A row (flux, deltaLV, deltaHV, etK, oilRiseTarget) is also a lever.
@@ -57,7 +86,10 @@ export default function App() {
         return;
       }
     }
-    setOver(nextOver);
+    const keys = new Set([...Object.keys(over), ...Object.keys(nextOver)]);
+    const key = [...keys].find((k) => over[k] !== nextOver[k]);
+    if (key) setLastAction({ kind: 'param', key });
+    setOverState(nextOver);
   };
 
   const requestPin = (targetId: string, value: number) => {
@@ -66,12 +98,15 @@ export default function App() {
       setPendingConflict({ kind: 'pin', targetId, value, conflict });
       return;
     }
+    setLastAction({ kind: 'pin-set', targetId });
     setPins({ ...pins, [targetId]: { targetId, value } });
   };
 
   const releasePin = (targetId: string) => {
+    const releasedValue = pins[targetId]?.value;
     const next = { ...pins };
     delete next[targetId];
+    if (releasedValue !== undefined) setLastAction({ kind: 'pin-release', targetId, releasedValue });
     setPins(next);
   };
 
@@ -85,11 +120,13 @@ export default function App() {
       }
       if (pendingConflict.kind === 'pin') {
         nextPins[pendingConflict.targetId] = { targetId: pendingConflict.targetId, value: pendingConflict.value };
+        setLastAction({ kind: 'pin-set', targetId: pendingConflict.targetId });
       } else {
         nextOver[pendingConflict.overKey] = pendingConflict.value;
+        setLastAction({ kind: 'param', key: pendingConflict.overKey });
       }
       setPins(nextPins);
-      setOver(nextOver);
+      setOverState(nextOver);
     }
     setPendingConflict(null);
   };
@@ -113,6 +150,69 @@ export default function App() {
       solveConverged: solved.converged, solveFighting: solved.fighting,
     };
   }, [core, over, rates, pins]);
+
+  // SOLVER.md step 4: Design Impact Summary, shown after every change, for
+  // the one decision just made -- not a diff of the whole design. impacts()
+  // supplies the design-level consequences (weight, losses, efficiency,
+  // compliance, money); this effect adds what only the app knows (what was
+  // edited, which lever the solver moved and why, what else moved).
+  const prevResultRef = useRef(result);
+  useEffect(() => {
+    const prev = prevResultRef.current;
+    if (prev !== result && lastAction) {
+      let skip = false;
+      let editTitle = '', editFrom = '', editTo = '';
+      let excludeKeys: string[] = [];
+      let lever: SummaryData['lever'];
+
+      if (lastAction.kind === 'param') {
+        const { key } = lastAction;
+        editTitle = `Parameter Edited: ${labelFor(key)}`;
+        editFrom = fmtWithUnit(key, prev.params[key]);
+        editTo = fmtWithUnit(key, result.params[key]);
+        excludeKeys = [key];
+      } else {
+        const target = CLASS_B_TARGETS.find((t) => t.id === lastAction.targetId)!;
+        if (lastAction.kind === 'pin-release') {
+          editTitle = `Pin Released: ${target.label}`;
+          editFrom = `${lastAction.releasedValue} ${target.unit}`;
+          editTo = 'Not pinned';
+        } else {
+          const solve = solveResults[lastAction.targetId];
+          if (!solve?.reachable) {
+            // Nothing actually changed -- PinPanel already shows the
+            // unreachable message in red. A summary of zero change here
+            // would just be noise.
+            skip = true;
+          } else {
+            editTitle = `Pin Set: ${target.label}`;
+            editFrom = 'Not pinned';
+            editTo = `${pins[lastAction.targetId]?.value} ${target.unit}`;
+            const overKeys = LEVER_OVER_KEYS[target.lever];
+            if (overKeys.length) {
+              lever = {
+                label: target.leverLabel,
+                from: overKeys.map((k) => fmtWithUnit(k, prev.params[k])).join(' / '),
+                to: overKeys.map((k) => fmtWithUnit(k, result.params[k])).join(' / '),
+                why: target.relationship,
+              };
+              excludeKeys = overKeys;
+            }
+          }
+        }
+      }
+
+      if (!skip) {
+        const engineImpacts = impacts(prev.design, prev.bom, result.design, result.bom, result.params);
+        const dependents = diffDependents(prev.params, result.params, excludeKeys);
+        setSummary({ editTitle, editFrom, editTo, lever, dependents, engineImpacts });
+      }
+    }
+    prevResultRef.current = result;
+    setLastAction(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [result]);
+
   const standardName = STANDARDS[core.standard]?.name || core.standard;
 
   return (
@@ -160,6 +260,14 @@ export default function App() {
           </div>
         )}
 
+        {summary && (
+          <DesignImpactSummary
+            editTitle={summary.editTitle} editFrom={summary.editFrom} editTo={summary.editTo}
+            lever={summary.lever} dependents={summary.dependents} engineImpacts={summary.engineImpacts}
+            onDismiss={() => setSummary(null)}
+          />
+        )}
+
         <main className="grid grid-cols-1 lg:grid-cols-[340px_1fr] gap-4">
           <aside className="print:hidden space-y-4">
             <PinPanel
@@ -168,7 +276,7 @@ export default function App() {
               onRequestPin={requestPin} onReleasePin={releasePin}
             />
             <TransformerForm
-              core={core} over={over} onCoreChange={setCore} onOverChange={handleOverChange}
+              core={core} over={over} onCoreChange={handleCoreChange} onOverChange={handleOverChange}
               projectName={projectName} onProjectNameChange={setProjectName}
             />
           </aside>
