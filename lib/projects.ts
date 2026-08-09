@@ -15,9 +15,10 @@ import {
   query, where, orderBy, limit, serverTimestamp, writeBatch,
 } from "firebase/firestore";
 import { db } from "./firebase";
+import { DEFAULT_RATES } from "@/packages/engine";
 import type {
   Project, ProjectMeta, Revision, RateCard, Rates, DesignSummary,
-  EnquiryInput, ProjectStatus, GeneratedDocument,
+  EnquiryInput, ProjectStatus, GeneratedDocument, Org,
 } from "./types";
 
 const orgRef = (orgId: string) => doc(db, "orgs", orgId);
@@ -28,6 +29,37 @@ const revisionsRef = (orgId: string, id: string) =>
 const rateCardsRef = (orgId: string) => collection(db, "orgs", orgId, "rateCards");
 
 const pad = (n: number) => String(n).padStart(3, "0");
+
+/* ---------------- organisations ---------------- */
+
+/**
+ * TASKS.md item 3. Two separate writes, not a batch: the member document's
+ * create rule reads the org document to check `ownerUid`, and the rules
+ * cannot see an org that does not exist yet -- BUILD-GUIDE.md section 7.
+ * Then seed a rate card from the engine defaults so pricing has somewhere
+ * to come from on day one.
+ */
+export async function createOrganisation(uid: string, email: string, name: string): Promise<string> {
+  const ref = doc(collection(db, "orgs"));
+  const orgId = ref.id;
+
+  const org: Org = {
+    name, ownerUid: uid, createdAt: Date.now(),
+    country: "IN", currency: "INR", memberUids: [uid],
+  };
+  await setDoc(ref, org);
+
+  await setDoc(doc(db, "orgs", orgId, "members", uid), {
+    uid, email, role: "owner", addedAt: Date.now(),
+  });
+
+  await saveRateCard(orgId, uid, "default", {
+    name: "Standard rates", currency: "INR",
+    rates: DEFAULT_RATES, effectiveFrom: Date.now(),
+  });
+
+  return orgId;
+}
 
 /* ---------------- projects ---------------- */
 

@@ -15,6 +15,9 @@ export interface Org {
   createdAt: number;
   country: string;   // "IN"
   currency: string;  // "INR"
+  /** So a user can list the orgs they belong to with one query (listMyOrgs).
+   *  The members subcollection is still what the rules check. */
+  memberUids: string[];
 }
 
 export interface Member {
