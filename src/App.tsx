@@ -353,14 +353,14 @@ export default function App() {
           </div>
         </header>
 
+        <RatingPlate design={result.design} bom={result.bom} params={result.params} />
+
         <ProjectBar
           projectName={projectName} onProjectNameChange={setProjectName}
           onSave={handleSave} onSaveAsCopy={handleSaveAsCopy}
           onNew={() => setShowNewProjectModal(true)} onOpen={handleOpenProject}
           currentProjectId={currentProjectId} busy={savingProject} refreshKey={projectListVersion}
         />
-
-        <RatingPlate design={result.design} bom={result.bom} params={result.params} />
 
         {pendingConflict && (
           <div className="bg-white border border-amber rounded-[2px] px-4 py-3 print:hidden">
