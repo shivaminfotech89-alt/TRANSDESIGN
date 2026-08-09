@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { calcSheet, inr } from '@/packages/engine';
 import { Card, DataRow, DerivedRow, CheckMark, Button, cardCls, cardHeaderCls, cardTitleCls, cardSubtitleCls, cardBodyCls, thCls, tdCls } from './ui';
 import { Drawings2D } from './Drawings2D';
+import { CadViewerTab } from './cad/CadViewerTab';
 
 interface ResultsDisplayProps {
   design: any;
@@ -21,7 +22,7 @@ const TABS: { id: Tab; label: string; pending?: boolean }[] = [
   { id: 'core', label: 'Core Parts' },
   { id: 'drawings', label: '2D Drawings' },
   { id: 'reports', label: 'Reports & Docs', pending: true },
-  { id: '3d-model', label: '3D CAD Model', pending: true },
+  { id: '3d-model', label: '3D CAD Model' },
 ];
 
 function Pending({ label }: { label: string }) {
@@ -375,7 +376,7 @@ export function ResultsDisplay({ design, bom, params, rates, onRatesChange }: Re
           )}
           {activeTab === 'drawings' && <Drawings2D design={design} params={params} />}
           {activeTab === 'reports' && <Pending label="Reports & Docs" />}
-          {activeTab === '3d-model' && <Pending label="3D CAD Model" />}
+          {activeTab === '3d-model' && <CadViewerTab design={design} params={params} />}
         </div>
       </div>
 

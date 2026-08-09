@@ -1133,7 +1133,7 @@ export {
   deriveSpec, designTransformer, buildBOM, ownershipCost, searchDesigns,
   impacts, calcSheet, stepWidths, stampingSchedule, finLayout,
   documentRegister, routineTestSchedule, DOC_STATUS, REFS,
-  inr, lakhs, bushMul, condRate, rkCond, fluxRange,
+  inr, lakhs, bushMul, condRate, rkCond, fluxRange, bushHeight,
 };
 
 export function computeDesign(core, over = {}, rates = DEFAULT_RATES, extras = []) {
