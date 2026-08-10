@@ -1,5 +1,5 @@
 import React, { useId } from 'react';
-import { stepWidths, stampingSchedule, finLayout } from '@/packages/engine';
+import { stepWidths, stampingSchedule } from '@/packages/engine';
 import { Card, DataRow, thCls, tdCls } from './ui';
 import {
   fitToViewBox, dimText, DimensionArrow, DimensionHorizontal, DimensionVertical, UnitsNote, TitleBlock,
@@ -9,7 +9,7 @@ import { PART_NUMBERS } from './drawings/partNumbers';
 import { OrthographicDrawing } from './drawings/OrthographicDrawing';
 import { LvWindingDrawing, HvWindingDrawing, TapWindingDrawing } from './drawings/WindingDrawings';
 import { InsulationDrawing, InternalAssemblyDrawing, LongitudinalSectionDrawing } from './drawings/SectionDrawings';
-import { finPlacements } from './cad/geometry';
+import { TankFabricationDrawing, FinOrRadiatorDrawing } from './drawings/TankDrawings';
 
 interface Drawings2DProps {
   design: any;
@@ -357,98 +357,6 @@ function StampingSchedule({ design, params, project }: Drawings2DProps) {
  *  fabrication) and drawing 14 (fin/radiator) built to DRAWINGS.md in a
  *  later pass. Marked PRELIM rather than given a real drawing number so it
  *  is never mistaken for the finished one. */
-/**
- * Fins mount on the tankW faces -- the long walls that run along the limb
- * row -- not the tankL ends: that is where the surface area is, and it
- * leaves the end walls clear for the bushings and fittings the GA and top
- * views put there. The previous version of this drawing put them on the
- * tankL ends instead, the same class of axis mistake fixed in the
- * orthographic set. This is a plan view (tankL horizontal, tankW vertical,
- * matching the top/bottom views' own axis convention) so that projection
- * is visible at all: an elevation looking along tankL sees a tankW face
- * edge-on, not face-on.
- *
- * finPlacements() is the same function the 3D model places fins with, so
- * the pitch and count drawn here cannot drift from what the 3D tab shows --
- * finLayout()'s own `perSide` is what both read, one fin bank per tankW
- * face, matching the side view's fin depth projection and the GA note's
- * fin count exactly, because all three call finLayout() on the same design
- * and nothing recomputes it differently.
- */
-function TankAndFinLayout({ design, params, project }: Drawings2DProps) {
-  const arrowId = useId();
-  const fins = finLayout(design);
-  if (design.dry) {
-    return (
-      <Card title="Enclosure Layout">
-        <p className="text-[11px] text-steel">Not applicable: dry-type construction has no tank or fin layout.</p>
-      </Card>
-    );
-  }
-
-  const box = { w: 380, h: 260 };
-  const margin = { side: 40, top: 30, bottom: 46 };
-  const fit = fitToViewBox(design.tankL, design.tankW + 2 * fins.depth, box.w - 2 * margin.side, box.h - margin.top - margin.bottom, 10);
-  const tankLpx = design.tankL * fit.scale, tankWpx = design.tankW * fit.scale;
-  const finDepthPx = fins.depth * fit.scale;
-  const tx = margin.side + fit.offsetX, ty = margin.top + fit.offsetY + finDepthPx;
-
-  const positions = finPlacements(fins.perSide, design.tankL, design.tankH, fins.height, 0);
-  const pitch = positions.length > 1 ? positions[1].x - positions[0].x : 0;
-  const tickW = Math.max(2, Math.min(6, (tankLpx / Math.max(1, fins.perSide)) * 0.4));
-
-  const lengthDimY = ty + tankWpx + 16;
-  const widthDimX = tx + tankLpx + 14;
-
-  return (
-    <Card title="Tank and Fin Layout" subtitle={`Preliminary, ahead of drawings 13 and 14 · ${fins.n} fins total, ${fins.perSide} per tankW face`}>
-      <div className="flex flex-col sm:flex-row gap-4 items-start">
-        <svg width={box.w} height={box.h} viewBox={`0 0 ${box.w} ${box.h}`} className="shrink-0">
-          <DimensionArrow id={arrowId} />
-          {positions.map((p, i) => {
-            const px = tx + tankLpx / 2 + p.x * fit.scale;
-            return (
-              <React.Fragment key={i}>
-                <rect x={px - tickW / 2} y={ty - finDepthPx} width={tickW} height={finDepthPx} fill="none" stroke="var(--color-steel)" strokeWidth={0.6} />
-                <rect x={px - tickW / 2} y={ty + tankWpx} width={tickW} height={finDepthPx} fill="none" stroke="var(--color-steel)" strokeWidth={0.6} />
-              </React.Fragment>
-            );
-          })}
-          <rect x={tx} y={ty} width={tankLpx} height={tankWpx} fill="none" stroke="var(--color-ink)" strokeWidth={1} />
-
-          <DimensionHorizontal x1={tx} x2={tx + tankLpx} featureY={ty + tankWpx} dimY={lengthDimY} label={dimText(design.tankL)} arrowId={arrowId} />
-          <DimensionVertical y1={ty} y2={ty + tankWpx} featureX={tx + tankLpx} dimX={widthDimX} label={dimText(design.tankW)} arrowId={arrowId} />
-          {positions.length > 0 && (
-            <DimensionVertical
-              y1={ty - finDepthPx} y2={ty} featureX={tx + tankLpx / 2 + positions[0].x * fit.scale}
-              dimX={tx - 14} label={dimText(fins.depth, { decimals: 1 })} arrowId={arrowId}
-            />
-          )}
-          {positions.length > 1 && (
-            <DimensionHorizontal
-              x1={tx + tankLpx / 2 + positions[0].x * fit.scale} x2={tx + tankLpx / 2 + positions[1].x * fit.scale}
-              featureY={ty - finDepthPx} dimY={ty - finDepthPx - 12} label={dimText(pitch, { decimals: 1 })} arrowId={arrowId}
-            />
-          )}
-          <UnitsNote x={6} y={box.h - 6} />
-        </svg>
-        <div className="flex-1 min-w-0">
-          <DataRow label="Tank Length x Width" value={`${Math.round(design.tankL)} x ${Math.round(design.tankW)}`} unit="mm" />
-          <DataRow label="Fin Count" value={`${fins.n} total, ${fins.perSide} per face`} />
-          <DataRow label="Fin Pitch" value={pitch.toFixed(1)} unit="mm" />
-          <DataRow label="Fin Panel, Depth x Height" value={`${fins.depth} x ${Math.round(fins.height)}`} unit="mm" />
-          <DataRow label="Dissipation per Fin" value={fins.per.toFixed(3)} unit="m²" />
-        </div>
-      </div>
-      <TitleBlock
-        drawingNo={`${project?.docPrefix || 'TDE'}-PRELIM-TANK`} title="Tank and Fin Layout (Preliminary)"
-        rev={project?.revision ?? 0} sheet={14} totalSheets={21} fit={fit} standard={params.standard}
-        projectName={project?.projectName} customer={project?.customer} ratingLabel={ratingLabel(params)}
-      />
-    </Card>
-  );
-}
-
 export function Drawings2D({ design, params, project }: Drawings2DProps) {
   return (
     <div className="space-y-4">
@@ -467,7 +375,8 @@ export function Drawings2D({ design, params, project }: Drawings2DProps) {
       <InternalAssemblyDrawing design={design} params={params} project={project} />
       <InternalAssemblyDrawing design={design} params={params} project={project} drawingSeq="20T" sheet={20} />
       <LongitudinalSectionDrawing design={design} params={params} project={project} />
-      <TankAndFinLayout design={design} params={params} project={project} />
+      <TankFabricationDrawing design={design} params={params} project={project} />
+      <FinOrRadiatorDrawing design={design} params={params} project={project} />
     </div>
   );
 }
