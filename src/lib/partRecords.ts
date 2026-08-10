@@ -18,10 +18,11 @@
  * rendered a fourth (neutral) bushing on either side regardless of vector
  * group, which this module and the 3D model it now drives both correct.
  *
- * Known, not fixed here: the engine's own BOM (buildBOM, packages/engine/
- * index.js) still prices bushings at a fixed qty 3 HV / 4 LV regardless of
- * vector group -- an engine formula, out of scope for this lift, flagged
- * rather than silently changed.
+ * ENGINE_VERSION 1.2.0: the engine's own BOM (buildBOM, packages/engine/
+ * index.js) now sources its bushing quantity from the same parseVectorGroup
+ * this module uses, rather than a fixed qty 3 HV / 4 LV -- the 2D drawings,
+ * the 3D model and the BOM can no longer disagree on how many bushings a
+ * design has.
  */
 import { PART_NUMBERS } from '../components/drawings/partNumbers';
 import { coreCrossSectionSpan, hvBushingSpec, lvBushingSpec } from '../components/cad/geometry';
@@ -89,6 +90,14 @@ export function computePartRecords(design: any, params: any): PartRecord[] {
       unitDimensions: 'to be specified: individual cylinder and barrier thicknesses are drawing 11, not a single figure',
       unitMass: design.wIns, quantity: 1,
     },
+    // Tank and cover are kept as two separate rows, left exactly as they
+    // were: design.wTank (buildBOM) is the authoritative engine figure and
+    // already bundles both end-cap plates into one costed total (TK-01,
+    // "Tank body, cover, base channel"). Tank Cover's own unitMass below is
+    // a presentational estimate only -- a UI-layer guess at a 20 mm cover
+    // plate, not read from the engine and not reconciled against wTank -- so
+    // the two rows' masses do not sum to a real total. Not fixed here; see
+    // the drawing-18/19 commit for the full note.
     {
       key: 'tank', group: 'tank', name: 'Main Tank', partNumber: PART_NUMBERS.tank,
       material: 'Mild steel, IS 2062',

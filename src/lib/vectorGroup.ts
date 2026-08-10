@@ -1,10 +1,13 @@
 /**
  * Vector group parsing, shared by every place bushing count or labelling
  * depends on it: the 2D layout drawings (15, 16, 17), the orthographic set's
- * GA and top views, the 3D model, and the drawing-19 parts list. One place
- * to parse "Dyn11" so none of them can disagree about how many bushings a
- * design has.
+ * GA and top views, the 3D model, the drawing-19 parts list, and now the
+ * engine's own BOM (buildBOM prices bushings on this same count, as of
+ * ENGINE_VERSION 1.2.0). The parsing itself lives in packages/engine/index.js
+ * so the engine can use it without reaching into src -- this module just
+ * re-exports it, so nothing in the app layer had to change its import path.
  */
+import { parseVectorGroup as engineParseVectorGroup } from '@/packages/engine';
 
 export interface VectorGroup {
   hv: string; hvNeutral: boolean; lv: string; lvNeutral: boolean; clock: number;
@@ -17,17 +20,7 @@ export interface VectorGroup {
  *  to the engine's own default (Dyn11) if the string does not parse,
  *  rather than guessing a different one. */
 export function parseVectorGroup(vector: string): VectorGroup {
-  const m = /^([DYZ])(N)?([dyz])(n)?(\d+)$/.exec(vector || '');
-  const hv = m ? m[1] : 'D';
-  const hvNeutral = !!(m && m[2]);
-  const lv = m ? m[3] : 'y';
-  const lvNeutral = !!(m && m[4]);
-  const clock = m ? parseInt(m[5], 10) : 11;
-  return {
-    hv, hvNeutral, lv, lvNeutral, clock,
-    hvLabels: ['1U', '1V', '1W', ...(hvNeutral ? ['1N'] : [])],
-    lvLabels: ['2u', '2v', '2w', ...(lvNeutral ? ['2n'] : [])],
-  };
+  return engineParseVectorGroup(vector);
 }
 
 /** N evenly spread schematic positions across `span`, centred on 0 -- used

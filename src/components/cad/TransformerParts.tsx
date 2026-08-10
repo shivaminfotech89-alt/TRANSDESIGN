@@ -217,7 +217,11 @@ export function TransformerParts({
         </group>
       )}
 
-      {/* 4. Tank and cover, sized from design.tankL/tankW/tankH and wTank. */}
+      {/* 4. Tank and cover, sized from design.tankL/tankW/tankH and wTank.
+          wTank (byKey.tank) is the authoritative engine figure and already
+          bundles the cover into its own costed total; byKey.tankCover's mass
+          is a separate presentational estimate, not reconciled against it --
+          see the fuller note in partRecords.ts. Left as-is deliberately. */}
       {visibility.tank && (
         <group name="Tank" position={[0, tankExplodeY, 0]}>
           <mesh

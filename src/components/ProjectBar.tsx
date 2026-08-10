@@ -15,10 +15,17 @@ interface ProjectBarProps {
   busy: boolean;
   /** Bump after a save so the Open list picks up the new/renamed project. */
   refreshKey: number;
+  /** CLAUDE.md invariant 3: while a budget option is previewed, the price on
+   *  screen is the candidate's, not core/over's -- saving would persist
+   *  core/over while a different price sat on screen at that moment, which
+   *  is exactly the "two prices for two designs" state the invariant
+   *  forbids. Disabled until the preview is adopted or discarded. */
+  previewActive: boolean;
 }
 
 export function ProjectBar({
   projectName, onProjectNameChange, onSave, onSaveAsCopy, onNew, onOpen, currentProjectId, busy, refreshKey,
+  previewActive,
 }: ProjectBarProps) {
   const { orgId } = useOrg();
   const [projects, setProjects] = useState<(Project & { id: string })[]>([]);
@@ -39,8 +46,11 @@ export function ProjectBar({
           <input value={projectName} onChange={(e) => onProjectNameChange(e.target.value)} className={inputCls} />
         </div>
 
-        <Button variant="confirm" onClick={onSave} disabled={busy}>{busy ? 'Saving' : 'Save'}</Button>
-        <Button variant="secondary" onClick={onSaveAsCopy} disabled={busy || !currentProjectId}>Save As Copy</Button>
+        <Button variant="confirm" onClick={onSave} disabled={busy || previewActive}>{busy ? 'Saving' : 'Save'}</Button>
+        <Button variant="secondary" onClick={onSaveAsCopy} disabled={busy || previewActive || !currentProjectId}>Save As Copy</Button>
+        {previewActive && (
+          <p className="text-[9px] text-steel basis-full">Adopt or discard the previewed option before saving.</p>
+        )}
 
         <div className="relative">
           <Button variant="secondary" onClick={() => setShowOpen((s) => !s)}>

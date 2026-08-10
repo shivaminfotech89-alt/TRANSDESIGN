@@ -23,6 +23,16 @@ const r = E.computeDesign(E.ESSENTIALS, {}, E.DEFAULT_RATES, []);
 // plate, fluid and freight cost, longer: ex-works and delivered moved up
 // accordingly. Losses, impedance and core mass are untouched -- the active
 // part did not change, only how much tank it sits inside.
+//
+// ENGINE_VERSION 1.2.0: buildBOM used to price bushings at a fixed qty (3
+// HV, 4 LV) regardless of vector group. It now reads the real count from
+// parseVectorGroup(p.vector), the same parsing the 2D layout drawings and
+// the 3D model already used. This test's default vector is Dyn11 -- HV
+// delta (3, no neutral to bring out), LV star with neutral (4) -- which is
+// exactly the quantity that used to be hardcoded, so none of the golden
+// numbers below moved. A design on a vector group with a delta LV (3, no
+// neutral) or an earthed HV neutral (4) would now be quoted for bushings it
+// actually has, which it was not before.
 eq("ex-works", Math.round(r.bom.exFactory), 1630080, 500);
 eq("delivered", Math.round(r.bom.withGst), 1923495, 600);
 eq("tank length mm", Math.round(r.design.tankL), 1368, 2);
