@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
 import { calcSheet, inr } from '@/packages/engine';
 import { Card, DataRow, DerivedRow, CheckMark, Button, cardCls, cardHeaderCls, cardTitleCls, cardSubtitleCls, cardBodyCls, thCls, tdCls } from './ui';
-import { Drawings2D } from './Drawings2D';
+import { Drawings2D, CoreDrawing, CoreCrossSection, StampingSchedule } from './Drawings2D';
+import { LvWindingDrawing, HvWindingDrawing, TapWindingDrawing } from './drawings/WindingDrawings';
+import { InternalAssemblyDrawing } from './drawings/SectionDrawings';
 import { CadViewerTab } from './cad/CadViewerTab';
 import { DocumentsTab } from './documents/DocumentsTab';
 import { BudgetTab } from './budget/BudgetTab';
@@ -369,6 +371,14 @@ export function ResultsDisplay({
                   <DataRow label="HV Ducts" value={String(design.hvDucts)} />
                 </div>
               </Card>
+
+              {/* DRAWINGS.md, "Where each drawing appears": drawings 8, 9, 10
+                  and the coil half-section from 20 -- the same components the
+                  2D Drawings tab renders, reused here rather than rebuilt. */}
+              <LvWindingDrawing design={design} params={params} project={project} />
+              <HvWindingDrawing design={design} params={params} project={project} />
+              <TapWindingDrawing design={design} params={params} project={project} />
+              <InternalAssemblyDrawing design={design} params={params} project={project} />
             </div>
           )}
 
@@ -405,6 +415,13 @@ export function ResultsDisplay({
                   <DataRow label="Sound Level" value={Math.round(design.noise).toString()} unit="dB(A)" />
                 </div>
               </Card>
+
+              {/* DRAWINGS.md, "Where each drawing appears": drawings 6, 7 and
+                  21 -- the same components the 2D Drawings tab renders,
+                  reused here rather than rebuilt. */}
+              <CoreDrawing design={design} params={params} project={project} />
+              <CoreCrossSection design={design} params={params} project={project} />
+              <StampingSchedule design={design} params={params} project={project} />
             </div>
           )}
           {activeTab === 'drawings' && <Drawings2D design={design} params={params} project={project} />}

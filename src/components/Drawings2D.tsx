@@ -11,8 +11,10 @@ import { LvWindingDrawing, HvWindingDrawing, TapWindingDrawing } from './drawing
 import { InsulationDrawing, InternalAssemblyDrawing, LongitudinalSectionDrawing } from './drawings/SectionDrawings';
 import { TankFabricationDrawing, FinOrRadiatorDrawing } from './drawings/TankDrawings';
 import { BushingLayoutDrawing, AccessoryLayoutDrawing, LeadArrangementDrawing } from './drawings/LayoutDrawings';
+import { NamePlateDrawing } from './drawings/NamePlateDrawing';
+import { ExplodedAssemblyDrawing } from './drawings/ExplodedAssemblyDrawing';
 
-interface Drawings2DProps {
+export interface Drawings2DProps {
   design: any;
   params: any;
   project: any;
@@ -33,7 +35,7 @@ interface Drawings2DProps {
  *  itself being defined as Hw + 2*yokeDepth, so the three stack exactly.
  *  Limb width and the core circle diameter dimensioned on drawing 7 read
  *  the same design.dCore -- one field, not two figures that could drift. */
-function CoreDrawing({ design, params, project }: Drawings2DProps) {
+export function CoreDrawing({ design, params, project }: Drawings2DProps) {
   const arrowId = useId();
   const box = { w: 380, h: 420 };
   const margin = { side: 50, top: 66, bottom: 30, right: 70 };
@@ -121,7 +123,7 @@ function CoreDrawing({ design, params, project }: Drawings2DProps) {
  *  narrower, so none of the stacked lines cross. The table beside it still
  *  gives every row's exact figures, per "Beside it: pocket number, width,
  *  stack per side". */
-function CoreCrossSection({ design, params, project }: Drawings2DProps) {
+export function CoreCrossSection({ design, params, project }: Drawings2DProps) {
   const arrowId = useId();
   const steps = stepWidths(params.steps, design.dCore);
   const nRows = steps.rows.length;
@@ -234,7 +236,7 @@ function CoreCrossSection({ design, params, project }: Drawings2DProps) {
  *
  *  Cut lines dashed, per the spec, since this sheet marks where the blade
  *  goes rather than showing an assembled edge. */
-function StampingSchedule({ design, params, project }: Drawings2DProps) {
+export function StampingSchedule({ design, params, project }: Drawings2DProps) {
   const arrowId = useId();
   const steps = stepWidths(params.steps, design.dCore);
   const sched = stampingSchedule(design, steps);
@@ -353,11 +355,7 @@ function StampingSchedule({ design, params, project }: Drawings2DProps) {
   );
 }
 
-/** Not one of the numbered drawings yet -- a preliminary combined view of
- *  the tank envelope and fin count, ahead of the real drawing 13 (tank
- *  fabrication) and drawing 14 (fin/radiator) built to DRAWINGS.md in a
- *  later pass. Marked PRELIM rather than given a real drawing number so it
- *  is never mistaken for the finished one. */
+/** All twenty-one of DRAWINGS.md's drawings, in order. */
 export function Drawings2D({ design, params, project }: Drawings2DProps) {
   return (
     <div className="space-y-4">
@@ -381,6 +379,8 @@ export function Drawings2D({ design, params, project }: Drawings2DProps) {
       <BushingLayoutDrawing design={design} params={params} project={project} />
       <AccessoryLayoutDrawing design={design} params={params} project={project} />
       <LeadArrangementDrawing design={design} params={params} project={project} />
+      <NamePlateDrawing design={design} params={params} project={project} />
+      <ExplodedAssemblyDrawing design={design} params={params} project={project} />
     </div>
   );
 }
