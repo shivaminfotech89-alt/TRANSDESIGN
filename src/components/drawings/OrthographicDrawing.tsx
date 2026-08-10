@@ -4,7 +4,7 @@ import { hvBushingSpec, lvBushingSpec } from '../cad/geometry';
 import { Card } from '../ui';
 import {
   fitToViewBox, dimText, DimensionArrow, DimensionHorizontal, DimensionVertical, UnitsNote, TitleBlock,
-  drawingNo, ratingLabel,
+  drawingNo, ratingLabel, parseVectorGroup, schematicPositions,
 } from './DrawingPrimitives';
 
 /**
@@ -120,10 +120,14 @@ export function OrthographicDrawing({ design, params, project, view }: Props) {
   // tankL axis (ga, front, top, bottom) -- side view has no limb positions
   // to place (all three limbs are seen end-on, collapsed into one outline).
   const mmToPxX = (mmX: number) => tx + tankWpx / 2 + mmX * fit.scale;
-  const limbXmm = [-design.cc, 0, design.cc];
+  // Bushing count and labels always follow the vector group -- a Dyn11 has
+  // three HV and four LV including neutral, a Dd0 has neither neutral.
+  // Never hardcode four.
+  const vg = parseVectorGroup(params.vector);
+  const limbXmm = [-design.cc, 0, design.cc, ...(vg.hvNeutral ? [design.cc * 0.5] : [])];
   const hvBushHpx = hvBush.height * fit.scale, hvFootPx = Math.max(3, hvBush.footDia * fit.scale);
   const lvBushHpx = lvBush.height * fit.scale * 0.6, lvFootPx = Math.max(2.5, lvBush.footDia * fit.scale * 0.8);
-  const lvXmm = [-tank.w * 0.35, -tank.w * 0.12, tank.w * 0.12, tank.w * 0.35];
+  const lvXmm = schematicPositions(vg.lvLabels.length, tank.w * 0.7);
 
   const totalMass = design.wCore + design.wLV + design.wHV + design.wIns + design.wFrame
     + design.wTank + design.wFin + design.wEnclosure + design.fluidLitres * (design.fluid?.dens || 0);
@@ -168,13 +172,13 @@ export function OrthographicDrawing({ design, params, project, view }: Props) {
               {limbXmm.map((mmX, i) => (
                 <Bushing
                   key={`hv-${i}`} x={mmToPxX(mmX)} top={ty} heightPx={hvBushHpx} footPx={hvFootPx}
-                  label={['1U', '1V', '1W'][i]} color="var(--color-ink)"
+                  label={vg.hvLabels[i]} color="var(--color-ink)"
                 />
               ))}
               {lvXmm.map((mmX, i) => (
                 <Bushing
                   key={`lv-${i}`} x={mmToPxX(mmX)} top={ty} heightPx={lvBushHpx} footPx={lvFootPx}
-                  label={['2u', '2v', '2w', '2n'][i]} color="var(--color-steel)"
+                  label={vg.lvLabels[i]} color="var(--color-steel)"
                 />
               ))}
               {params.tankType === 'radiator' && (
@@ -204,13 +208,13 @@ export function OrthographicDrawing({ design, params, project, view }: Props) {
               {limbXmm.map((mmX, i) => (
                 <g key={`hv-${i}`}>
                   <circle cx={mmToPxX(mmX)} cy={ty + tankHpx / 2} r={2.4} fill="none" stroke="var(--color-ink)" strokeWidth={0.8} />
-                  <text x={mmToPxX(mmX)} y={ty - 4} textAnchor="middle" className="font-mono" fontSize={6} fill="var(--color-ink2)">{['1U', '1V', '1W'][i]}</text>
+                  <text x={mmToPxX(mmX)} y={ty - 4} textAnchor="middle" className="font-mono" fontSize={6} fill="var(--color-ink2)">{vg.hvLabels[i]}</text>
                 </g>
               ))}
               {lvXmm.map((mmX, i) => (
                 <g key={`lv-${i}`}>
                   <circle cx={mmToPxX(mmX)} cy={ty + tankHpx * 0.22} r={1.8} fill="none" stroke="var(--color-steel)" strokeWidth={0.7} />
-                  <text x={mmToPxX(mmX)} y={ty + tankHpx * 0.22 - 4} textAnchor="middle" className="font-mono" fontSize={5.5} fill="var(--color-steel)">{['2u', '2v', '2w', '2n'][i]}</text>
+                  <text x={mmToPxX(mmX)} y={ty + tankHpx * 0.22 - 4} textAnchor="middle" className="font-mono" fontSize={5.5} fill="var(--color-steel)">{vg.lvLabels[i]}</text>
                 </g>
               ))}
               {[[tx + 5, ty + 5], [tx + tankWpx - 5, ty + 5], [tx + 5, ty + tankHpx - 5], [tx + tankWpx - 5, ty + tankHpx - 5]].map(([lx, ly], i) => (
@@ -281,10 +285,11 @@ export function OrthographicDrawing({ design, params, project, view }: Props) {
           {isGa && (
             <>
               <p className="text-[10px] text-ink2 leading-snug">
-                HV bushings 1U/1V/1W on {dimText(design.cc * 2)} mm centres, real from the limb spacing. LV bushings
-                2u/2v/2w/2n, base channel height and dimensions, and every accessory position (conservator,
-                breather, pressure relief device, cable box, marshalling box, lifting lugs) are indicative only --
-                to be specified against your accessory standard, not engine output.
+                HV bushings {vg.hvLabels.join('/')} on {dimText(design.cc * 2)} mm centres, real from the limb
+                spacing. LV bushings {vg.lvLabels.join('/')}, base channel height and dimensions, and every
+                accessory position (conservator, breather, pressure relief device, cable box, marshalling box,
+                lifting lugs) are indicative only -- to be specified against your accessory standard, not engine
+                output.
               </p>
               <table className="w-full text-[10px]">
                 <tbody>
