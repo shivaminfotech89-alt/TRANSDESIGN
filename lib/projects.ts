@@ -18,7 +18,7 @@ import { db } from "./firebase";
 import { DEFAULT_RATES } from "@/packages/engine";
 import type {
   Project, ProjectMeta, Revision, RateCard, Rates, DesignSummary,
-  EnquiryInput, ProjectStatus, GeneratedDocument, Org,
+  EnquiryInput, ProjectStatus, GeneratedDocument, Org, Member,
 } from "./types";
 
 const orgRef = (orgId: string) => doc(db, "orgs", orgId);
@@ -283,6 +283,13 @@ export async function listDocuments(orgId: string, projectId: string): Promise<G
 export async function getMyRole(orgId: string, uid: string): Promise<string | null> {
   const s = await getDoc(doc(db, "orgs", orgId, "members", uid));
   return s.exists() ? (s.data().role as string) : null;
+}
+
+/** For the revisions list: who created each one. Reads the whole members
+ *  subcollection once rather than one getDoc per distinct createdBy uid. */
+export async function listMembers(orgId: string): Promise<Member[]> {
+  const snap = await getDocs(collection(db, "orgs", orgId, "members"));
+  return snap.docs.map((d) => d.data() as Member);
 }
 
 /**

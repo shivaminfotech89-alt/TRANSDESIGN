@@ -6,6 +6,7 @@ import { PinPanel } from './components/PinPanel';
 import { DesignImpactSummary } from './components/DesignImpactSummary';
 import { ProjectBar } from './components/ProjectBar';
 import { NewProjectModal } from './components/NewProjectModal';
+import { RevisionsModal } from './components/RevisionsModal';
 import { Button } from './components/ui';
 import { useAuth } from './components/AuthContext';
 import { useOrg } from './components/OrgContext';
@@ -18,8 +19,10 @@ import { solveAllPins } from './lib/classBSolver';
 import { labelFor, fmtWithUnit } from './lib/paramLabels';
 import { diffDependents, type DependentChange } from './lib/impactSummary';
 import { createProject, renameProject, saveRevision, getRevision } from '../lib/projects';
-import type { ProjectMeta, Project } from '../lib/types';
+import type { ProjectMeta, Project, Revision } from '../lib/types';
 import { candidateKey } from './components/budget/BudgetTab';
+
+const CAN_EDIT_ROLES = ['owner', 'engineer', 'estimator'];
 
 type PendingConflict =
   | { kind: 'pin'; targetId: string; value: number; conflict: Conflict }
@@ -49,7 +52,8 @@ interface SummaryData {
 
 export default function App() {
   const { user, logOut } = useAuth();
-  const { orgId } = useOrg();
+  const { orgId, role } = useOrg();
+  const canEdit = !!role && CAN_EDIT_ROLES.includes(role);
 
   const [core, setCoreState] = useState<any>(ESSENTIALS);
   const [over, setOverState] = useState<Record<string, any>>({});
@@ -63,6 +67,31 @@ export default function App() {
   const [savingProject, setSavingProject] = useState(false);
   const [projectListVersion, setProjectListVersion] = useState(0);
   const [showNewProjectModal, setShowNewProjectModal] = useState(false);
+  const [showRevisions, setShowRevisions] = useState(false);
+
+  // TASKS.md item 5, revisions: the project's own currentRevision counter,
+  // independent of whatever is loaded live for editing -- it only moves on
+  // handleOpenProject and a successful save, never on browsing history or
+  // copying an old revision forward.
+  const [projectCurrentRevision, setProjectCurrentRevision] = useState(-1);
+  // Whether the revision currently loaded into core/over/rates is locked.
+  // The rules permit only ever setting locked from false to true, so this is
+  // never a normal user edit going back to false -- only handleOpenProject,
+  // a fresh save, or a fresh project can clear it.
+  const [liveRevisionLocked, setLiveRevisionLocked] = useState(false);
+  // Explicit "yes, edit on top of the locked values anyway" -- set only by
+  // the locked-revision banner's own button, so a locked revision is never
+  // silently editable.
+  const [overrideLock, setOverrideLock] = useState(false);
+  // Set whenever the live design's inputs came from an older or locked
+  // revision rather than a plain edit, so the next save's note can say so.
+  const [copiedFromRev, setCopiedFromRev] = useState<number | null>(null);
+  // Read-only overlay for browsing a specific past revision -- architecturally
+  // the same idea as budgetPreview (activeDesign swaps to it everywhere,
+  // never touches core/over/rates), because "show a different computed
+  // design everywhere without disturbing the live one" is exactly the same
+  // problem both solve.
+  const [viewingRevision, setViewingRevision] = useState<(Revision & { id?: string }) | null>(null);
 
   // SOLVER.md step 1: the pin registry. Step 3 solves against it.
   const [pins, setPins] = useState<PinSet>({});
@@ -84,6 +113,7 @@ export default function App() {
     setLastAction(null);
     setSummary(null);
     setBudgetPreview(null);
+    setViewingRevision(null);
   };
 
   /** Minimal ProjectMeta -- only projectName is exposed in the UI so far.
@@ -101,6 +131,10 @@ export default function App() {
     setRates(DEFAULT_RATES);
     setProjectName(name);
     setCurrentProjectId(null);
+    setProjectCurrentRevision(-1);
+    setLiveRevisionLocked(false);
+    setOverrideLock(false);
+    setCopiedFromRev(null);
     resetDesignState();
     setShowNewProjectModal(false);
   };
@@ -108,8 +142,9 @@ export default function App() {
   const handleSave = async () => {
     // ProjectBar already disables the button for this; guarded again here so
     // no future caller can save core/over while a different price (the
-    // preview's) sits on screen -- see previewActive's doc comment.
-    if (!user || budgetPreview) return;
+    // preview's, or a viewed/locked revision's) sits on screen -- see
+    // previewActive's doc comment.
+    if (!user || budgetPreview || viewingRevision || (liveRevisionLocked && !overrideLock)) return;
     setSavingProject(true);
     try {
       let projectId = currentProjectId;
@@ -119,7 +154,7 @@ export default function App() {
       } else {
         await renameProject(orgId, projectId, projectName, user.uid);
       }
-      await saveRevision(orgId, projectId, user.uid, {
+      const newRev = await saveRevision(orgId, projectId, user.uid, {
         input: {
           core, over, meta: buildMeta(projectName), extras: [],
           budgetMin: 0, budgetMax: 0, searchOpts: {},
@@ -128,7 +163,12 @@ export default function App() {
         rateSnapshot: rates,
         engineVersion: result.engineVersion,
         summary: summarise(core, result.design, result.bom),
+        note: copiedFromRev != null ? `Copied forward from rev ${copiedFromRev}` : '',
       });
+      setProjectCurrentRevision(newRev);
+      setLiveRevisionLocked(false);
+      setOverrideLock(false);
+      setCopiedFromRev(null);
       setProjectListVersion((v) => v + 1);
     } catch (err) {
       window.alert(`Save failed: ${err}`);
@@ -137,12 +177,12 @@ export default function App() {
   };
 
   const handleSaveAsCopy = async () => {
-    if (!user || !currentProjectId || budgetPreview) return;
+    if (!user || !currentProjectId || budgetPreview || viewingRevision || readOnlyLive) return;
     setSavingProject(true);
     try {
       const newName = `${projectName} (Copy)`;
       const newId = await createProject(orgId, user.uid, newName, buildMeta(newName));
-      await saveRevision(orgId, newId, user.uid, {
+      const newRev = await saveRevision(orgId, newId, user.uid, {
         input: {
           core, over, meta: buildMeta(newName), extras: [],
           budgetMin: 0, budgetMax: 0, searchOpts: {},
@@ -155,6 +195,10 @@ export default function App() {
       });
       setProjectName(newName);
       setCurrentProjectId(newId);
+      setProjectCurrentRevision(newRev);
+      setLiveRevisionLocked(false);
+      setOverrideLock(false);
+      setCopiedFromRev(null);
       setProjectListVersion((v) => v + 1);
     } catch (err) {
       window.alert(`Save as copy failed: ${err}`);
@@ -177,11 +221,55 @@ export default function App() {
         setProjectName(rev.input.meta?.projectName || project.name);
         setCurrentProjectId(project.id);
         resetDesignState();
+        setProjectCurrentRevision(project.currentRevision);
+        // A locked current revision is the one that went to the customer --
+        // it opens read-only, same as browsing an older one from the
+        // revisions list, until the user explicitly edits it forward.
+        setLiveRevisionLocked(rev.locked);
+        setOverrideLock(false);
+        setCopiedFromRev(null);
       }
     } catch (err) {
       window.alert(`Open failed: ${err}`);
     }
     setSavingProject(false);
+  };
+
+  const handleViewRevision = (rev: Revision & { id?: string }) => {
+    setBudgetPreview(null);
+    setViewingRevision(rev);
+    setShowRevisions(false);
+  };
+
+  const handleCloseRevisionView = () => setViewingRevision(null);
+
+  /** The rules enforce a lock the moment it is written regardless of what
+   *  this app's own state thinks -- this just keeps the UI from lagging
+   *  behind by a full reopen when the just-locked revision is the one
+   *  currently loaded live. */
+  const handleRevisionLocked = (rev: number) => {
+    if (rev === projectCurrentRevision) setLiveRevisionLocked(true);
+  };
+
+  /** Turns a read-only view into an editable draft: either a browsed older
+   *  revision's inputs (loaded fresh, per DRAWINGS.md-style "one thing shown
+   *  everywhere" -- here, one design being edited), or the currently-loaded
+   *  locked revision, unlocked in place with no data change at all. Either
+   *  way, the next Save creates a new revision -- never overwrites the one
+   *  being copied from. */
+  const handleCopyRevisionForward = () => {
+    if (viewingRevision) {
+      setCoreState(viewingRevision.input.core);
+      setOverState(viewingRevision.input.over);
+      setRates(viewingRevision.rateSnapshot);
+      setCopiedFromRev(viewingRevision.rev);
+      setLiveRevisionLocked(false);
+      setOverrideLock(false);
+      resetDesignState();
+    } else if (liveRevisionLocked) {
+      setCopiedFromRev(projectCurrentRevision);
+      setOverrideLock(true);
+    }
   };
 
   // Core-level enquiry edits (kva, hv, vector...) are direct inputs too --
@@ -270,19 +358,37 @@ export default function App() {
     };
   }, [core, over, rates, pins]);
 
+  // Read-only overlay for a browsed revision: recomputed only from that
+  // revision's own frozen input/rateSnapshot, exactly as saveRevision froze
+  // it -- never from the live core/over/rates, and never touching them.
+  const viewedResult = useMemo(() => {
+    if (!viewingRevision) return null;
+    return computeDesign(
+      viewingRevision.input.core, viewingRevision.input.over,
+      viewingRevision.rateSnapshot as any, viewingRevision.input.extras || [],
+    );
+  }, [viewingRevision]);
+
+  // A locked revision that is also the one currently loaded live: nothing to
+  // fall back to display (it IS the live design), so this blocks editing in
+  // place rather than swapping the display like the two overlays above.
+  const readOnlyLive = liveRevisionLocked && !overrideLock;
+
   // CLAUDE.md invariant 3: while a budget option is previewed, every tab
   // renders it -- the plate, the costing tab, all of them -- from this one
   // place, never `result` in one spot and the candidate in another. The Fit
   // to Budget tab itself is the one exception: it always searches and
   // compares against `result` (the live design), never against whatever it
-  // is currently previewing.
-  const activeDesign = budgetPreview ? budgetPreview.d : result.design;
-  const activeBom = budgetPreview ? budgetPreview.bom : result.bom;
-  const activeParams = budgetPreview ? budgetPreview.d.p : result.params;
+  // is currently previewing. Viewing a past revision takes precedence over a
+  // budget preview -- selecting one clears the other, see onSelectPreview
+  // and handleViewRevision.
+  const activeDesign = viewingRevision ? viewedResult!.design : budgetPreview ? budgetPreview.d : result.design;
+  const activeBom = viewingRevision ? viewedResult!.bom : budgetPreview ? budgetPreview.bom : result.bom;
+  const activeParams = viewingRevision ? viewedResult!.params : budgetPreview ? budgetPreview.d.p : result.params;
   const activePreviewKey = budgetPreview ? candidateKey(budgetPreview) : null;
 
   const handleAdoptBudget = () => {
-    if (!budgetPreview) return;
+    if (!budgetPreview || readOnlyLive) return;
     const patch: Record<string, any> = {};
     for (const k of BUDGET_OVER_KEYS) patch[k] = budgetPreview.inputs[k];
     setOverState({ ...over, ...patch });
@@ -410,7 +516,7 @@ export default function App() {
 
         <RatingPlate design={activeDesign} bom={activeBom} params={activeParams} />
 
-        {budgetPreview && (
+        {budgetPreview && !viewingRevision && (
           <div className="bg-white border border-copper rounded-[2px] px-4 py-3 print:hidden flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <div>
               <div className="text-[11px] font-display uppercase tracking-[0.14em] text-copper mb-1">
@@ -429,12 +535,50 @@ export default function App() {
           </div>
         )}
 
+        {viewingRevision && (
+          <div className="bg-white border border-copper rounded-[2px] px-4 py-3 print:hidden flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div>
+              <div className="text-[11px] font-display uppercase tracking-[0.14em] text-copper mb-1">
+                Viewing Revision {viewingRevision.rev}{viewingRevision.locked ? ', Locked' : ''}
+              </div>
+              <p className="text-[11px] text-ink2">
+                {inr(viewingRevision.summary.exWorks)} ex-works, saved {new Date(viewingRevision.createdAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}.
+                This design is shown everywhere -- the plate, every tab -- until you copy it forward or return to
+                the current design. Editing is disabled until then.
+              </p>
+            </div>
+            <div className="flex gap-2 shrink-0">
+              <Button variant="confirm" onClick={handleCopyRevisionForward}>Copy to New Revision</Button>
+              <Button variant="secondary" onClick={handleCloseRevisionView}>Back to Current</Button>
+            </div>
+          </div>
+        )}
+
+        {readOnlyLive && !viewingRevision && (
+          <div className="bg-white border border-alert rounded-[2px] px-4 py-3 print:hidden flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div>
+              <div className="text-[11px] font-display uppercase tracking-[0.14em] text-alert mb-1">
+                This Revision Is Locked
+              </div>
+              <p className="text-[11px] text-ink2">
+                Revision {projectCurrentRevision} went to the customer and cannot change. Editing is disabled --
+                copy it forward to make any change, which saves as a new revision and leaves this one untouched.
+              </p>
+            </div>
+            <div className="flex gap-2 shrink-0">
+              <Button variant="confirm" onClick={handleCopyRevisionForward}>Edit As New Revision</Button>
+            </div>
+          </div>
+        )}
+
         <ProjectBar
           projectName={projectName} onProjectNameChange={setProjectName}
           onSave={handleSave} onSaveAsCopy={handleSaveAsCopy}
           onNew={() => setShowNewProjectModal(true)} onOpen={handleOpenProject}
+          onOpenRevisions={() => setShowRevisions(true)}
           currentProjectId={currentProjectId} busy={savingProject} refreshKey={projectListVersion}
-          previewActive={!!budgetPreview}
+          previewActive={!!budgetPreview || !!viewingRevision || readOnlyLive}
+          uid={user?.uid || ''}
         />
 
         {pendingConflict && (
@@ -465,10 +609,11 @@ export default function App() {
         )}
 
         <main className="grid grid-cols-1 lg:grid-cols-[340px_1fr] gap-4">
-          {/* A previewed budget option isn't the design core/over/pins describe,
-              so editing it would be ambiguous about which design it applies to --
-              disabled until the preview is adopted or discarded. */}
-          <aside className={`print:hidden space-y-4 ${budgetPreview ? 'opacity-50 pointer-events-none' : ''}`}>
+          {/* Disabled whenever what's on screen isn't what core/over/pins
+              describe -- a previewed budget option, a browsed revision, or a
+              locked revision loaded live -- so editing it would be ambiguous
+              about which design it applies to. */}
+          <aside className={`print:hidden space-y-4 ${(budgetPreview || viewingRevision || readOnlyLive) ? 'opacity-50 pointer-events-none' : ''}`}>
             <PinPanel
               pins={pins} over={over} solveResults={solveResults}
               converged={solveConverged} fighting={solveFighting}
@@ -485,7 +630,8 @@ export default function App() {
               liveDesign={result.design} liveBom={result.bom} liveParams={result.params}
               project={buildMeta(projectName)}
               rates={rates} onRatesChange={setRates}
-              activePreviewKey={activePreviewKey} onSelectPreview={setBudgetPreview}
+              activePreviewKey={activePreviewKey}
+              onSelectPreview={(candidate) => { setViewingRevision(null); setBudgetPreview(candidate); }}
             />
           </section>
         </main>
@@ -493,6 +639,15 @@ export default function App() {
 
       {showNewProjectModal && (
         <NewProjectModal onClose={() => setShowNewProjectModal(false)} onStart={handleNewProjectStart} />
+      )}
+
+      {showRevisions && currentProjectId && (
+        <RevisionsModal
+          orgId={orgId} projectId={currentProjectId} projectName={projectName}
+          currentRevision={projectCurrentRevision} canEdit={canEdit}
+          onClose={() => setShowRevisions(false)} onView={handleViewRevision}
+          onLocked={handleRevisionLocked}
+        />
       )}
     </div>
   );
