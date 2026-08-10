@@ -69,44 +69,14 @@ export function ratingLabel(params: any): string {
 }
 
 /* ------------------------------------------------------------------
-   Vector group: bushing count and labelling follow it, always -- a Dyn11
-   has three HV bushings and four LV including neutral; a Dd0 has no LV
-   neutral and neither has an HV one. Parsed once here so no drawing
-   hardcodes a bushing count or label set that could disagree with another.
+   Vector group: moved to src/lib/vectorGroup.ts so the 3D model and the
+   shared part-records module can read it too, without a "drawings"
+   component importing into "cad" or vice versa. Re-exported here so every
+   existing drawing that imports it from this file keeps working unchanged.
    ------------------------------------------------------------------ */
 
-export interface VectorGroup {
-  hv: string; hvNeutral: boolean; lv: string; lvNeutral: boolean; clock: number;
-  hvLabels: string[]; lvLabels: string[];
-}
-
-/** e.g. "Dyn11" -> HV delta, LV star with neutral, clock 11.
- *  "YNd11" -> HV star with neutral brought out, LV delta (no neutral
- *  possible on a delta -- there is no star point to bring out). Falls back
- *  to the engine's own default (Dyn11) if the string does not parse,
- *  rather than guessing a different one. */
-export function parseVectorGroup(vector: string): VectorGroup {
-  const m = /^([DYZ])(N)?([dyz])(n)?(\d+)$/.exec(vector || '');
-  const hv = m ? m[1] : 'D';
-  const hvNeutral = !!(m && m[2]);
-  const lv = m ? m[3] : 'y';
-  const lvNeutral = !!(m && m[4]);
-  const clock = m ? parseInt(m[5], 10) : 11;
-  return {
-    hv, hvNeutral, lv, lvNeutral, clock,
-    hvLabels: ['1U', '1V', '1W', ...(hvNeutral ? ['1N'] : [])],
-    lvLabels: ['2u', '2v', '2w', ...(lvNeutral ? ['2n'] : [])],
-  };
-}
-
-/** N evenly spread schematic positions across `span`, centred on 0 -- used
- *  for LV (and, when present, HV neutral) bushings, whose real spacing the
- *  engine does not derive. The count is always real (from the vector
- *  group); only the spacing between that many positions is illustrative. */
-export function schematicPositions(n: number, span: number): number[] {
-  if (n <= 1) return [0];
-  return Array.from({ length: n }, (_, i) => -span / 2 + (span * i) / (n - 1));
-}
+export { parseVectorGroup, schematicPositions } from '../../lib/vectorGroup';
+export type { VectorGroup } from '../../lib/vectorGroup';
 
 /* ------------------------------------------------------------------
    Dimension lines: two extension lines, a dimension line with arrow

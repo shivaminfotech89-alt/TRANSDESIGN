@@ -9,6 +9,7 @@ export const PART_NUMBERS = {
   core: 'CR-001',
   lvCoil: 'WD-LV-001',
   hvCoil: 'WD-HV-001',
+  insulation: 'INS-001',
   tank: 'TNK-001',
   tankCover: 'TNK-002',
   fins: 'RAD-001',

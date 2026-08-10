@@ -1,7 +1,7 @@
 import React from 'react';
 import { documentRegister, routineTestSchedule, DOC_STATUS } from '@/packages/engine';
 import { Card, thCls, tdCls } from '../ui';
-import { NamePlate } from './NamePlate';
+import { NamePlateDrawing } from '../drawings/NamePlateDrawing';
 
 interface DocumentsTabProps {
   core: any;
@@ -18,7 +18,6 @@ const STATUS_TONE: Record<string, string> = { done: 'text-good', part: 'text-amb
 export function DocumentsTab({ core, design, bom, params, project }: DocumentsTabProps) {
   const register = documentRegister(core, design, bom, project);
   const tests = routineTestSchedule(design);
-  const namePlateDoc = register.find((r: any) => r.title === 'Name Plate');
 
   const counts = register.reduce((acc: Record<string, number>, r: any) => {
     acc[r.status] = (acc[r.status] || 0) + 1;
@@ -96,9 +95,7 @@ export function DocumentsTab({ core, design, bom, params, project }: DocumentsTa
         </table>
       </Card>
 
-      <Card title="Name Plate" subtitle={namePlateDoc?.doc}>
-        <NamePlate design={design} params={params} project={project} docNo={namePlateDoc?.doc} />
-      </Card>
+      <NamePlateDrawing design={design} params={params} project={project} />
     </div>
   );
 }
