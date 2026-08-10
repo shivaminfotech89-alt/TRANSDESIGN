@@ -10,6 +10,7 @@ import { OrthographicDrawing } from './drawings/OrthographicDrawing';
 import { LvWindingDrawing, HvWindingDrawing, TapWindingDrawing } from './drawings/WindingDrawings';
 import { InsulationDrawing, InternalAssemblyDrawing, LongitudinalSectionDrawing } from './drawings/SectionDrawings';
 import { TankFabricationDrawing, FinOrRadiatorDrawing } from './drawings/TankDrawings';
+import { BushingLayoutDrawing, AccessoryLayoutDrawing, LeadArrangementDrawing } from './drawings/LayoutDrawings';
 
 interface Drawings2DProps {
   design: any;
@@ -377,6 +378,9 @@ export function Drawings2D({ design, params, project }: Drawings2DProps) {
       <LongitudinalSectionDrawing design={design} params={params} project={project} />
       <TankFabricationDrawing design={design} params={params} project={project} />
       <FinOrRadiatorDrawing design={design} params={params} project={project} />
+      <BushingLayoutDrawing design={design} params={params} project={project} />
+      <AccessoryLayoutDrawing design={design} params={params} project={project} />
+      <LeadArrangementDrawing design={design} params={params} project={project} />
     </div>
   );
 }
