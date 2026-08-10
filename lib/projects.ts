@@ -6,6 +6,7 @@
  *   orgs/{orgId}
  *   orgs/{orgId}/members/{uid}
  *   orgs/{orgId}/rateCards/{rateCardId}
+ *   orgs/{orgId}/suppliers/{supplierId}
  *   orgs/{orgId}/projects/{projectId}
  *   orgs/{orgId}/projects/{projectId}/revisions/{revId}
  *   orgs/{orgId}/projects/{projectId}/documents/{docId}
@@ -18,7 +19,7 @@ import { db } from "./firebase";
 import { DEFAULT_RATES } from "@/packages/engine";
 import type {
   Project, ProjectMeta, Revision, RateCard, Rates, DesignSummary,
-  EnquiryInput, ProjectStatus, GeneratedDocument, Org, Member,
+  EnquiryInput, ProjectStatus, GeneratedDocument, Org, Member, Supplier,
 } from "./types";
 
 const orgRef = (orgId: string) => doc(db, "orgs", orgId);
@@ -27,6 +28,7 @@ const projectRef = (orgId: string, id: string) => doc(db, "orgs", orgId, "projec
 const revisionsRef = (orgId: string, id: string) =>
   collection(db, "orgs", orgId, "projects", id, "revisions");
 const rateCardsRef = (orgId: string) => collection(db, "orgs", orgId, "rateCards");
+const suppliersRef = (orgId: string) => collection(db, "orgs", orgId, "suppliers");
 
 const pad = (n: number) => String(n).padStart(3, "0");
 
@@ -284,6 +286,40 @@ export function newRateCardId(orgId: string): string {
 export function currentRateCard(cards: Array<RateCard & { id: string }>): (RateCard & { id: string }) | null {
   const now = Date.now();
   return cards.find((c) => c.effectiveFrom <= now) || cards[0] || null;
+}
+
+/* ---------------- suppliers ---------------- */
+
+export async function listSuppliers(orgId: string): Promise<Array<Supplier & { id: string }>> {
+  const snap = await getDocs(query(suppliersRef(orgId), orderBy("name")));
+  return snap.docs.map((d) => ({ id: d.id, ...(d.data() as Supplier) }));
+}
+
+export async function getSupplier(orgId: string, id: string): Promise<Supplier | null> {
+  const s = await getDoc(doc(suppliersRef(orgId), id));
+  return s.exists() ? (s.data() as Supplier) : null;
+}
+
+/**
+ * Master data, edited in place -- unlike a rate card, a supplier's contact
+ * or lead time changing is not a priced event worth dating and preserving,
+ * see lib/types.ts Supplier. Pass an id to update that supplier, or null to
+ * create a new one.
+ */
+export async function saveSupplier(
+  orgId: string, uid: string, id: string | null, supplier: Omit<Supplier, "updatedAt" | "updatedBy">
+): Promise<string> {
+  const record = { ...supplier, updatedBy: uid, updatedAt: Date.now() };
+  if (id) {
+    await setDoc(doc(suppliersRef(orgId), id), record);
+    return id;
+  }
+  const ref = await addDoc(suppliersRef(orgId), record);
+  return ref.id;
+}
+
+export async function deleteSupplier(orgId: string, id: string): Promise<void> {
+  await deleteDoc(doc(suppliersRef(orgId), id));
 }
 
 /* ---------------- generated documents ---------------- */

@@ -151,3 +151,27 @@ export interface GeneratedDocument {
   generatedBy: string;
   generatedAt: number;
 }
+
+/**
+ * TASKS.md item 11.2. Master data, not design data: editable in place, no
+ * effective-from dating (a phone number or a lead time changing is not a
+ * priced event the way a rate is). The item master (11.3) is where an
+ * individual supplier's price against a specific item lives; this is only
+ * the supplier's own record.
+ */
+export interface Supplier {
+  name: string;
+  gstNumber: string;
+  contact: { person: string; phone: string; email: string };
+  /** Free-text categories, not a price list -- "Copper", "CRGO Steel",
+   *  "Bushings and Insulators". The item master is where a price against a
+   *  specific item code lives. */
+  materialsSupplied: string[];
+  leadTimeDays: number;
+  paymentTerms: string;
+  /** 1 to 5, no fractional half-stars -- whole numbers a rating discussion
+   *  can actually agree on. */
+  rating: number;
+  updatedBy: string;
+  updatedAt: number;
+}

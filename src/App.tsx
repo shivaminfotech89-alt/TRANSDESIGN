@@ -8,6 +8,7 @@ import { ProjectBar } from './components/ProjectBar';
 import { NewProjectModal } from './components/NewProjectModal';
 import { RevisionsModal } from './components/RevisionsModal';
 import { RateCardManager } from './components/RateCardManager';
+import { SuppliersModal } from './components/SuppliersModal';
 import { Button } from './components/ui';
 import { useAuth } from './components/AuthContext';
 import { useOrg } from './components/OrgContext';
@@ -66,6 +67,10 @@ export default function App() {
   const [rateCardId, setRateCardId] = useState('default');
   const [orgRateCards, setOrgRateCards] = useState<(RateCard & { id: string })[]>([]);
   const [showRateCards, setShowRateCards] = useState(false);
+  // TASKS.md item 11.2: master data, not design data -- unrelated to
+  // whichever project is currently open, so it lives alongside the org-level
+  // rate cards rather than inside ProjectBar's per-project controls.
+  const [showSuppliers, setShowSuppliers] = useState(false);
 
   // TASKS.md item 11.1: load the org's real rate cards once per session and
   // seed the live design off whichever is actually in force today, instead
@@ -555,12 +560,20 @@ export default function App() {
                 5's acceptance test) needs a real way to sign out. */}
             <div className="text-right font-mono text-[10px] text-ink2 leading-relaxed shrink-0">
               <div className="truncate max-w-[180px]">{user?.email}</div>
-              <button
-                onClick={logOut}
-                className="font-display uppercase text-[9px] tracking-[0.14em] text-steel underline underline-offset-2"
-              >
-                Sign Out
-              </button>
+              <div className="flex gap-2 justify-end">
+                <button
+                  onClick={() => setShowSuppliers(true)}
+                  className="font-display uppercase text-[9px] tracking-[0.14em] text-steel underline underline-offset-2"
+                >
+                  Suppliers
+                </button>
+                <button
+                  onClick={logOut}
+                  className="font-display uppercase text-[9px] tracking-[0.14em] text-steel underline underline-offset-2"
+                >
+                  Sign Out
+                </button>
+              </div>
             </div>
           </div>
         </header>
@@ -710,6 +723,13 @@ export default function App() {
           onClose={() => setShowRateCards(false)}
           onSelect={(card) => { handleSelectRateCard(card); setShowRateCards(false); }}
           onSaved={(card) => { handleRateCardSaved(card); setShowRateCards(false); }}
+        />
+      )}
+
+      {showSuppliers && (
+        <SuppliersModal
+          orgId={orgId} uid={user?.uid || ''} canEdit={canEdit}
+          onClose={() => setShowSuppliers(false)}
         />
       )}
     </div>
