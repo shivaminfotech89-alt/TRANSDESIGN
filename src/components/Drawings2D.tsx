@@ -7,6 +7,7 @@ import {
 } from './drawings/DrawingPrimitives';
 import { PART_NUMBERS } from './drawings/partNumbers';
 import { OrthographicDrawing } from './drawings/OrthographicDrawing';
+import { LvWindingDrawing, HvWindingDrawing, TapWindingDrawing } from './drawings/WindingDrawings';
 import { finPlacements } from './cad/geometry';
 
 interface Drawings2DProps {
@@ -458,6 +459,9 @@ export function Drawings2D({ design, params, project }: Drawings2DProps) {
       <CoreDrawing design={design} params={params} project={project} />
       <CoreCrossSection design={design} params={params} project={project} />
       <StampingSchedule design={design} params={params} project={project} />
+      <LvWindingDrawing design={design} params={params} project={project} />
+      <HvWindingDrawing design={design} params={params} project={project} />
+      <TapWindingDrawing design={design} params={params} project={project} />
       <TankAndFinLayout design={design} params={params} project={project} />
     </div>
   );
