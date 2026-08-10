@@ -25,6 +25,16 @@ interface ResultsDisplayProps {
   project: any;
   rates: Record<string, number>;
   onRatesChange: (rates: Record<string, number>) => void;
+  /** The real orgs/{orgId}/rateCards document the live `rates` were seeded
+   *  from -- null only if the org has no rate card yet or the price on
+   *  screen came from a revision whose own card no longer resolves. */
+  rateCard: { id: string; name: string; effectiveFrom: number } | null;
+  onManageRateCards: () => void;
+  /** True while a budget preview, a viewed revision, or a locked live
+   *  revision is on screen -- editing rates or switching the rate card
+   *  would silently change what those show, the same ambiguity App.tsx's
+   *  own aside already guards against for every other edit surface. */
+  pricingLocked: boolean;
   activePreviewKey: string | null;
   onSelectPreview: (candidate: any | null) => void;
 }
@@ -60,7 +70,7 @@ function RateField({ label, k, rates, onRatesChange }: { label: string; k: strin
 
 export function ResultsDisplay({
   core, design, bom, params, liveDesign, liveBom, liveParams, project, rates, onRatesChange,
-  activePreviewKey, onSelectPreview,
+  rateCard, onManageRateCards, pricingLocked, activePreviewKey, onSelectPreview,
 }: ResultsDisplayProps) {
   const [activeTab, setActiveTab] = useState<Tab>('overview');
   const [isSaving, setIsSaving] = useState(false);
@@ -461,17 +471,27 @@ export function ResultsDisplay({
           </div>
         </div>
 
-        <Card title="Rate Card" subtitle="Session Only">
+        <Card
+          title="Rate Card"
+          subtitle={rateCard ? rateCard.name : 'No Rate Card Resolved'}
+        >
           <p className="text-[10px] font-body text-steel mb-2">
-            Seeded from DEFAULT_RATES. Full rate-card management is TASKS.md item 4.
+            {pricingLocked
+              ? 'What is on screen is not the live design -- return to it before changing rates or switching cards.'
+              : rateCard
+                ? `Effective from ${new Date(rateCard.effectiveFrom).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}. Editing below only changes this design's live price -- it does not change the saved rate card.`
+                : 'This price is not backed by a saved rate card -- open Manage Rate Cards to select or create one.'}
           </p>
-          <div className="grid grid-cols-2 gap-2 pt-1">
+          <div className={`grid grid-cols-2 gap-2 pt-1 ${pricingLocked ? 'opacity-50 pointer-events-none' : ''}`}>
             <RateField label="Core, ₹/kg" k="core" rates={rates} onRatesChange={onRatesChange} />
             <RateField label="Copper, ₹/kg" k="condCu" rates={rates} onRatesChange={onRatesChange} />
             <RateField label="Aluminium, ₹/kg" k="condAl" rates={rates} onRatesChange={onRatesChange} />
             <RateField label="Fluid, ₹/L" k="fluid" rates={rates} onRatesChange={onRatesChange} />
             <RateField label="Margin, %" k="marginPct" rates={rates} onRatesChange={onRatesChange} />
             <RateField label="GST, %" k="gstPct" rates={rates} onRatesChange={onRatesChange} />
+          </div>
+          <div className="pt-2">
+            <Button variant="secondary" onClick={onManageRateCards} disabled={pricingLocked}>Manage Rate Cards</Button>
           </div>
         </Card>
       </aside>

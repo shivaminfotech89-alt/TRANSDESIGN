@@ -7,6 +7,7 @@ import { DesignImpactSummary } from './components/DesignImpactSummary';
 import { ProjectBar } from './components/ProjectBar';
 import { NewProjectModal } from './components/NewProjectModal';
 import { RevisionsModal } from './components/RevisionsModal';
+import { RateCardManager } from './components/RateCardManager';
 import { Button } from './components/ui';
 import { useAuth } from './components/AuthContext';
 import { useOrg } from './components/OrgContext';
@@ -18,8 +19,8 @@ import {
 import { solveAllPins } from './lib/classBSolver';
 import { labelFor, fmtWithUnit } from './lib/paramLabels';
 import { diffDependents, type DependentChange } from './lib/impactSummary';
-import { createProject, renameProject, saveRevision, getRevision } from '../lib/projects';
-import type { ProjectMeta, Project, Revision } from '../lib/types';
+import { createProject, renameProject, saveRevision, getRevision, listRateCards, currentRateCard } from '../lib/projects';
+import type { ProjectMeta, Project, Revision, RateCard } from '../lib/types';
 import { candidateKey } from './components/budget/BudgetTab';
 
 const CAN_EDIT_ROLES = ['owner', 'engineer', 'estimator'];
@@ -57,9 +58,34 @@ export default function App() {
 
   const [core, setCoreState] = useState<any>(ESSENTIALS);
   const [over, setOverState] = useState<Record<string, any>>({});
-  // Seeded from DEFAULT_RATES, but this is a real rate card once orgs/rateCards
-  // (TASKS.md item 4) exists -- never hardcode a rate value in a display component.
+  // DEFAULT_RATES is only the seed for the instant before the org's own
+  // current rate card loads (see the effect below) or a fallback if the org
+  // somehow has none -- every save uses rateCardId, the real document id,
+  // never a hardcoded literal.
   const [rates, setRates] = useState<Record<string, number>>(DEFAULT_RATES);
+  const [rateCardId, setRateCardId] = useState('default');
+  const [orgRateCards, setOrgRateCards] = useState<(RateCard & { id: string })[]>([]);
+  const [showRateCards, setShowRateCards] = useState(false);
+
+  // TASKS.md item 11.1: load the org's real rate cards once per session and
+  // seed the live design off whichever is actually in force today, instead
+  // of the raw engine defaults. Runs once -- orgId is stable for the
+  // session, and re-running this on every render would clobber a rate card
+  // the user has since selected, edited, or loaded from an opened project's
+  // own frozen rateSnapshot.
+  useEffect(() => {
+    listRateCards(orgId)
+      .then((cards) => {
+        setOrgRateCards(cards);
+        const current = currentRateCard(cards);
+        if (current) {
+          setRates(current.rates);
+          setRateCardId(current.id);
+        }
+      })
+      .catch((e) => console.error('[App] could not load the organisation\'s rate cards', e));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orgId]);
   // Mirrors ProjectMeta.projectName (lib/types.ts). TASKS.md item 5: persisted
   // via lib/projects.ts against orgs/{orgId}/projects/{id}/revisions/{rev}.
   const [projectName, setProjectName] = useState('Untitled Design');
@@ -128,7 +154,11 @@ export default function App() {
   const handleNewProjectStart = (name: string, corePatch: Record<string, any>) => {
     setCoreState({ ...ESSENTIALS, ...corePatch });
     setOverState({});
-    setRates(DEFAULT_RATES);
+    // The org's own current rate card, not the bare engine defaults -- falls
+    // back to them only if the org somehow has no rate card at all yet.
+    const current = currentRateCard(orgRateCards);
+    setRates(current ? current.rates : DEFAULT_RATES);
+    setRateCardId(current ? current.id : 'default');
     setProjectName(name);
     setCurrentProjectId(null);
     setProjectCurrentRevision(-1);
@@ -159,7 +189,7 @@ export default function App() {
           core, over, meta: buildMeta(projectName), extras: [],
           budgetMin: 0, budgetMax: 0, searchOpts: {},
         },
-        rateCardId: 'default',
+        rateCardId,
         rateSnapshot: rates,
         engineVersion: result.engineVersion,
         summary: summarise(core, result.design, result.bom),
@@ -187,7 +217,7 @@ export default function App() {
           core, over, meta: buildMeta(newName), extras: [],
           budgetMin: 0, budgetMax: 0, searchOpts: {},
         },
-        rateCardId: 'default',
+        rateCardId,
         rateSnapshot: rates,
         engineVersion: result.engineVersion,
         summary: summarise(core, result.design, result.bom),
@@ -218,6 +248,7 @@ export default function App() {
         setCoreState(rev.input.core);
         setOverState(rev.input.over);
         setRates(rev.rateSnapshot);
+        setRateCardId(rev.rateCardId);
         setProjectName(rev.input.meta?.projectName || project.name);
         setCurrentProjectId(project.id);
         resetDesignState();
@@ -243,6 +274,25 @@ export default function App() {
 
   const handleCloseRevisionView = () => setViewingRevision(null);
 
+  /** Switching or saving a rate card only changes what the live design
+   *  prices against -- it never touches a project's already-saved
+   *  revisions, each of which keeps the rateSnapshot it was saved with.
+   *  Guarded the same as every other edit surface: the "Manage Rate Cards"
+   *  button is already disabled while pricingLocked, this is defence in
+   *  depth against changing rates while a different design is on screen. */
+  const handleSelectRateCard = (card: RateCard & { id: string }) => {
+    if (budgetPreview || viewingRevision || readOnlyLive) return;
+    setRates(card.rates);
+    setRateCardId(card.id);
+  };
+
+  const handleRateCardSaved = (card: RateCard & { id: string }) => {
+    setOrgRateCards((cards) => [card, ...cards]);
+    if (budgetPreview || viewingRevision || readOnlyLive) return;
+    setRates(card.rates);
+    setRateCardId(card.id);
+  };
+
   /** The rules enforce a lock the moment it is written regardless of what
    *  this app's own state thinks -- this just keeps the UI from lagging
    *  behind by a full reopen when the just-locked revision is the one
@@ -262,6 +312,7 @@ export default function App() {
       setCoreState(viewingRevision.input.core);
       setOverState(viewingRevision.input.over);
       setRates(viewingRevision.rateSnapshot);
+      setRateCardId(viewingRevision.rateCardId);
       setCopiedFromRev(viewingRevision.rev);
       setLiveRevisionLocked(false);
       setOverrideLock(false);
@@ -630,6 +681,9 @@ export default function App() {
               liveDesign={result.design} liveBom={result.bom} liveParams={result.params}
               project={buildMeta(projectName)}
               rates={rates} onRatesChange={setRates}
+              rateCard={orgRateCards.find((c) => c.id === rateCardId) || null}
+              onManageRateCards={() => setShowRateCards(true)}
+              pricingLocked={!!budgetPreview || !!viewingRevision || readOnlyLive}
               activePreviewKey={activePreviewKey}
               onSelectPreview={(candidate) => { setViewingRevision(null); setBudgetPreview(candidate); }}
             />
@@ -647,6 +701,15 @@ export default function App() {
           currentRevision={projectCurrentRevision} canEdit={canEdit}
           onClose={() => setShowRevisions(false)} onView={handleViewRevision}
           onLocked={handleRevisionLocked}
+        />
+      )}
+
+      {showRateCards && (
+        <RateCardManager
+          orgId={orgId} uid={user?.uid || ''} liveRates={rates} currentRateCardId={rateCardId}
+          onClose={() => setShowRateCards(false)}
+          onSelect={(card) => { handleSelectRateCard(card); setShowRateCards(false); }}
+          onSaved={(card) => { handleRateCardSaved(card); setShowRateCards(false); }}
         />
       )}
     </div>

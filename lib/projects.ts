@@ -265,6 +265,27 @@ export async function saveRateCard(
   });
 }
 
+/**
+ * A fresh id for a new dated rate card version. Rate cards are never edited
+ * in place -- effective-from dating means each change is a new document, so
+ * a project that already froze a rateSnapshot from an older card keeps
+ * reading exactly what it saved, per lib/types.ts's own rule for revisions.
+ */
+export function newRateCardId(orgId: string): string {
+  return doc(rateCardsRef(orgId)).id;
+}
+
+/** The rate card actually in force right now: among cards already
+ *  effective (effectiveFrom <= now), the most recently dated one --
+ *  listRateCards() already sorts effectiveFrom descending, so that is
+ *  simply the first one that qualifies. Falls back to the single most
+ *  recent card overall if every card is future-dated, so there is always
+ *  an active one rather than none. */
+export function currentRateCard(cards: Array<RateCard & { id: string }>): (RateCard & { id: string }) | null {
+  const now = Date.now();
+  return cards.find((c) => c.effectiveFrom <= now) || cards[0] || null;
+}
+
 /* ---------------- generated documents ---------------- */
 
 export async function recordDocument(
