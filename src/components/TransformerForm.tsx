@@ -1,375 +1,292 @@
-import { db } from "../lib/firebase";
-import { collection, query, where, getDocs } from "firebase/firestore";
-import { useAuth } from "./AuthContext";
-import React, { useState } from 'react';
-import { TransformerInputs } from '../types';
-import { ChevronDown, ChevronUp, Settings2, Zap, Thermometer, Box, Database, DollarSign } from 'lucide-react';
+import React, { useMemo, useState } from 'react';
+import {
+  deriveSpec, APPS, STANDARDS, EFF_LEVELS, CONDUCTORS,
+} from '@/packages/engine';
+import { labelCls, inputCls } from './ui';
+import { LABELS, UNITS } from '../lib/paramLabels';
 
 interface TransformerFormProps {
-  inputs: TransformerInputs;
-  onChange: (inputs: TransformerInputs) => void;
+  core: any;
+  over: Record<string, any>;
+  onCoreChange: (core: any) => void;
+  onOverChange: (over: Record<string, any>) => void;
 }
 
-export function TransformerForm({ inputs, onChange }: TransformerFormProps) {
-  const { user } = useAuth();
-  
-  const handleSyncPrices = async () => {
-    if (!user) return alert("Sign in to sync company prices");
-    try {
-      const [matSnap, priceSnap] = await Promise.all([
-        getDocs(query(collection(db, 'materials'), where('userId', '==', user.uid))),
-        getDocs(query(collection(db, 'material_prices'), where('userId', '==', user.uid)))
-      ]);
-      const mats = matSnap.docs.map(d => ({id: d.id, ...d.data()})) as any[];
-      const prices = priceSnap.docs.map(d => ({id: d.id, ...d.data()})) as any[];
-      
-      const getLatestPrice = (catName: string) => {
-        const catMats = mats.filter(m => m.category.toLowerCase().includes(catName.toLowerCase()) || m.name.toLowerCase().includes(catName.toLowerCase()));
-        if (!catMats.length) return null;
-        let latestP: any = null;
-        for (const m of catMats) {
-           const pList = prices.filter(p => p.materialId === m.id);
-           for (const p of pList) {
-             if (!latestP || p.createdAt > latestP.createdAt) latestP = p;
-           }
-        }
-        if (!latestP) return null;
-        return Number(latestP.basePrice) + Number(latestP.transportation) + Number(latestP.loading) + Number(latestP.taxes);
-      };
-      
-      const copperP = getLatestPrice('copper') || getLatestPrice('conductor') || getLatestPrice('aluminium');
-      const coreP = getLatestPrice('crgo') || getLatestPrice('core');
-      const oilP = getLatestPrice('oil');
-      const steelP = getLatestPrice('steel') || getLatestPrice('tank');
-      
-      let msg = "Synced Prices from DB:\n";
-      let updates: any = {};
-      if (copperP) { msg += `Conductor: ₹${copperP.toFixed(2)}\n`; updates.conductorCostPerKg = copperP; }
-      if (coreP) { msg += `Core: ₹${coreP.toFixed(2)}\n`; updates.coreCostPerKg = coreP; }
-      if (oilP) { msg += `Oil: ₹${oilP.toFixed(2)}\n`; updates.oilCostPerLitre = oilP; }
-      if (steelP) { msg += `Steel: ₹${steelP.toFixed(2)}\n`; updates.steelCostPerKg = steelP; }
-      
-      onChange({ ...inputs, ...updates });
-      alert(msg);
-    } catch(e) {
-      console.error(e);
-      alert("Failed to sync prices");
-    }
+const SECTIONS: { id: string; title: string; keys: string[] }[] = [
+  { id: 'insulation', title: 'Insulation Levels', keys: ['umHV', 'bilHV', 'acHV', 'umLV', 'bilLV', 'acLV'] },
+  { id: 'system', title: 'Cooling & Insulation System', keys: ['dryType', 'fluid', 'insClass', 'cooling', 'tankType', 'oilRiseTarget', 'refTemp', 'ambient', 'ambientAvg'] },
+  { id: 'losses', title: 'Losses & Impedance', keys: ['limitNLL', 'limitLL', 'targetZ', 'zTol'] },
+  { id: 'core', title: 'Core', keys: ['coreGrade', 'coreType', 'buildFactor', 'flux', 'steps', 'etK', 'aspect', 'autoWindow', 'autoFit', 'windowSpace'] },
+  { id: 'windings', title: 'Windings', keys: ['condLV', 'condHV', 'deltaLV', 'deltaHV', 'stray'] },
+  { id: 'tappings', title: 'Tappings', keys: ['tapType', 'tapPlus', 'tapMinus', 'tapStep'] },
+  { id: 'clearances', title: 'Clearances', keys: ['coreLvClr', 'lvHvClr', 'phaseClr', 'endClrLV', 'endClrHV', 'hvTankClr', 'endTankClr', 'cylThk'] },
+  { id: 'construction', title: 'Construction Constants', keys: ['lvIns', 'hvPaper', 'hvInterlayer', 'insFactor', 'topOilSpace', 'bottomClr', 'finDiss', 'tankDiss', 'airDiss'] },
+  { id: 'economics', title: 'Economics', keys: ['tariff', 'years', 'loadFactor', 'pf'] },
+];
+
+const APP_OPTS = Object.entries(APPS).map(([k, v]: [string, any]) => [k, v.name]);
+const STANDARD_OPTS = Object.entries(STANDARDS).map(([k, v]: [string, any]) => [k, v.name]);
+const EFF_LEVEL_OPTS = Object.entries(EFF_LEVELS).map(([k, v]: [string, any]) => [k, v.name]);
+const MEDIUM_OPTS = [['oil', 'Oil immersed'], ['dry', 'Dry type']];
+const COND_PREF_OPTS = [['auto', 'Auto, from rating and efficiency level'], ...Object.entries(CONDUCTORS).map(([k, v]: [string, any]) => [k, v.name])];
+const VECTOR_OPTS = [['Dyn11', 'Dyn11'], ['Yyn0', 'Yyn0'], ['YNd11', 'YNd11'], ['Dd0', 'Dd0']];
+const FREQ_OPTS = [[50, '50 Hz'], [60, '60 Hz']];
+
+function CoreField({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="space-y-1">
+      <label className={labelCls}>{label}</label>
+      {children}
+    </div>
+  );
+}
+
+function CoreSelect({ value, onChange, options }: { value: any; onChange: (v: any) => void; options: any[][] }) {
+  return (
+    <select
+      value={String(value)}
+      onChange={(e) => {
+        const raw = e.target.value;
+        const orig = options.find((o) => String(o[0]) === raw)?.[0];
+        onChange(orig !== undefined ? orig : raw);
+      }}
+      className={inputCls}
+    >
+      {options.map((o) => (
+        <option key={String(o[0])} value={String(o[0])}>{o[1]}</option>
+      ))}
+    </select>
+  );
+}
+
+function ParamRow({
+  k, spec, over, onOverChange, expanded, onToggle,
+}: {
+  k: string;
+  spec: { S: any; SUG: any; RNG: any; OPT: any; NOTE: any };
+  over: Record<string, any>;
+  onOverChange: (next: Record<string, any>) => void;
+  expanded: boolean;
+  onToggle: () => void;
+}) {
+  const { S, SUG, RNG, OPT, NOTE } = spec;
+  if (!(k in SUG)) return null;
+  const opts = OPT[k];
+  const range = RNG[k];
+  if (!opts && !range) return null;
+
+  const isSet = over[k] !== undefined;
+  const value = S[k];
+  const sug = SUG[k];
+  const label = LABELS[k] || k;
+  const unit = UNITS[k] || '';
+
+  const setOverride = (v: any) => onOverChange({ ...over, [k]: v });
+  const resetToSuggested = () => {
+    const next = { ...over };
+    delete next[k];
+    onOverChange(next);
   };
 
+  const displayValue = typeof value === 'number'
+    ? (Number.isInteger(value) ? String(value) : value.toFixed(2))
+    : String(value);
+  const sugDisplay = typeof sug === 'number'
+    ? (Number.isInteger(sug) ? String(sug) : sug.toFixed(2))
+    : String(sug);
+
+  return (
+    <div className="border-b border-line last:border-0">
+      <button
+        type="button"
+        onClick={onToggle}
+        className="w-full flex items-center justify-between gap-2 py-1.5 text-left"
+      >
+        <span className="text-[11px] text-ink2">{label}</span>
+        <span className="flex items-center gap-2 shrink-0">
+          <span className={`font-mono text-[11px] ${isSet ? 'text-amber' : 'text-ink'}`}>
+            {displayValue}<span className="text-steel ml-0.5">{unit}</span>
+          </span>
+          <span className={`text-[9px] font-display uppercase px-1 ${isSet ? 'text-amber' : 'text-patina'}`}>
+            {isSet ? 'SET' : 'AUTO'}
+          </span>
+        </span>
+      </button>
+
+      {expanded && (
+        <div className="pb-2 space-y-1.5">
+          {opts ? (
+            <select
+              value={String(value)}
+              onChange={(e) => {
+                const raw = e.target.value;
+                const orig = opts.find((o: any[]) => String(o[0]) === raw)?.[0];
+                setOverride(orig !== undefined ? orig : raw);
+              }}
+              className={inputCls}
+            >
+              {opts.map((o: any[]) => (
+                <option key={String(o[0])} value={String(o[0])}>
+                  {o[1]}{String(o[0]) === String(sug) ? ' ✓ suggested' : ''}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <div className="flex items-center gap-2">
+              <span className="font-mono text-[9px] text-steel">{range[0]}</span>
+              <input
+                type="range"
+                min={range[0]} max={range[1]} step={range[2] ?? 1}
+                value={value}
+                onChange={(e) => setOverride(Number(e.target.value))}
+                className="w-full accent-copper h-1"
+              />
+              <span className="font-mono text-[9px] text-steel">{range[1]}</span>
+              <input
+                type="number"
+                step={range[2] ?? 1}
+                value={value}
+                onChange={(e) => setOverride(Number(e.target.value))}
+                className="w-16 shrink-0 bg-white border border-rule rounded-[2px] p-1 text-ink font-mono text-[10px] text-center"
+              />
+            </div>
+          )}
+
+          {NOTE[k] && <p className="text-[10px] font-body text-steel leading-snug">{NOTE[k]}</p>}
+
+          {isSet && (
+            <button
+              type="button"
+              onClick={resetToSuggested}
+              className="text-[10px] font-display uppercase tracking-[0.1em] text-patina"
+            >
+              Back to Suggested: {sugDisplay}
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function GroupHeader({ title, expanded, onToggle }: { title: string; expanded: boolean; onToggle: () => void }) {
+  return (
+    <button
+      onClick={onToggle}
+      className="w-full flex items-center justify-between px-4 py-2 border-b border-line bg-white hover:bg-sheetAlt transition-colors"
+    >
+      <span className="text-[11px] font-display uppercase tracking-[0.16em] text-ink2">{title}</span>
+      <span className="font-display text-ink2 text-[13px] leading-none">{expanded ? '−' : '+'}</span>
+    </button>
+  );
+}
+
+export function TransformerForm({
+  core, over, onCoreChange, onOverChange,
+}: TransformerFormProps) {
   const [expandedSection, setExpandedSection] = useState<string>('rating');
+  const [expandedParams, setExpandedParams] = useState<Set<string>>(new Set());
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
-    const { name, value, type } = e.target;
-    
-    let updates: Partial<TransformerInputs> = {
-      [name]: type === 'number' ? Number(value) : value,
-    };
-    
-    // Auto-update current density if conductor changes
-    if (name === 'conductor') {
-      const isCopper = value === 'Copper';
-      updates.maxCurrentDensityHv = isCopper ? 3.0 : 1.6;
-      updates.maxCurrentDensityLv = isCopper ? 3.0 : 1.6;
-    }
+  const spec = useMemo(() => deriveSpec(core, over), [core, over]);
 
-    onChange({
-      ...inputs,
-      ...updates,
-    });
-  };
+  const setCore = (patch: Record<string, any>) => onCoreChange({ ...core, ...patch });
 
   const toggleSection = (section: string) => {
     setExpandedSection(expandedSection === section ? '' : section);
   };
 
-  const SectionHeader = ({ id, title, icon: Icon }: { id: string, title: string, icon: any }) => (
-    <button 
-      onClick={() => toggleSection(id)}
-      className="w-full flex items-center justify-between py-3 px-4 bg-slate-50 border-b border-slate-200 hover:bg-slate-100 transition-colors"
-    >
-      <div className="flex items-center gap-2">
-        <Icon className="w-4 h-4 text-blue-600" />
-        <span className="text-xs font-bold text-slate-800 uppercase tracking-wide">{title}</span>
-      </div>
-      {expandedSection === id ? <ChevronUp className="w-4 h-4 text-slate-500" /> : <ChevronDown className="w-4 h-4 text-slate-500" />}
-    </button>
-  );
+  const toggleParam = (k: string) => {
+    const next = new Set(expandedParams);
+    if (next.has(k)) next.delete(k); else next.add(k);
+    setExpandedParams(next);
+  };
 
   return (
-    <div className="border border-slate-200 rounded-lg overflow-hidden bg-white">
-      
-      {/* 1. Rating & Voltages */}
+    <div className="border border-rule rounded-[2px] overflow-hidden bg-white">
+      <div className="bg-plate text-plateTx text-[11px] font-display uppercase tracking-[0.16em] px-4 py-2">
+        Specification
+      </div>
+
+      {/* Rating & enquiry -- the core object itself, no AUTO/SET here */}
       <div>
-        <SectionHeader id="rating" title="Rating & Voltages" icon={Zap} />
+        <GroupHeader title="Rating & Enquiry" expanded={expandedSection === 'rating'} onToggle={() => toggleSection('rating')} />
         {expandedSection === 'rating' && (
-          <div className="p-4 space-y-4">
-            <div className="space-y-1.5">
-              <label className="text-[11px] font-semibold text-slate-600 uppercase tracking-wide">Project Name</label>
-              <input type="text" name="projectName" value={inputs.projectName || ''} onChange={handleChange}
-                className="w-full bg-white border border-slate-300 p-2 text-slate-900 rounded-md shadow-sm focus:ring-2 focus:ring-blue-500 text-sm" />
+          <div className="p-4 space-y-3">
+            {/* Project name lives in the project bar (ProjectMeta.projectName),
+                above the rating plate -- not here, since this section is the
+                engine's core enquiry, not project metadata. */}
+            <CoreField label="Application">
+              <CoreSelect value={core.application} onChange={(v) => setCore({ application: v })} options={APP_OPTS} />
+            </CoreField>
+            <CoreField label="Design Standard">
+              <CoreSelect value={core.standard} onChange={(v) => setCore({ standard: v })} options={STANDARD_OPTS} />
+            </CoreField>
+            <CoreField label="Rating (kVA)">
+              <input type="number" value={core.kva} onChange={(e) => setCore({ kva: Number(e.target.value) })} className={inputCls} />
+            </CoreField>
+            <div className="grid grid-cols-2 gap-3">
+              <CoreField label="HV (V)">
+                <input type="number" value={core.hv} onChange={(e) => setCore({ hv: Number(e.target.value) })} className={inputCls} />
+              </CoreField>
+              <CoreField label="LV (V)">
+                <input type="number" value={core.lv} onChange={(e) => setCore({ lv: Number(e.target.value) })} className={inputCls} />
+              </CoreField>
             </div>
-            <div className="space-y-1.5">
-              <label className="text-[11px] font-semibold text-slate-600 uppercase tracking-wide">Rating (kVA)</label>
-              <input type="number" name="kVA" value={inputs.kVA} onChange={handleChange}
-                className="w-full bg-white border border-slate-300 p-2 text-slate-900 font-mono rounded-md shadow-sm focus:ring-2 focus:ring-blue-500" />
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-1.5">
-                <label className="text-[11px] font-semibold text-slate-600 uppercase tracking-wide">HV (V)</label>
-                <input type="number" name="hvVoltage" value={inputs.hvVoltage} onChange={handleChange}
-                  className="w-full bg-white border border-slate-300 p-2 text-slate-900 font-mono rounded-md shadow-sm focus:ring-2 focus:ring-blue-500" />
-              </div>
-              <div className="space-y-1.5">
-                <label className="text-[11px] font-semibold text-slate-600 uppercase tracking-wide">LV (V)</label>
-                <input type="number" name="lvVoltage" value={inputs.lvVoltage} onChange={handleChange}
-                  className="w-full bg-white border border-slate-300 p-2 text-slate-900 font-mono rounded-md shadow-sm focus:ring-2 focus:ring-blue-500" />
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-1.5">
-                <label className="text-[11px] font-semibold text-slate-600 uppercase tracking-wide">Phases</label>
-                <select name="phases" value={inputs.phases} onChange={handleChange}
-                  className="w-full bg-white border border-slate-300 p-2 text-slate-900 rounded-md shadow-sm focus:ring-2 focus:ring-blue-500 text-sm">
-                  <option value={1}>1 - Single Phase</option>
-                  <option value={3}>3 - Three Phase</option>
-                </select>
-              </div>
-              <div className="space-y-1.5">
-                <label className="text-[11px] font-semibold text-slate-600 uppercase tracking-wide">Frequency</label>
-                <select name="frequency" value={inputs.frequency} onChange={handleChange}
-                  className="w-full bg-white border border-slate-300 p-2 text-slate-900 rounded-md shadow-sm focus:ring-2 focus:ring-blue-500 text-sm">
-                  <option value={50}>50 Hz</option>
-                  <option value={60}>60 Hz</option>
-                </select>
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* 2. Standards & Core Settings */}
-      <div>
-        <SectionHeader id="standards" title="Standards & Core" icon={Settings2} />
-        {expandedSection === 'standards' && (
-          <div className="p-4 space-y-4">
-            <div className="space-y-1.5">
-              <label className="text-[11px] font-semibold text-slate-600 uppercase tracking-wide">Reference Standard</label>
-              <select name="referenceStandard" value={inputs.referenceStandard || 'IEC 60076'} onChange={handleChange}
-                className="w-full bg-white border border-slate-300 p-2 text-slate-900 rounded-md shadow-sm focus:ring-2 focus:ring-blue-500 text-sm">
-                <option value="IEC 60076">IEC 60076</option>
-                <option value="IEEE C57">IEEE C57</option>
-                <option value="IS 1180">IS 1180</option>
-                <option value="EcoDesign">European Eco Design</option>
-              </select>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-1.5">
-                <label className="text-[11px] font-semibold text-slate-600 uppercase tracking-wide">Vector Group</label>
-                <select name="vectorGroup" value={inputs.vectorGroup || 'Dyn11'} onChange={handleChange}
-                  className="w-full bg-white border border-slate-300 p-2 text-slate-900 rounded-md shadow-sm focus:ring-2 focus:ring-blue-500 text-sm">
-                  <option value="Dyn11">Dyn11</option>
-                  <option value="Yyn0">Yyn0</option>
-                  <option value="YNd11">YNd11</option>
-                  <option value="Dd0">Dd0</option>
-                </select>
-              </div>
-              <div className="space-y-1.5">
-                <label className="text-[11px] font-semibold text-slate-600 uppercase tracking-wide">Core Type</label>
-                <select name="coreType" value={inputs.coreType || 'Step-Lap'} onChange={handleChange}
-                  className="w-full bg-white border border-slate-300 p-2 text-slate-900 rounded-md shadow-sm focus:ring-2 focus:ring-blue-500 text-[11px]">
-                  <option value="Step-Lap">Step-Lap</option>
-                  <option value="Conventional Mitered">Conventional Mitered</option>
-                  <option value="Amorphous">Amorphous</option>
-                  <option value="EI Core">EI Core</option>
-                </select>
-              </div>
-            </div>
-            <div className="space-y-1.5">
-              <label className="text-[11px] font-semibold text-slate-600 uppercase tracking-wide">Core Material</label>
-              <select name="coreMaterial" value={inputs.coreMaterial} onChange={handleChange}
-                className="w-full bg-white border border-slate-300 p-2 text-slate-900 rounded-md shadow-sm focus:ring-2 focus:ring-blue-500 text-sm">
-                <option value="CRGO Conventional">CRGO Conventional</option>
-                <option value="CRGO Hi-B">CRGO Hi-B</option>
-                <option value="Amorphous">Amorphous Metal</option>
-              </select>
-            </div>
-            <div className="space-y-1.5">
-              <label className="text-[11px] font-semibold text-slate-600 uppercase tracking-wide">Max Flux Density (T)</label>
-              <input type="number" step="0.01" name="maxFluxDensity" value={inputs.maxFluxDensity || 1.7} onChange={handleChange}
-                className="w-full bg-white border border-slate-300 p-2 text-slate-900 font-mono rounded-md shadow-sm focus:ring-2 focus:ring-blue-500" />
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* 3. Cooling & Insulation */}
-      <div>
-        <SectionHeader id="cooling" title="Cooling & Insulation" icon={Thermometer} />
-        {expandedSection === 'cooling' && (
-          <div className="p-4 space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-1.5">
-                <label className="text-[11px] font-semibold text-slate-600 uppercase tracking-wide">Cooling Type</label>
-                <select name="cooling" value={inputs.cooling} onChange={handleChange}
-                  className="w-full bg-white border border-slate-300 p-2 text-slate-900 rounded-md shadow-sm focus:ring-2 focus:ring-blue-500 text-sm">
-                  <option value="Oil Immersed">ONAN / ONAF</option>
-                  <option value="Dry Type">Dry Type (AN / VPI)</option>
-                </select>
-              </div>
-              <div className="space-y-1.5">
-                <label className="text-[11px] font-semibold text-slate-600 uppercase tracking-wide">Insulation Class</label>
-                <select name="insulationClass" value={inputs.insulationClass || 'A'} onChange={handleChange}
-                  className="w-full bg-white border border-slate-300 p-2 text-slate-900 rounded-md shadow-sm focus:ring-2 focus:ring-blue-500 text-sm">
-                  <option value="A">Class A (105°C)</option>
-                  <option value="B">Class B (130°C)</option>
-                  <option value="F">Class F (155°C)</option>
-                  <option value="H">Class H (180°C)</option>
-                </select>
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-1.5">
-                <label className="text-[11px] font-semibold text-slate-600 uppercase tracking-wide">Ambient Temp (°C)</label>
-                <input type="number" name="ambientTemp" value={inputs.ambientTemp || 45} onChange={handleChange}
-                  className="w-full bg-white border border-slate-300 p-2 text-slate-900 font-mono rounded-md shadow-sm focus:ring-2 focus:ring-blue-500" />
-              </div>
-              <div className="space-y-1.5">
-                <label className="text-[11px] font-semibold text-slate-600 uppercase tracking-wide">Temp Rise (°C)</label>
-                <input type="number" name="tempRise" value={inputs.tempRise || 50} onChange={handleChange}
-                  className="w-full bg-white border border-slate-300 p-2 text-slate-900 font-mono rounded-md shadow-sm focus:ring-2 focus:ring-blue-500" />
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* 4. Winding & Tapping */}
-      <div>
-        <SectionHeader id="winding" title="Winding & Tapping" icon={Database} />
-        {expandedSection === 'winding' && (
-          <div className="p-4 space-y-4">
-            <div className="space-y-1.5">
-              <label className="text-[11px] font-semibold text-slate-600 uppercase tracking-wide">Conductor Material</label>
-              <select name="conductor" value={inputs.conductor} onChange={handleChange}
-                className="w-full bg-white border border-slate-300 p-2 text-slate-900 rounded-md shadow-sm focus:ring-2 focus:ring-blue-500 text-sm">
-                <option value="Copper">Copper</option>
-                <option value="Aluminum">Aluminum</option>
-              </select>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-1.5">
-                <label className="text-[11px] font-semibold text-slate-600 uppercase tracking-wide">Max HV CD (A/mm²)</label>
-                <input type="number" step="0.1" name="maxCurrentDensityHv" value={inputs.maxCurrentDensityHv || 3.0} onChange={handleChange}
-                  className="w-full bg-white border border-slate-300 p-2 text-slate-900 font-mono rounded-md shadow-sm focus:ring-2 focus:ring-blue-500" />
-              </div>
-              <div className="space-y-1.5">
-                <label className="text-[11px] font-semibold text-slate-600 uppercase tracking-wide">Max LV CD (A/mm²)</label>
-                <input type="number" step="0.1" name="maxCurrentDensityLv" value={inputs.maxCurrentDensityLv || 3.0} onChange={handleChange}
-                  className="w-full bg-white border border-slate-300 p-2 text-slate-900 font-mono rounded-md shadow-sm focus:ring-2 focus:ring-blue-500" />
-              </div>
-            </div>
-            <div className="space-y-1.5">
-              <label className="text-[11px] font-semibold text-slate-600 uppercase tracking-wide">Tap Changer</label>
-              <select name="tapChanger" value={inputs.tapChanger || 'OCTC'} onChange={handleChange}
-                className="w-full bg-white border border-slate-300 p-2 text-slate-900 rounded-md shadow-sm focus:ring-2 focus:ring-blue-500 text-sm">
-                <option value="None">No Tappings</option>
-                <option value="OCTC">OCTC (Off-circuit tap changer)</option>
-                <option value="OLTC">OLTC (On-load tap changer)</option>
-              </select>
-            </div>
-            {inputs.tapChanger && inputs.tapChanger !== 'None' && (
-              <div className="grid grid-cols-3 gap-2">
-                <div className="space-y-1">
-                  <label className="text-[9px] font-semibold text-slate-600 uppercase">Above Normal (%)</label>
-                  <input type="number" step="0.5" name="tapRangeAbove" value={inputs.tapRangeAbove || 5.0} onChange={handleChange}
-                    className="w-full bg-white border border-slate-300 p-1.5 text-slate-900 font-mono text-xs rounded-md shadow-sm" />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-[9px] font-semibold text-slate-600 uppercase">Below Normal (%)</label>
-                  <input type="number" step="0.5" name="tapRangeBelow" value={inputs.tapRangeBelow || 5.0} onChange={handleChange}
-                    className="w-full bg-white border border-slate-300 p-1.5 text-slate-900 font-mono text-xs rounded-md shadow-sm" />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-[9px] font-semibold text-slate-600 uppercase">Step Var (%)</label>
-                  <input type="number" step="0.5" name="tapStepVariation" value={inputs.tapStepVariation || 2.5} onChange={handleChange}
-                    className="w-full bg-white border border-slate-300 p-1.5 text-slate-900 font-mono text-xs rounded-md shadow-sm" />
-                </div>
-              </div>
+            <label className={`flex items-center gap-2 ${labelCls}`}>
+              <input type="checkbox" checked={!!core.dualHV} onChange={(e) => setCore({ dualHV: e.target.checked })} />
+              Dual HV voltage
+            </label>
+            {core.dualHV && (
+              <CoreField label="HV, second (V)">
+                <input type="number" value={core.hv2} onChange={(e) => setCore({ hv2: Number(e.target.value) })} className={inputCls} />
+              </CoreField>
             )}
+            <label className={`flex items-center gap-2 ${labelCls}`}>
+              <input type="checkbox" checked={!!core.dualLV} onChange={(e) => setCore({ dualLV: e.target.checked })} />
+              Dual LV voltage
+            </label>
+            {core.dualLV && (
+              <CoreField label="LV, second (V)">
+                <input type="number" value={core.lv2} onChange={(e) => setCore({ lv2: Number(e.target.value) })} className={inputCls} />
+              </CoreField>
+            )}
+            <div className="grid grid-cols-2 gap-3">
+              <CoreField label="Frequency">
+                <CoreSelect value={core.freq} onChange={(v) => setCore({ freq: v })} options={FREQ_OPTS} />
+              </CoreField>
+              <CoreField label="Vector Group">
+                <CoreSelect value={core.vector} onChange={(v) => setCore({ vector: v })} options={VECTOR_OPTS} />
+              </CoreField>
+            </div>
+            <CoreField label="Efficiency Level">
+              <CoreSelect value={core.effLevel} onChange={(v) => setCore({ effLevel: v })} options={EFF_LEVEL_OPTS} />
+            </CoreField>
+            <CoreField label="Cooling Medium">
+              <CoreSelect value={core.medium} onChange={(v) => setCore({ medium: v })} options={MEDIUM_OPTS} />
+            </CoreField>
+            <CoreField label="Conductor Preference">
+              <CoreSelect value={core.condPref} onChange={(v) => setCore({ condPref: v })} options={COND_PREF_OPTS} />
+            </CoreField>
           </div>
         )}
       </div>
 
-      {/* 5. Tank Type */}
-      <div>
-        <SectionHeader id="tank" title="Tank Construction" icon={Box} />
-        {expandedSection === 'tank' && (
-          <div className="p-4 space-y-4">
-            <div className="space-y-1.5">
-              <label className="text-[11px] font-semibold text-slate-600 uppercase tracking-wide">Tank Type</label>
-              <select name="tankType" value={inputs.tankType || 'Radiator & Conservator'} onChange={handleChange}
-                className="w-full bg-white border border-slate-300 p-2 text-slate-900 rounded-md shadow-sm focus:ring-2 focus:ring-blue-500 text-sm">
-                <option value="Radiator & Conservator">Radiator & Conservator</option>
-                <option value="Corrugated Fin">Corrugated Fin</option>
-                <option value="Sealed Type">Sealed Type</option>
-              </select>
+      {/* Every derived parameter: AUTO from deriveSpec, or SET by the user */}
+      {SECTIONS.map(({ id, title, keys }) => (
+        <div key={id}>
+          <GroupHeader title={title} expanded={expandedSection === id} onToggle={() => toggleSection(id)} />
+          {expandedSection === id && (
+            <div className="px-4">
+              {keys.map((k) => (
+                <ParamRow
+                  key={k} k={k} spec={spec} over={over} onOverChange={onOverChange}
+                  expanded={expandedParams.has(k)} onToggle={() => toggleParam(k)}
+                />
+              ))}
             </div>
-          </div>
-        )}
-      </div>
-
-      {/* 6. Pricing / Optimization */}
-      <div>
-        <SectionHeader id="pricing" title="Cost & Optimization" icon={DollarSign} />
-        {expandedSection === 'pricing' && (
-          <div className="p-4 space-y-4 bg-slate-50 border-t border-slate-200">
-            <div className="space-y-1.5">
-              <label className="text-[11px] font-semibold text-slate-600 uppercase tracking-wide">Optimization Strategy</label>
-              <select name="strategy" value={inputs.strategy} onChange={handleChange}
-                className="w-full bg-white border border-slate-300 p-2 text-slate-900 rounded-md shadow-sm focus:ring-2 focus:ring-blue-500 text-sm">
-                <option value="Lowest Cost">Lowest Cost</option>
-                <option value="High Efficiency">High Efficiency</option>
-              </select>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-1.5">
-                <label className="text-[11px] font-semibold text-slate-600 uppercase tracking-wide">Core (₹/kg)</label>
-                <input type="number" name="coreCostPerKg" value={inputs.coreCostPerKg} onChange={handleChange}
-                  className="w-full bg-white border border-slate-300 p-2 text-slate-900 font-mono rounded-md shadow-sm focus:ring-2 focus:ring-blue-500" />
-              </div>
-              <div className="space-y-1.5">
-                <label className="text-[11px] font-semibold text-slate-600 uppercase tracking-wide">Cond. (₹/kg)</label>
-                <input type="number" name="conductorCostPerKg" value={inputs.conductorCostPerKg} onChange={handleChange}
-                  className="w-full bg-white border border-slate-300 p-2 text-slate-900 font-mono rounded-md shadow-sm focus:ring-2 focus:ring-blue-500" />
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-1.5">
-                <label className="text-[11px] font-semibold text-slate-600 uppercase tracking-wide">Oil (₹/L)</label>
-                <input type="number" name="oilCostPerLitre" value={inputs.oilCostPerLitre || 95} onChange={handleChange}
-                  className="w-full bg-white border border-slate-300 p-2 text-slate-900 font-mono rounded-md shadow-sm focus:ring-2 focus:ring-blue-500" />
-              </div>
-              <div className="space-y-1.5">
-                <label className="text-[11px] font-semibold text-slate-600 uppercase tracking-wide">Steel (₹/kg)</label>
-                <input type="number" name="steelCostPerKg" value={inputs.steelCostPerKg || 75} onChange={handleChange}
-                  className="w-full bg-white border border-slate-300 p-2 text-slate-900 font-mono rounded-md shadow-sm focus:ring-2 focus:ring-blue-500" />
-              </div>
-            </div>
-            <div className="space-y-1.5 pt-2 border-t border-slate-200">
-              <label className="text-[11px] font-semibold text-slate-600 uppercase tracking-wide">Target Margin (%)</label>
-              <input type="number" step="0.1" name="marginPercentage" value={inputs.marginPercentage} onChange={handleChange}
-                className="w-full bg-white border border-slate-300 p-2 text-slate-900 font-mono rounded-md shadow-sm focus:ring-2 focus:ring-blue-500" />
-            </div>
-            <div className="space-y-1.5 pt-2">
-              <label className="text-[11px] font-bold text-blue-600 uppercase tracking-wide">Target Budget (INR)</label>
-              <input type="number" name="targetBudget" value={inputs.targetBudget || ''} onChange={handleChange} placeholder="Optional"
-                className="w-full bg-blue-50 border border-blue-200 p-2.5 text-blue-800 font-mono rounded-md shadow-sm focus:ring-2 focus:ring-blue-500" />
-            </div>
-          </div>
-        )}
-      </div>
-
+          )}
+        </div>
+      ))}
     </div>
   );
 }

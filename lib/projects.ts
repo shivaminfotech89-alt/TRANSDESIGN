@@ -1,0 +1,325 @@
+/**
+ * Project repository. Every read and write goes through here so the rest of the
+ * app never touches Firestore paths directly.
+ *
+ * Path layout:
+ *   orgs/{orgId}
+ *   orgs/{orgId}/members/{uid}
+ *   orgs/{orgId}/rateCards/{rateCardId}
+ *   orgs/{orgId}/projects/{projectId}
+ *   orgs/{orgId}/projects/{projectId}/revisions/{revId}
+ *   orgs/{orgId}/projects/{projectId}/documents/{docId}
+ */
+import {
+  collection, doc, getDoc, getDocs, setDoc, addDoc, updateDoc, deleteDoc,
+  query, where, orderBy, limit, serverTimestamp, writeBatch, arrayUnion,
+} from "firebase/firestore";
+import { db } from "./firebase";
+import { DEFAULT_RATES } from "@/packages/engine";
+import type {
+  Project, ProjectMeta, Revision, RateCard, Rates, DesignSummary,
+  EnquiryInput, ProjectStatus, GeneratedDocument, Org,
+} from "./types";
+
+const orgRef = (orgId: string) => doc(db, "orgs", orgId);
+const projectsRef = (orgId: string) => collection(db, "orgs", orgId, "projects");
+const projectRef = (orgId: string, id: string) => doc(db, "orgs", orgId, "projects", id);
+const revisionsRef = (orgId: string, id: string) =>
+  collection(db, "orgs", orgId, "projects", id, "revisions");
+const rateCardsRef = (orgId: string) => collection(db, "orgs", orgId, "rateCards");
+
+const pad = (n: number) => String(n).padStart(3, "0");
+
+/* ---------------- organisations ---------------- */
+
+/**
+ * TASKS.md item 3. Three separate writes, not a batch, in this order:
+ * 1. The org document, so the next write's rule (which reads it back to
+ *    check `ownerUid`) has something to see -- rules cannot see an org that
+ *    does not exist yet -- BUILD-GUIDE.md section 7.
+ * 2. The member document under it.
+ * 3. This user's own users/{uid} index, appending the new org. This is the
+ *    other half of membership (see lib/types.ts UserIndex) -- without it
+ *    listMyOrgs() has no way to find this org again, which is the bug a
+ *    memberUids array-contains query on `orgs` was papering over: Firestore
+ *    cannot authorise that query against a rule that needs a per-document
+ *    exists() check on the members subcollection.
+ * Then seed a rate card from the engine defaults so pricing has somewhere
+ * to come from on day one.
+ */
+export async function createOrganisation(uid: string, email: string, name: string): Promise<string> {
+  const ref = doc(collection(db, "orgs"));
+  const orgId = ref.id;
+
+  const org: Org = {
+    name, ownerUid: uid, createdAt: Date.now(),
+    country: "IN", currency: "INR",
+  };
+  await setDoc(ref, org);
+
+  await setDoc(doc(db, "orgs", orgId, "members", uid), {
+    uid, email, role: "owner", addedAt: Date.now(),
+  });
+
+  await setDoc(
+    doc(db, "users", uid),
+    { email, updatedAt: Date.now(), orgs: arrayUnion(orgId) },
+    { merge: true },
+  );
+
+  await saveRateCard(orgId, uid, "default", {
+    name: "Standard rates", currency: "INR",
+    rates: DEFAULT_RATES, effectiveFrom: Date.now(),
+  });
+
+  return orgId;
+}
+
+/**
+ * One-time repair for an account whose org and members/{uid} documents
+ * predate the users/{uid} index (exactly the state this bug left behind):
+ * verifies real membership first, so this cannot be used to graft onto an
+ * organisation the caller does not already belong to, then writes the
+ * missing half.
+ */
+export async function linkExistingOrg(orgId: string, uid: string, email: string): Promise<void> {
+  let memberSnap;
+  try {
+    memberSnap = await getDoc(doc(db, "orgs", orgId, "members", uid));
+  } catch {
+    // Firestore does not distinguish "that document does not exist" from
+    // "you may not read it" for an unauthorised caller -- both come back as
+    // permission-denied, not a clean not-found. Either way it means the
+    // same thing here: nothing to link.
+    throw new Error(`No membership found for you in organisation "${orgId}". Check the ID and try again.`);
+  }
+  if (!memberSnap.exists()) {
+    throw new Error(`No membership found for you in organisation "${orgId}". Check the ID and try again.`);
+  }
+  await setDoc(
+    doc(db, "users", uid),
+    { email, updatedAt: Date.now(), orgs: arrayUnion(orgId) },
+    { merge: true },
+  );
+}
+
+/**
+ * No "owner invites a teammate" feature exists in this codebase yet. When one
+ * is built, it cannot simply write orgs/{orgId}/members/{uid} for the invitee
+ * the way createOrganisation() does for its own uid: firestore.rules lets a
+ * user write only their own users/{uid} document, so the inviter can create
+ * the members/{uid} doc but cannot also write the invitee's users/{uid} --
+ * that write would be denied. The invite flow needs a pending-invite document
+ * the invitee accepts by writing their own users/{uid} on first sign-in (the
+ * same shape as linkExistingOrg() above). Writing members/{uid} without the
+ * invitee ever getting their users/{uid} appended is exactly this bug again.
+ */
+
+/* ---------------- projects ---------------- */
+
+export async function listProjects(orgId: string, max = 200): Promise<Project[]> {
+  const snap = await getDocs(query(projectsRef(orgId), orderBy("updatedAt", "desc"), limit(max)));
+  return snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<Project, "id">) }));
+}
+
+export async function searchProjectsByCustomer(orgId: string, customer: string): Promise<Project[]> {
+  const snap = await getDocs(query(projectsRef(orgId), where("meta.customer", "==", customer)));
+  return snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<Project, "id">) }));
+}
+
+export async function getProject(orgId: string, id: string): Promise<Project | null> {
+  const s = await getDoc(projectRef(orgId, id));
+  return s.exists() ? ({ id: s.id, ...(s.data() as Omit<Project, "id">) }) : null;
+}
+
+export async function createProject(
+  orgId: string, uid: string, name: string, meta: ProjectMeta
+): Promise<string> {
+  const now = Date.now();
+  const ref = await addDoc(projectsRef(orgId), {
+    name, status: "draft" as ProjectStatus, meta,
+    currentRevision: -1, summary: null,
+    createdBy: uid, createdAt: now, updatedBy: uid, updatedAt: now,
+  });
+  return ref.id;
+}
+
+export async function renameProject(orgId: string, id: string, name: string, uid: string) {
+  await updateDoc(projectRef(orgId, id), { name, updatedBy: uid, updatedAt: Date.now() });
+}
+
+export async function setProjectStatus(orgId: string, id: string, status: ProjectStatus, uid: string) {
+  await updateDoc(projectRef(orgId, id), { status, updatedBy: uid, updatedAt: Date.now() });
+}
+
+export async function deleteProject(orgId: string, id: string) {
+  // Firestore does not cascade. Delete revisions first, then the parent.
+  const revs = await getDocs(revisionsRef(orgId, id));
+  const batch = writeBatch(db);
+  revs.docs.forEach((d) => batch.delete(d.ref));
+  batch.delete(projectRef(orgId, id));
+  await batch.commit();
+}
+
+/* ---------------- revisions ---------------- */
+
+/**
+ * Save a new revision. The summary must come from the engine's `summarise()` so
+ * the list view and the design screen can never disagree.
+ */
+export async function saveRevision(
+  orgId: string,
+  projectId: string,
+  uid: string,
+  payload: {
+    input: Revision["input"];
+    rateCardId: string;
+    rateSnapshot: Rates;
+    engineVersion: string;
+    summary: DesignSummary;
+    note?: string;
+  }
+): Promise<number> {
+  const project = await getProject(orgId, projectId);
+  const rev = (project?.currentRevision ?? -1) + 1;
+  const record: Omit<Revision, "id"> = {
+    rev,
+    note: payload.note ?? "",
+    input: payload.input,
+    rateCardId: payload.rateCardId,
+    rateSnapshot: payload.rateSnapshot,
+    engineVersion: payload.engineVersion,
+    summary: payload.summary,
+    locked: false,
+    createdBy: uid,
+    createdAt: Date.now(),
+  };
+  const batch = writeBatch(db);
+  batch.set(doc(revisionsRef(orgId, projectId), pad(rev)), record);
+  batch.update(projectRef(orgId, projectId), {
+    currentRevision: rev,
+    summary: payload.summary,
+    updatedBy: uid,
+    updatedAt: Date.now(),
+  });
+  await batch.commit();
+  return rev;
+}
+
+export async function listRevisions(orgId: string, projectId: string): Promise<Revision[]> {
+  const snap = await getDocs(query(revisionsRef(orgId, projectId), orderBy("rev", "desc")));
+  return snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<Revision, "id">) }));
+}
+
+export async function getRevision(
+  orgId: string, projectId: string, rev: number
+): Promise<Revision | null> {
+  const s = await getDoc(doc(revisionsRef(orgId, projectId), pad(rev)));
+  return s.exists() ? ({ id: s.id, ...(s.data() as Omit<Revision, "id">) }) : null;
+}
+
+/** Lock a revision once it has gone to the customer. Rules block edits after this. */
+export async function lockRevision(orgId: string, projectId: string, rev: number) {
+  await updateDoc(doc(revisionsRef(orgId, projectId), pad(rev)), { locked: true });
+}
+
+/** Duplicate a project at its current revision, for a similar enquiry. */
+export async function duplicateProject(
+  orgId: string, projectId: string, uid: string, newName: string
+): Promise<string> {
+  const project = await getProject(orgId, projectId);
+  if (!project) throw new Error("project not found");
+  const latest = await getRevision(orgId, projectId, project.currentRevision);
+  const meta: ProjectMeta = { ...project.meta, revision: 0, serial: "" };
+  const id = await createProject(orgId, uid, newName, meta);
+  if (latest) {
+    await saveRevision(orgId, id, uid, {
+      input: { ...latest.input, meta },
+      rateCardId: latest.rateCardId,
+      rateSnapshot: latest.rateSnapshot,
+      engineVersion: latest.engineVersion,
+      summary: latest.summary,
+      note: `Copied from ${project.name} rev ${project.currentRevision}`,
+    });
+  }
+  return id;
+}
+
+/* ---------------- rate cards ---------------- */
+
+export async function listRateCards(orgId: string): Promise<Array<RateCard & { id: string }>> {
+  const snap = await getDocs(query(rateCardsRef(orgId), orderBy("effectiveFrom", "desc")));
+  return snap.docs.map((d) => ({ id: d.id, ...(d.data() as RateCard) }));
+}
+
+export async function getRateCard(orgId: string, id: string): Promise<RateCard | null> {
+  const s = await getDoc(doc(rateCardsRef(orgId), id));
+  return s.exists() ? (s.data() as RateCard) : null;
+}
+
+export async function saveRateCard(
+  orgId: string, uid: string, id: string, card: Omit<RateCard, "updatedAt" | "updatedBy">
+) {
+  await setDoc(doc(rateCardsRef(orgId), id), {
+    ...card, updatedBy: uid, updatedAt: Date.now(),
+  });
+}
+
+/* ---------------- generated documents ---------------- */
+
+export async function recordDocument(
+  orgId: string, projectId: string, d: Omit<GeneratedDocument, "id">
+) {
+  await addDoc(collection(db, "orgs", orgId, "projects", projectId, "documents"), d);
+}
+
+export async function listDocuments(orgId: string, projectId: string): Promise<GeneratedDocument[]> {
+  const snap = await getDocs(collection(db, "orgs", orgId, "projects", projectId, "documents"));
+  return snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<GeneratedDocument, "id">) }));
+}
+
+/* ---------------- membership ---------------- */
+
+export async function getMyRole(orgId: string, uid: string): Promise<string | null> {
+  const s = await getDoc(doc(db, "orgs", orgId, "members", uid));
+  return s.exists() ? (s.data().role as string) : null;
+}
+
+/**
+ * Cannot query `orgs` directly -- see lib/types.ts UserIndex for why a
+ * memberUids array-contains query is incompatible with the per-document
+ * membership check the org-read rule needs. Reads this user's own index
+ * instead, then one getDoc per org it names, both of which the rules permit
+ * (your own users/{uid}; orgs you are a member of). A missing users/{uid}
+ * document is a legitimate "no organisation yet" result, not an error.
+ *
+ * A per-org lookup is wrapped so one bad entry -- membership revoked since,
+ * or a stale/foreign id -- drops from the list instead of failing the whole
+ * sign-in the way one bad row in the old array-contains query never could
+ * (it either matched or it did not; this shape can now be inconsistent
+ * because the two documents are written separately). Any other failure
+ * (users/{uid} itself denied, network) still propagates and is shown.
+ */
+export async function listMyOrgs(uid: string): Promise<Array<{ id: string; name: string; role: string }>> {
+  const userSnap = await getDoc(doc(db, "users", uid));
+  if (!userSnap.exists()) return [];
+  const orgIds = (userSnap.data().orgs as string[] | undefined) ?? [];
+
+  const orgs = await Promise.all(orgIds.map(async (orgId) => {
+    try {
+      const [orgSnap, role] = await Promise.all([
+        getDoc(doc(db, "orgs", orgId)),
+        getMyRole(orgId, uid),
+      ]);
+      if (!orgSnap.exists()) return null;
+      return { id: orgId, name: orgSnap.data().name as string, role: role ?? "member" };
+    } catch (e) {
+      console.warn(`[listMyOrgs] could not read org ${orgId}, dropping it from the list`, e);
+      return null;
+    }
+  }));
+
+  return orgs.filter((o): o is { id: string; name: string; role: string } => o !== null);
+}
+
+export { orgRef, serverTimestamp };

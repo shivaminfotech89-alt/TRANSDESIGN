@@ -1,35 +1,70 @@
-import { exportToExcel } from "../lib/exportUtils";
-import React, { useRef, useState } from "react";
-import { TransformerOutputs, TransformerInputs } from "../types";
-import {
-  Download,
-  FileText,
-  CheckCircle2,
-  CloudUpload,
-  FileSpreadsheet,
-} from "lucide-react";
-import { CorePartsDesignTab } from "./CorePartsDesignTab";
-import { WindingDesignTab } from "./WindingDesignTab";
-import { ReportsManager } from "./reports/ReportsManager";
-import { CadViewerTab } from "./cad/CadViewerTab";
+import React, { useState } from 'react';
+import { calcSheet, inr } from '@/packages/engine';
+import { Card, DataRow, DerivedRow, CheckMark, Button, cardCls, cardHeaderCls, cardTitleCls, cardSubtitleCls, cardBodyCls, thCls, tdCls } from './ui';
+import { Drawings2D } from './Drawings2D';
+import { CadViewerTab } from './cad/CadViewerTab';
+import { DocumentsTab } from './documents/DocumentsTab';
+import { BudgetTab } from './budget/BudgetTab';
+import { CompareQuoteTab } from './compare/CompareQuoteTab';
+
+interface ResultsDisplayProps {
+  core: any;
+  design: any;
+  bom: any;
+  params: any;
+  /** The live design being edited, unaffected by any budget preview. Every
+   *  tab above follows `design`/`bom`/`params` (which track the preview when
+   *  one is active) -- only the Budget tab needs the real one underneath, so
+   *  it always searches and compares against what the user is actually
+   *  editing, not a candidate they haven't adopted yet. */
+  liveDesign: any;
+  liveBom: any;
+  liveParams: any;
+  project: any;
+  rates: Record<string, number>;
+  onRatesChange: (rates: Record<string, number>) => void;
+  activePreviewKey: string | null;
+  onSelectPreview: (candidate: any | null) => void;
+}
+
+type Tab = 'overview' | 'calculations' | 'bom' | 'winding' | 'core' | 'drawings' | 'reports' | '3d-model' | 'budget' | 'compare';
+
+const TABS: { id: Tab; label: string; pending?: boolean }[] = [
+  { id: 'overview', label: 'Overview' },
+  { id: 'calculations', label: 'Calculations' },
+  { id: 'bom', label: 'BOM & Cost' },
+  { id: 'budget', label: 'Fit to Budget' },
+  { id: 'compare', label: 'Compare & Quote' },
+  { id: 'winding', label: 'Winding Design' },
+  { id: 'core', label: 'Core Parts' },
+  { id: 'drawings', label: '2D Drawings' },
+  { id: 'reports', label: 'Reports & Docs' },
+  { id: '3d-model', label: '3D CAD Model' },
+];
+
+function RateField({ label, k, rates, onRatesChange }: { label: string; k: string; rates: Record<string, number>; onRatesChange: (r: Record<string, number>) => void }) {
+  return (
+    <div className="space-y-1">
+      <label className="text-[10px] font-display uppercase tracking-[0.1em] text-ink2">{label}</label>
+      <input
+        type="number"
+        value={rates[k]}
+        onChange={(e) => onRatesChange({ ...rates, [k]: Number(e.target.value) })}
+        className="w-full bg-white border border-rule rounded-[2px] p-1.5 text-ink font-mono text-[10px] focus:outline-none focus:border-copper"
+      />
+    </div>
+  );
+}
 
 export function ResultsDisplay({
-  outputs,
-  inputs,
-}: {
-  outputs: TransformerOutputs;
-  inputs: TransformerInputs;
-}) {
-  const reportRef = useRef<HTMLDivElement>(null);
-  const [activeTab, setActiveTab] = useState<
-    "overview" | "calculations" | "winding" | "core" | "bom" | "reports" | "3d-model"
-  >("overview");
+  core, design, bom, params, liveDesign, liveBom, liveParams, project, rates, onRatesChange,
+  activePreviewKey, onSelectPreview,
+}: ResultsDisplayProps) {
+  const [activeTab, setActiveTab] = useState<Tab>('overview');
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
 
-  const generatePDF = () => {
-    window.print();
-  };
+  const generatePDF = () => window.print();
 
   const handleSaveToCloud = async () => {
     setIsSaving(true);
@@ -41,982 +76,387 @@ export function ResultsDisplay({
     }, 1000);
   };
 
-  const designId = `TDE-${inputs.kVA}-${Math.round(inputs.hvVoltage / 1000)}-${inputs.lvVoltage}`;
+  const designId = `TDE-${params.kva}-${Math.round(params.hv / 1000)}-${params.lv}`;
+  const sheet = calcSheet(design, bom);
+  const totalMass = design.wCore + design.wLV + design.wHV + design.wIns
+    + design.wFrame + design.wTank + design.wFin + design.wEnclosure
+    + design.fluidLitres * design.fluid.dens;
 
   return (
-    <div className="flex flex-col lg:flex-row gap-8">
+    <div className="flex flex-col lg:flex-row gap-4">
       {/* Main Content Area */}
-      <div className="flex-1 flex flex-col order-2 lg:order-1">
+      <div className="flex-1 flex flex-col order-2 lg:order-1 min-w-0">
         {/* Top Controls */}
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-end mb-8 gap-4 print:hidden shrink-0">
-          <div className="flex gap-2 border-b border-slate-200 w-full sm:w-auto">
-            <button
-              onClick={() => setActiveTab("overview")}
-              className={`pb-3 px-1 uppercase tracking-wide text-xs font-bold transition-colors ${activeTab === "overview" ? "text-blue-600 border-b-2 border-blue-600" : "text-slate-500 hover:text-slate-900"}`}
-            >
-              Overview
-            </button>
-            <button
-              onClick={() => setActiveTab("calculations")}
-              className={`pb-3 px-1 uppercase tracking-wide text-xs font-bold transition-colors ${activeTab === "calculations" ? "text-blue-600 border-b-2 border-blue-600" : "text-slate-500 hover:text-slate-900"}`}
-            >
-              Calculations
-            </button>
-            <button
-              onClick={() => setActiveTab("winding")}
-              className={`pb-3 px-1 uppercase tracking-wide text-xs font-bold transition-colors ${activeTab === "winding" ? "text-blue-600 border-b-2 border-blue-600" : "text-slate-500 hover:text-slate-900"}`}
-            >
-              Winding Design
-            </button>
-            <button
-              onClick={() => setActiveTab("bom")}
-              className={`pb-3 px-1 uppercase tracking-wide text-xs font-bold transition-colors ${activeTab === "bom" ? "text-blue-600 border-b-2 border-blue-600" : "text-slate-500 hover:text-slate-900"}`}
-            >
-              BOM & Cost
-            </button>
-            <button
-              onClick={() => setActiveTab("core")}
-              className={`pb-3 px-1 uppercase tracking-wide text-xs font-bold transition-colors ${activeTab === "core" ? "text-blue-600 border-b-2 border-blue-600" : "text-slate-500 hover:text-slate-900"}`}
-            >
-              Core Parts
-            </button>
-            <button
-              onClick={() => setActiveTab("reports")}
-              className={`pb-3 px-1 uppercase tracking-wide text-xs font-bold transition-colors ${activeTab === "reports" ? "text-emerald-600 border-b-2 border-emerald-600" : "text-slate-500 hover:text-emerald-900"}`}
-            >
-              Reports & Docs
-            </button>
-            <button
-              onClick={() => setActiveTab("3d-model")}
-              className={`pb-3 px-1 uppercase tracking-wide text-xs font-bold transition-colors ${activeTab === "3d-model" ? "text-purple-600 border-b-2 border-purple-600" : "text-slate-500 hover:text-purple-900"}`}
-            >
-              3D CAD Model
-            </button>
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-3 print:hidden shrink-0">
+          <div className="flex gap-1.5 flex-wrap">
+            {TABS.map((t) => (
+              <button
+                key={t.id}
+                onClick={() => setActiveTab(t.id)}
+                className={`font-display uppercase text-[11px] tracking-[0.14em] px-3 py-1.5 rounded-[2px] border transition-colors ${
+                  activeTab === t.id
+                    ? 'bg-plate border-plate text-plateTx'
+                    : 'bg-transparent border-rule text-ink2'
+                }`}
+              >
+                {t.label}{t.pending ? ' *' : ''}
+              </button>
+            ))}
           </div>
-          <div className="flex gap-3">
-            <button
-              onClick={handleSaveToCloud}
-              disabled={isSaving}
-              className="flex items-center gap-2 bg-white border border-slate-300 hover:bg-slate-50 disabled:opacity-50 text-slate-700 px-4 py-2 text-xs font-semibold uppercase rounded-md shadow-sm transition-colors"
-            >
-              {saveSuccess ? (
-                <CheckCircle2 className="w-4 h-4 text-emerald-500" />
-              ) : (
-                <CloudUpload className="w-4 h-4" />
-              )}
-              {saveSuccess ? "Saved" : isSaving ? "Saving..." : "Save"}
-            </button>
-            <button
-              onClick={() => exportToExcel(inputs, outputs)}
-              className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 text-xs font-semibold uppercase rounded-md shadow-sm transition-colors"
-            >
-              <FileSpreadsheet className="w-4 h-4" /> Export Excel
-            </button>
-            <button
-              onClick={generatePDF}
-              className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 text-xs font-semibold uppercase rounded-md shadow-sm transition-colors"
-            >
-              <FileText className="w-4 h-4" /> PDF Report
-            </button>
+          <div className="flex gap-2">
+            <Button variant="confirm" onClick={handleSaveToCloud} disabled={isSaving}>
+              {saveSuccess ? 'Saved' : isSaving ? 'Saving' : 'Save'}
+            </Button>
+            <Button variant="primary" onClick={generatePDF}>PDF Report</Button>
           </div>
         </div>
 
-        {/* Dynamic Content */}
-        <div className="flex-1 print:w-full" ref={reportRef}>
-          {/* OVERVIEW TAB */}
-          <div
-            className={`${activeTab === "overview" ? "block" : "hidden"} print:hidden space-y-8`}
-          >
-            {/* Header section in overview */}
-            <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
-              <h2 className="text-xl font-bold text-slate-800 mb-1">
-                {inputs.kVA} kVA Transformer Design
-              </h2>
-              <p className="text-slate-500 text-sm">
-                Design ID: {designId} • {inputs.phases} Phase • {inputs.cooling}
-              </p>
-            </div>
+        <div key={activeTab} className="flex-1 print:w-full space-y-4 animate-fade">
+          {/* OVERVIEW */}
+          {activeTab === 'overview' && (
+            <div className="space-y-4">
+              <Card title="Design Summary" subtitle={designId}>
+                <DataRow label="Rating" value={String(params.kva)} unit="kVA" />
+                <DataRow label="Duty" value={design.dry ? 'Dry type' : 'Oil immersed'} />
+                <DataRow label="Cooling" value={params.cooling} />
+              </Card>
 
-            {/* 1. ELECTRICAL CALCULATIONS */}
-            <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
-              <div className="text-blue-600 text-xs tracking-wider mb-4 font-bold uppercase">
-                01. Electromagnetic Core Design
-              </div>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-6 text-sm">
-                <div className="flex flex-col">
-                  <span className="text-slate-500 text-xs mb-1 uppercase tracking-wide">
-                    Volts per Turn (Et)
-                  </span>
-                  <span className="font-semibold text-slate-900">
-                    {outputs.et.toFixed(3)} V
-                  </span>
+              <Card title="01. Electromagnetic Core Design">
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-x-4">
+                  <DataRow label="Volts per Turn" value={design.et.toFixed(3)} unit="V" />
+                  <DataRow label="Flux Density" value={design.B.toFixed(2)} unit="T" />
+                  <DataRow label="Net Core Area" value={design.aNet.toFixed(1)} unit="cm²" />
+                  <DataRow label="Core Diameter" value={design.dCore.toFixed(1)} unit="mm" />
                 </div>
-                <div className="flex flex-col">
-                  <span className="text-slate-500 text-xs mb-1 uppercase tracking-wide">
-                    Max Flux (Bm)
-                  </span>
-                  <span className="font-semibold text-slate-900">
-                    {outputs.bm.toFixed(2)} Tesla
-                  </span>
-                </div>
-                <div className="flex flex-col">
-                  <span className="text-slate-500 text-xs mb-1 uppercase tracking-wide">
-                    Net Iron Area (Ai)
-                  </span>
-                  <span className="font-semibold text-slate-900">
-                    {outputs.ai.toFixed(4)} m²
-                  </span>
-                </div>
-                <div className="flex flex-col">
-                  <span className="text-slate-500 text-xs mb-1 uppercase tracking-wide">
-                    Core Dia
-                  </span>
-                  <span className="font-semibold text-slate-900">
-                    {outputs.coreDia.toFixed(1)} mm
-                  </span>
-                </div>
-              </div>
-            </div>
+              </Card>
 
-            {/* 2. WINDING SUMMARY */}
-            <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
-              <div className="text-blue-600 text-xs tracking-wider mb-4 font-bold uppercase">
-                02. Winding Architecture
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                <div className="space-y-4">
-                  <div className="font-semibold text-slate-800 border-b border-slate-100 pb-2">
-                    HV Winding{" "}
-                    <span className="text-slate-500 text-sm font-normal ml-2">
-                      ({outputs.hvWindingType})
-                    </span>
+              <Card title="02. Winding Architecture">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8">
+                  <div>
+                    <div className="text-[10px] font-display uppercase tracking-[0.14em] text-copper py-1">
+                      HV, Layer Winding, {design.layers} Layers
+                    </div>
+                    <DataRow label="Voltage" value={String(params.hv)} unit="V" />
+                    <DataRow label="Current" value={design.iHV.toFixed(1)} unit="A" />
+                    <DataRow label="Turns" value={String(design.nHV)} />
+                    <DataRow label="Conductor Area" value={design.aHVreq.toFixed(2)} unit="mm²" />
                   </div>
-                  <div className="grid grid-cols-2 gap-4 text-sm">
-                    <div className="flex flex-col">
-                      <span className="text-slate-500 text-xs">Voltage</span>
-                      <span className="font-medium text-slate-900">
-                        {inputs.hvVoltage} V
-                      </span>
+                  <div>
+                    <div className="text-[10px] font-display uppercase tracking-[0.14em] text-copper py-1">
+                      LV, {design.lvTurnLayers === design.nLV ? 'Full-Height Foil' : `Helical, ${design.lvTurnLayers} Layers`}
                     </div>
-                    <div className="flex flex-col">
-                      <span className="text-slate-500 text-xs">Current</span>
-                      <span className="font-medium text-slate-900">
-                        {outputs.hvPhaseCurrent.toFixed(1)} A
-                      </span>
-                    </div>
-                    <div className="flex flex-col">
-                      <span className="text-slate-500 text-xs">Turns</span>
-                      <span className="font-medium text-slate-900">
-                        {outputs.hvTurns}
-                      </span>
-                    </div>
-                    <div className="flex flex-col">
-                      <span className="text-slate-500 text-xs">Cond. Area</span>
-                      <span className="font-medium text-slate-900">
-                        {outputs.hvArea.toFixed(2)} mm²
-                      </span>
-                    </div>
+                    <DataRow label="Voltage" value={String(params.lv)} unit="V" />
+                    <DataRow label="Current" value={design.iLV.toFixed(1)} unit="A" />
+                    <DataRow label="Turns" value={String(design.nLV)} />
+                    <DataRow label="Conductor Area" value={design.aLVreq.toFixed(2)} unit="mm²" />
                   </div>
                 </div>
-                <div className="space-y-4">
-                  <div className="font-semibold text-slate-800 border-b border-slate-100 pb-2">
-                    LV Winding{" "}
-                    <span className="text-slate-500 text-sm font-normal ml-2">
-                      ({outputs.lvWindingType})
-                    </span>
-                  </div>
-                  <div className="grid grid-cols-2 gap-4 text-sm">
-                    <div className="flex flex-col">
-                      <span className="text-slate-500 text-xs">Voltage</span>
-                      <span className="font-medium text-slate-900">
-                        {inputs.lvVoltage} V
-                      </span>
-                    </div>
-                    <div className="flex flex-col">
-                      <span className="text-slate-500 text-xs">Current</span>
-                      <span className="font-medium text-slate-900">
-                        {outputs.lvPhaseCurrent.toFixed(1)} A
-                      </span>
-                    </div>
-                    <div className="flex flex-col">
-                      <span className="text-slate-500 text-xs">Turns</span>
-                      <span className="font-medium text-slate-900">
-                        {outputs.lvTurns}
-                      </span>
-                    </div>
-                    <div className="flex flex-col">
-                      <span className="text-slate-500 text-xs">Cond. Area</span>
-                      <span className="font-medium text-slate-900">
-                        {outputs.lvArea.toFixed(2)} mm²
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
+              </Card>
 
-            {/* 3. MESSAGE & STRATEGY */}
-            <div className="bg-slate-800 p-6 rounded-xl text-white">
-              <div className="text-slate-400 text-xs uppercase tracking-wider mb-2 font-bold">
-                Optimization Summary & Standards Compliance
-              </div>
-              <p className="text-sm leading-relaxed mb-3">
-                {outputs.strategyMessage}
-              </p>
-              <div className="text-xs bg-slate-700/50 p-3 rounded-lg border border-slate-600/50 flex items-start gap-3">
-                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-                <span className="text-slate-300">{outputs.complianceNote}</span>
-              </div>
-            </div>
-          </div>
+              <Card title="Derived Only" subtitle="Class D, cannot be set directly">
+                <DerivedRow label="Window Width" value={design.Ww.toFixed(1)} unit="mm" editInstead="conductor sizes, clearances and layers" />
+                <DerivedRow
+                  label={design.dry ? 'Enclosure Dimensions' : 'Tank Dimensions'}
+                  value={`${Math.round(design.tankL)} x ${Math.round(design.tankW)} x ${Math.round(design.tankH)}`}
+                  unit="mm"
+                  editInstead="clearances, cooling type and core diameter"
+                />
+                <DerivedRow
+                  label="Oil Quantity"
+                  value={design.dry ? 'Not applicable, dry type' : Math.round(design.fluidLitres).toString()}
+                  unit={design.dry ? undefined : 'L'}
+                  editInstead="the tank size drivers above"
+                />
+                <DerivedRow label="Core Weight" value={Math.round(design.wCore).toString()} unit="kg" editInstead="flux density, K and steps" />
+                <DerivedRow label="LV Winding Mass" value={Math.round(design.wLV).toString()} unit="kg" editInstead="the geometry driver" />
+                <DerivedRow label="HV Winding Mass" value={Math.round(design.wHV).toString()} unit="kg" editInstead="the geometry driver" />
+                <DerivedRow label="Insulation Mass" value={Math.round(design.wIns).toString()} unit="kg" editInstead="the geometry driver" />
+                <DerivedRow label="Frame Mass" value={Math.round(design.wFrame).toString()} unit="kg" editInstead="the geometry driver" />
+                <DerivedRow
+                  label={design.dry ? 'Enclosure Mass' : 'Tank and Fin Mass'}
+                  value={Math.round(design.dry ? design.wEnclosure : design.wTank + design.wFin).toString()}
+                  unit="kg"
+                  editInstead="the geometry driver"
+                />
+                <DerivedRow label="Total Mass" value={Math.round(totalMass).toString()} unit="kg" editInstead="the geometry driver" />
+              </Card>
 
-          {/* WINDING TAB */}
-          <div
-            className={`${activeTab === "winding" ? "block" : "hidden"} print:block space-y-6`}
-          >
-            <WindingDesignTab inputs={inputs} outputs={outputs} />
-          </div>
-
-          {/* 3D CAD MODEL TAB */}
-          {activeTab === "3d-model" && (
-            <div className="space-y-6 animate-in fade-in duration-300 print:hidden h-[800px]">
-              <CadViewerTab inputs={inputs} outputs={outputs} />
-            </div>
-          )}
-
-          {/* REPORTS TAB */}
-          {activeTab === "reports" && (
-            <div className="space-y-6 animate-in fade-in duration-300">
-              <ReportsManager inputs={inputs} outputs={outputs} />
-            </div>
-          )}
-
-          {/* BOM TAB */}
-          <div
-            className={`${activeTab === "bom" ? "block" : "hidden"} print:block space-y-6`}
-          >
-            <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
-              <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wide mb-6">
-                Bill of Materials & Costing
-              </h3>
-
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm text-left">
-                  <thead className="bg-slate-50 text-slate-500 text-[11px] uppercase font-bold tracking-wider">
-                    <tr>
-                      <th className="px-4 py-3 rounded-tl-lg">Item Code</th>
-                      <th className="px-4 py-3">Category</th>
-                      <th className="px-4 py-3">Description</th>
-                      <th className="px-4 py-3 text-right">Quantity</th>
-                      <th className="px-4 py-3">Unit</th>
-                      <th className="px-4 py-3 text-right">Unit Rate (₹)</th>
-                      <th className="px-4 py-3 text-right rounded-tr-lg">
-                        Total Cost (₹)
-                      </th>
-                    </tr>
+              <Card title="Compliance" subtitle={`${params.effLevel} loss schedule`}>
+                <table className="w-full">
+                  <thead>
+                    <tr><th className={thCls}>Check</th><th className={`${thCls} text-right`}>Value</th><th className={`${thCls} text-right`}>Limit</th><th className={`${thCls} text-right`}>OK</th></tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-100 text-slate-700">
-                    {outputs.bom?.map((item, idx) => (
-                      <tr
-                        key={idx}
-                        className="hover:bg-slate-50 transition-colors"
-                      >
-                        <td className="px-4 py-3 font-mono text-xs text-slate-500">
-                          {item.id}
-                        </td>
-                        <td className="px-4 py-3 font-medium">
-                          {item.category}
-                        </td>
-                        <td className="px-4 py-3">{item.description}</td>
-                        <td className="px-4 py-3 text-right font-mono">
-                          {item.quantity.toLocaleString(undefined, {
-                            maximumFractionDigits: 1,
-                          })}
-                        </td>
-                        <td className="px-4 py-3 text-xs text-slate-500">
-                          {item.unit}
-                        </td>
-                        <td className="px-4 py-3 text-right font-mono">
-                          {item.unitRate.toLocaleString()}
-                        </td>
-                        <td className="px-4 py-3 text-right font-mono font-semibold text-slate-900">
-                          {item.totalCost.toLocaleString()}
-                        </td>
+                  <tbody>
+                    {[
+                      ['No-Load Loss (W)', design.compliance.nll],
+                      ['Load Loss (W)', design.compliance.ll],
+                      ['Total Loss (W)', design.compliance.total],
+                      ['Impedance (%)', design.compliance.z],
+                      ['Top Rise (K)', design.compliance.rise],
+                      ['Winding Rise (K)', design.compliance.wRise],
+                      ['Ratio Error (%)', design.compliance.ratio],
+                    ].map(([label, c]: [string, any]) => (
+                      <tr key={label}>
+                        <td className={`${tdCls} text-ink2 text-[11px]`}>{label}</td>
+                        <td className={`${tdCls} text-right font-mono text-[11px] ${c.ok ? 'text-ink' : 'text-alert'}`}>{c.val.toFixed(2)}</td>
+                        <td className={`${tdCls} text-right font-mono text-[11px] text-steel`}>{c.lim.toFixed(2)}</td>
+                        <td className={`${tdCls} text-right font-mono text-[11px]`}><CheckMark ok={c.ok} /></td>
                       </tr>
                     ))}
                   </tbody>
-                  <tfoot className="bg-slate-50 font-semibold text-slate-900 border-t border-slate-200">
-                    <tr>
-                      <td
-                        colSpan={6}
-                        className="px-4 py-4 text-right uppercase text-xs tracking-wider"
-                      >
-                        Total Raw Material Cost
-                      </td>
-                      <td className="px-4 py-4 text-right font-mono text-lg text-blue-700">
-                        ₹
-                        {outputs.totalMaterialCost.toLocaleString(undefined, {
-                          maximumFractionDigits: 0,
-                        })}
-                      </td>
-                    </tr>
-                  </tfoot>
                 </table>
-              </div>
-              <div className="mt-4 p-4 bg-blue-50 border border-blue-100 rounded-lg flex items-center justify-between">
-                <div className="text-xs text-blue-800">
-                  <span className="font-bold uppercase tracking-wider block mb-1">
-                    Cost Breakdown Notes
-                  </span>
-                  This BOM calculates primary raw materials. For final
-                  quotation, add labor, overheads, and target profit margin.
-                </div>
-                <div className="text-right">
-                  <div className="text-[10px] text-blue-600 uppercase tracking-wide font-bold">
-                    Est. Selling Price
-                  </div>
-                  <div className="text-xl font-mono font-bold text-blue-900">
-                    ₹
-                    {outputs.sellingPrice.toLocaleString(undefined, {
-                      maximumFractionDigits: 0,
-                    })}
-                  </div>
-                </div>
-              </div>
+              </Card>
             </div>
-          </div>
+          )}
 
-          {/* CALCULATIONS TAB */}
-          <div
-            className={`${activeTab === "calculations" ? "block" : "hidden"} print:block space-y-6`}
-          >
-            <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm print:shadow-none print:border-none print:p-0">
-              <h3 className="text-lg font-bold text-slate-900 mb-4 pb-2 border-b border-slate-100">
-                Engineering Calculations
-              </h3>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                <div>
-                  <h4 className="text-xs font-bold uppercase text-slate-500 mb-3 bg-slate-50 p-2 rounded">
-                    Electrical & Core
-                  </h4>
-                  <table className="w-full text-sm">
-                    <thead className="bg-slate-100 text-[10px] uppercase text-slate-500">
+          {/* CALCULATIONS -- calcSheet() is built exactly for this: every quantity
+              with its formula, substitution, result and reference. */}
+          {activeTab === 'calculations' && (
+            <div className="space-y-4">
+              {sheet.map((section: any) => (
+                <Card key={section.title} title={section.title} subtitle={section.ref}>
+                  <table className="w-full">
+                    <thead>
                       <tr>
-                        <th className="py-1 px-2 text-left">Parameter</th>
-                        <th className="py-1 px-2 text-left hidden lg:table-cell">
-                          Equation
-                        </th>
-                        <th className="py-1 px-2 text-right">Value</th>
+                        <th className={thCls}>Quantity</th>
+                        <th className={`${thCls} hidden lg:table-cell`}>Formula</th>
+                        <th className={`${thCls} hidden xl:table-cell`}>Substitution</th>
+                        <th className={`${thCls} text-right`}>Result</th>
+                        <th className={`${thCls} hidden lg:table-cell`}>Reference</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      <tr>
-                        <td className="py-2 px-2 text-slate-600">
-                          kVA / Phase (Q)
-                        </td>
-                        <td className="py-2 px-2 text-slate-400 font-mono text-xs hidden lg:table-cell">
-                          Total kVA / Phases
-                        </td>
-                        <td className="py-2 px-2 text-right font-mono font-medium">
-                          {outputs.sPhase.toFixed(2)}
-                        </td>
-                      </tr>
-                      <tr>
-                        <td className="py-2 px-2 text-slate-600">
-                          Voltage Per Turn (Et)
-                        </td>
-                        <td className="py-2 px-2 text-slate-400 font-mono text-xs hidden lg:table-cell">
-                          K × √(Q)
-                        </td>
-                        <td className="py-2 px-2 text-right font-mono font-medium">
-                          {outputs.et.toFixed(4)} V
-                        </td>
-                      </tr>
-                      <tr>
-                        <td className="py-2 px-2 text-slate-600">K Factor</td>
-                        <td className="py-2 px-2 text-slate-400 font-mono text-xs hidden lg:table-cell">
-                          Constant
-                        </td>
-                        <td className="py-2 px-2 text-right font-mono font-medium">
-                          {outputs.kFactor.toFixed(3)}
-                        </td>
-                      </tr>
-                      <tr>
-                        <td className="py-2 px-2 text-slate-600">
-                          Flux Density (Bm)
-                        </td>
-                        <td className="py-2 px-2 text-slate-400 font-mono text-xs hidden lg:table-cell">
-                          Target Limit
-                        </td>
-                        <td className="py-2 px-2 text-right font-mono font-medium">
-                          {outputs.bm.toFixed(3)} T
-                        </td>
-                      </tr>
-                      <tr>
-                        <td className="py-2 px-2 text-slate-600">
-                          Net Iron Area (Ai)
-                        </td>
-                        <td className="py-2 px-2 text-slate-400 font-mono text-xs hidden lg:table-cell">
-                          Et / (4.44 × f × Bm)
-                        </td>
-                        <td className="py-2 px-2 text-right font-mono font-medium">
-                          {(outputs.ai * 10000).toFixed(2)} cm²
-                        </td>
-                      </tr>
-                      <tr>
-                        <td className="py-2 px-2 text-slate-600">
-                          Gross Iron Area (Ag)
-                        </td>
-                        <td className="py-2 px-2 text-slate-400 font-mono text-xs hidden lg:table-cell">
-                          Ai / Stacking Factor
-                        </td>
-                        <td className="py-2 px-2 text-right font-mono font-medium">
-                          {(outputs.ag * 10000).toFixed(2)} cm²
-                        </td>
-                      </tr>
-                      <tr>
-                        <td className="py-2 px-2 text-slate-600">
-                          Core Diameter
-                        </td>
-                        <td className="py-2 px-2 text-slate-400 font-mono text-xs hidden lg:table-cell">
-                          √((4 × Ag) / (π × Ks))
-                        </td>
-                        <td className="py-2 px-2 text-right font-mono font-medium">
-                          {outputs.coreDia.toFixed(1)} mm
-                        </td>
-                      </tr>
-                      <tr>
-                        <td className="py-2 px-2 text-slate-600">
-                          HV Phase Voltage
-                        </td>
-                        <td className="py-2 px-2 text-slate-400 font-mono text-xs hidden lg:table-cell">
-                          HV / (√3 if 3-ph)
-                        </td>
-                        <td className="py-2 px-2 text-right font-mono font-medium">
-                          {outputs.hvPhaseVoltage.toFixed(1)} V
-                        </td>
-                      </tr>
-                      <tr>
-                        <td className="py-2 px-2 text-slate-600">
-                          LV Phase Voltage
-                        </td>
-                        <td className="py-2 px-2 text-slate-400 font-mono text-xs hidden lg:table-cell">
-                          LV / (√3 if 3-ph)
-                        </td>
-                        <td className="py-2 px-2 text-right font-mono font-medium">
-                          {outputs.lvPhaseVoltage.toFixed(1)} V
-                        </td>
-                      </tr>
-                      <tr>
-                        <td className="py-2 px-2 text-slate-600">
-                          Turns Ratio
-                        </td>
-                        <td className="py-2 px-2 text-slate-400 font-mono text-xs hidden lg:table-cell">
-                          HV / LV
-                        </td>
-                        <td className="py-2 px-2 text-right font-mono font-medium">
-                          {outputs.ratio.toFixed(3)}
-                        </td>
-                      </tr>
-                      <tr>
-                        <td className="py-2 px-2 text-slate-600">
-                          Core Stack Steps
-                        </td>
-                        <td className="py-2 px-2 text-slate-400 font-mono text-xs hidden lg:table-cell">
-                          Algorithm
-                        </td>
-                        <td className="py-2 px-2 text-right font-mono font-medium">
-                          {outputs.coreSteps.length}
-                        </td>
-                      </tr>
-                      <tr>
-                        <td className="py-2 px-2 text-slate-600">
-                          H-L Clearance
-                        </td>
-                        <td className="py-2 px-2 text-slate-400 font-mono text-xs hidden lg:table-cell">
-                          BIL dependent
-                        </td>
-                        <td className="py-2 px-2 text-right font-mono font-medium">
-                          {outputs.hiloGap} mm
-                        </td>
-                      </tr>
+                    <tbody>
+                      {section.rows.map((r: any, i: number) => (
+                        <tr key={i}>
+                          <td className={`${tdCls} text-[11px] text-ink2`}>{r.q} <span className="text-steel">({r.sym})</span></td>
+                          <td className={`${tdCls} font-mono text-[10px] text-steel hidden lg:table-cell`}>{r.formula}</td>
+                          <td className={`${tdCls} font-mono text-[10px] text-steel hidden xl:table-cell`}>{r.sub}</td>
+                          <td className={`${tdCls} text-right font-mono text-[11px] font-semibold text-ink`}>{r.res}</td>
+                          <td className={`${tdCls} text-[10px] text-steel hidden lg:table-cell`}>{r.ref}</td>
+                        </tr>
+                      ))}
                     </tbody>
                   </table>
-                </div>
+                </Card>
+              ))}
+            </div>
+          )}
 
-                <div>
-                  <h4 className="text-xs font-bold uppercase text-slate-500 mb-3 bg-slate-50 p-2 rounded">
-                    Currents & Winding
-                  </h4>
-                  <table className="w-full text-sm">
-                    <thead className="bg-slate-100 text-[10px] uppercase text-slate-500">
+          {/* BOM & COST */}
+          {activeTab === 'bom' && (
+            <div className="space-y-4">
+              {bom.segments.map((seg: any) => (
+                <Card key={seg.title} title={seg.title} subtitle={inr(seg.total)}>
+                  <table className="w-full">
+                    <thead>
                       <tr>
-                        <th className="py-1 px-2 text-left">Parameter</th>
-                        <th className="py-1 px-2 text-left hidden lg:table-cell">
-                          Equation
-                        </th>
-                        <th className="py-1 px-2 text-right">Value</th>
+                        <th className={thCls}>Code</th><th className={thCls}>Description</th>
+                        <th className={`${thCls} text-right`}>Quantity</th><th className={thCls}>Unit</th>
+                        <th className={`${thCls} text-right`}>Rate (₹)</th><th className={`${thCls} text-right`}>Total (₹)</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      <tr>
-                        <td className="py-2 px-2 text-slate-600">
-                          HV Phase Current
-                        </td>
-                        <td className="py-2 px-2 text-slate-400 font-mono text-xs hidden lg:table-cell">
-                          kVA / (Phases × HV Phase V)
-                        </td>
-                        <td className="py-2 px-2 text-right font-mono font-medium">
-                          {outputs.hvPhaseCurrent.toFixed(2)} A
-                        </td>
-                      </tr>
-                      <tr>
-                        <td className="py-2 px-2 text-slate-600">
-                          LV Phase Current
-                        </td>
-                        <td className="py-2 px-2 text-slate-400 font-mono text-xs hidden lg:table-cell">
-                          kVA / (Phases × LV Phase V)
-                        </td>
-                        <td className="py-2 px-2 text-right font-mono font-medium">
-                          {outputs.lvPhaseCurrent.toFixed(2)} A
-                        </td>
-                      </tr>
-                      <tr>
-                        <td className="py-2 px-2 text-slate-600">
-                          Current Density
-                        </td>
-                        <td className="py-2 px-2 text-slate-400 font-mono text-xs hidden lg:table-cell">
-                          Max Allowed
-                        </td>
-                        <td className="py-2 px-2 text-right font-mono font-medium">
-                          {outputs.currentDensity.toFixed(3)} A/mm²
-                        </td>
-                      </tr>
-                      <tr>
-                        <td className="py-2 px-2 text-slate-600">HV Area</td>
-                        <td className="py-2 px-2 text-slate-400 font-mono text-xs hidden lg:table-cell">
-                          HV Current / Density
-                        </td>
-                        <td className="py-2 px-2 text-right font-mono font-medium">
-                          {outputs.hvArea.toFixed(2)} mm²
-                        </td>
-                      </tr>
-                      <tr>
-                        <td className="py-2 px-2 text-slate-600">LV Area</td>
-                        <td className="py-2 px-2 text-slate-400 font-mono text-xs hidden lg:table-cell">
-                          LV Current / Density
-                        </td>
-                        <td className="py-2 px-2 text-right font-mono font-medium">
-                          {outputs.lvArea.toFixed(2)} mm²
-                        </td>
-                      </tr>
-                      <tr>
-                        <td className="py-2 px-2 text-slate-600">
-                          HV Turns (Tap)
-                        </td>
-                        <td className="py-2 px-2 text-slate-400 font-mono text-xs hidden lg:table-cell">
-                          HV Phase V / Et
-                        </td>
-                        <td className="py-2 px-2 text-right font-mono font-medium">
-                          {outputs.hvTurns}
-                        </td>
-                      </tr>
-                      <tr>
-                        <td className="py-2 px-2 text-slate-600">LV Turns</td>
-                        <td className="py-2 px-2 text-slate-400 font-mono text-xs hidden lg:table-cell">
-                          LV Phase V / Et
-                        </td>
-                        <td className="py-2 px-2 text-right font-mono font-medium">
-                          {outputs.lvTurns}
-                        </td>
-                      </tr>
-                      <tr>
-                        <td className="py-2 px-2 text-slate-600">Impedance</td>
-                        <td className="py-2 px-2 text-slate-400 font-mono text-xs hidden lg:table-cell">
-                          %Z + (Wc / (kVA×10)) (Est.)
-                        </td>
-                        <td className="py-2 px-2 text-right font-mono font-medium">
-                          {outputs.impedance.toFixed(3)} %
-                        </td>
-                      </tr>
-                      <tr>
-                        <td className="py-2 px-2 text-slate-600">
-                          No-Load Loss
-                        </td>
-                        <td className="py-2 px-2 text-slate-400 font-mono text-xs hidden lg:table-cell">
-                          Core Wt × Sp. Loss
-                        </td>
-                        <td className="py-2 px-2 text-right font-mono font-medium">
-                          {outputs.noLoadLosses} W
-                        </td>
-                      </tr>
-                      <tr>
-                        <td className="py-2 px-2 text-slate-600">Load Loss</td>
-                        <td className="py-2 px-2 text-slate-400 font-mono text-xs hidden lg:table-cell">
-                          I²R + Stray (Target)
-                        </td>
-                        <td className="py-2 px-2 text-right font-mono font-medium">
-                          {outputs.loadLosses} W
-                        </td>
-                      </tr>
-                      {outputs.tapPositions ? (
-                        <>
-                          <tr>
-                            <td className="py-2 px-2 text-slate-600">
-                              Tap Positions
-                            </td>
-                            <td className="py-2 px-2 text-slate-400 font-mono text-xs hidden lg:table-cell">
-                              Calculated
-                            </td>
-                            <td className="py-2 px-2 text-right font-mono font-medium">
-                              {outputs.tapPositions}
-                            </td>
-                          </tr>
-                          <tr>
-                            <td className="py-2 px-2 text-slate-600">
-                              Turns Per Step
-                            </td>
-                            <td className="py-2 px-2 text-slate-400 font-mono text-xs hidden lg:table-cell">
-                              HV Turns × %Step
-                            </td>
-                            <td className="py-2 px-2 text-right font-mono font-medium">
-                              {outputs.turnsPerStep?.toFixed(1)}
-                            </td>
-                          </tr>
-                        </>
-                      ) : null}
+                    <tbody>
+                      {seg.rows.map((r: any) => (
+                        <tr key={r.code}>
+                          <td className={`${tdCls} font-mono text-[10px] text-steel`}>{r.code}</td>
+                          <td className={`${tdCls} text-[11px] text-ink2`}>{r.desc}</td>
+                          <td className={`${tdCls} text-right font-mono text-[11px]`}>{r.qty.toLocaleString('en-IN', { maximumFractionDigits: 1 })}</td>
+                          <td className={`${tdCls} text-[10px] text-steel`}>{r.unit}</td>
+                          <td className={`${tdCls} text-right font-mono text-[11px]`}>{Math.round(r.rate).toLocaleString('en-IN')}</td>
+                          <td className={`${tdCls} text-right font-mono text-[11px] font-semibold text-ink`}>{Math.round(r.qty * r.rate).toLocaleString('en-IN')}</td>
+                        </tr>
+                      ))}
                     </tbody>
                   </table>
-                  <div className="mt-8">
-                    <h4 className="text-sm font-bold text-slate-800 mb-2 uppercase tracking-wide">
-                      Overall Dimensions & Thermal Checks
-                    </h4>
-                    <table className="w-full text-sm border-t border-slate-200">
-                      <thead className="bg-slate-100 text-[10px] uppercase text-slate-500">
-                        <tr>
-                          <th className="py-1 px-2 text-left">Parameter</th>
-                          <th className="py-1 px-2 text-left hidden lg:table-cell">
-                            Equation
-                          </th>
-                          <th className="py-1 px-2 text-right">Value</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100">
-                        <tr>
-                          <td className="py-2 px-2 text-slate-600">
-                            Core Stack Height (Window)
-                          </td>
-                          <td className="py-2 px-2 text-slate-400 font-mono text-xs hidden lg:table-cell">
-                            HV Axial + Clearance
-                          </td>
-                          <td className="py-2 px-2 text-right font-mono font-medium">
-                            {outputs.windowHeight} mm
-                          </td>
-                        </tr>
-                        <tr>
-                          <td className="py-2 px-2 text-slate-600">
-                            Limb Center Distance
-                          </td>
-                          <td className="py-2 px-2 text-slate-400 font-mono text-xs hidden lg:table-cell">
-                            Core Dia + HV Radial + Gap
-                          </td>
-                          <td className="py-2 px-2 text-right font-mono font-medium">
-                            {outputs.limbCenter} mm
-                          </td>
-                        </tr>
-                        <tr>
-                          <td className="py-2 px-2 text-slate-600">
-                            Tank Dimensions (L×W×H)
-                          </td>
-                          <td className="py-2 px-2 text-slate-400 font-mono text-xs hidden lg:table-cell">
-                            Limb×Phases + Clearances
-                          </td>
-                          <td className="py-2 px-2 text-right font-mono font-medium">
-                            {outputs.tankDimensions?.length} ×{" "}
-                            {outputs.tankDimensions?.width} ×{" "}
-                            {outputs.tankDimensions?.height} mm
-                          </td>
-                        </tr>
-                        <tr>
-                          <td className="py-2 px-2 text-slate-600">
-                            Transformer Oil Required
-                          </td>
-                          <td className="py-2 px-2 text-slate-400 font-mono text-xs hidden lg:table-cell">
-                            kVA × 2.1 (Approx)
-                          </td>
-                          <td className="py-2 px-2 text-right font-mono font-medium">
-                            {outputs.oilQuantity} L
-                          </td>
-                        </tr>
-                        <tr>
-                          <td className="py-2 px-2 text-slate-600">
-                            Tank Empty Weight
-                          </td>
-                          <td className="py-2 px-2 text-slate-400 font-mono text-xs hidden lg:table-cell">
-                            Volume × Factor
-                          </td>
-                          <td className="py-2 px-2 text-right font-mono font-medium">
-                            {outputs.tankDimensions?.weight} kg
-                          </td>
-                        </tr>
-                        <tr>
-                          <td className="py-2 px-2 text-slate-600">
-                            Total Transformer Weight
-                          </td>
-                          <td className="py-2 px-2 text-slate-400 font-mono text-xs hidden lg:table-cell">
-                            Core+Winding+Tank+Oil
-                          </td>
-                          <td className="py-2 px-2 text-right font-mono font-medium">
-                            {outputs.totalWeight?.toFixed(1)} kg
-                          </td>
-                        </tr>
-                        <tr>
-                          <td className="py-2 px-2 text-slate-600">
-                            Temperature Rise (Oil)
-                          </td>
-                          <td className="py-2 px-2 text-slate-400 font-mono text-xs hidden lg:table-cell">
-                            Given limit
-                          </td>
-                          <td className="py-2 px-2 text-right font-mono font-medium">
-                            {outputs.tempRise} °C
-                          </td>
-                        </tr>
-                        <tr>
-                          <td className="py-2 px-2 text-slate-600">
-                            Temperature Gradient
-                          </td>
-                          <td className="py-2 px-2 text-slate-400 font-mono text-xs hidden lg:table-cell">
-                            Winding - Oil Rise
-                          </td>
-                          <td className="py-2 px-2 text-right font-mono font-medium">
-                            {outputs.tempGradient} °C
-                          </td>
-                        </tr>
-                        <tr>
-                          <td className="py-2 px-2 text-slate-600">
-                            Thermal Time Constant
-                          </td>
-                          <td className="py-2 px-2 text-slate-400 font-mono text-xs hidden lg:table-cell">
-                            (Wt × C) / Losses
-                          </td>
-                          <td className="py-2 px-2 text-right font-mono font-medium">
-                            {outputs.thermalTimeConstant} Hrs
-                          </td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
+                </Card>
+              ))}
 
-          {/* CORE TAB */}
-          <div
-            className={`${activeTab === "core" ? "block" : "hidden"} print:block space-y-6`}
-          >
-            <CorePartsDesignTab inputs={inputs} outputs={outputs} />
-          </div>
+              <Card title="Build-Up to Price">
+                <div className="max-w-md">
+                  <DataRow label="Material" value={inr(bom.material)} />
+                  <DataRow label="Labour" value={inr(bom.labourCost)} />
+                  <DataRow label="Scrap Allowance" value={inr(bom.scrap)} />
+                  <DataRow label="Factory Cost" value={inr(bom.factory)} />
+                  <DataRow label="Overhead" value={inr(bom.overhead)} />
+                  <DataRow label="Freight" value={inr(bom.freight)} />
+                  <DataRow label="Margin" value={inr(bom.margin)} />
+                  <DataRow label="Ex-Works Price, Excludes GST" value={inr(bom.exFactory)} tone="copper" />
+                  <DataRow label={`GST at ${rates.gstPct}%`} value={inr(bom.gst)} />
+                  <DataRow label="Delivered Price, Includes GST" value={inr(bom.withGst)} tone="copper" />
+                </div>
+                <p className="text-[10px] font-body text-steel mt-3 pt-3 border-t border-line">
+                  Not part of the quoted price, the cost of the guaranteed losses over {params.years} years
+                  at {inr(params.tariff)}/kWh, {(params.loadFactor * 100).toFixed(0)}% load factor: {inr(bom.energy.total)}.
+                  Total cost of ownership, ex-works plus life-cycle losses: {inr(bom.tco)}.
+                </p>
+              </Card>
+            </div>
+          )}
+
+          {/* FIT TO BUDGET -- searches and previews against the live design,
+              never the currently previewed one, see ResultsDisplayProps note. */}
+          {activeTab === 'budget' && (
+            <BudgetTab
+              design={liveDesign} bom={liveBom} params={liveParams} rates={rates}
+              activePreviewKey={activePreviewKey} onSelectPreview={onSelectPreview}
+            />
+          )}
+
+          {/* COMPARE & QUOTE -- current working design (liveDesign/liveBom) vs
+              whatever is currently previewed (design/bom/params, which equal
+              the live ones when nothing is previewed -- the tab shows a
+              placeholder in that case instead of comparing a design to itself). */}
+          {activeTab === 'compare' && (
+            <CompareQuoteTab
+              liveDesign={liveDesign} liveBom={liveBom}
+              design={design} bom={bom} params={params}
+              activePreviewKey={activePreviewKey}
+            />
+          )}
+
+          {/* WINDING DESIGN -- design.* fields directly */}
+          {activeTab === 'winding' && (
+            <div className="space-y-4">
+              <Card title="HV Winding" subtitle={`Layer winding, ${design.layers} layers`}>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-x-4">
+                  <DataRow label="Voltage" value={String(params.hv)} unit="V" />
+                  <DataRow label="Current" value={design.iHV.toFixed(2)} unit="A" />
+                  <DataRow label="Turns, Normal Tap" value={String(design.nHV)} />
+                  <DataRow label="Turns, Extreme Tap" value={String(design.nHVmax)} />
+                  <DataRow label="Conductor Area" value={design.aHVreq.toFixed(2)} unit="mm²" />
+                  <DataRow label="Conductor Section" value={`${design.axHV.toFixed(1)} x ${design.rdHV.toFixed(1)}`} unit="mm" />
+                  <DataRow label="Turns per Layer" value={String(design.turnsPerLayer)} />
+                  <DataRow label="Volts per Layer" value={Math.round(design.voltsPerLayer).toString()} unit="V" />
+                  <DataRow label="Inner Diameter" value={Math.round(design.hvID).toString()} unit="mm" />
+                  <DataRow label="Outer Diameter" value={Math.round(design.hvOD).toString()} unit="mm" />
+                  <DataRow label="Mean Turn Length" value={design.lmtHV.toFixed(3)} unit="m" />
+                  <DataRow label="Resistance" value={design.rHV.toFixed(4)} unit="ohm" />
+                  <DataRow label="I2R Loss" value={Math.round(design.i2rHV).toString()} unit="W" />
+                </div>
+              </Card>
+
+              <Card title="LV Winding" subtitle={design.lvTurnLayers === design.nLV ? 'Full-height foil' : `Helical, ${design.lvTurnLayers} layers`}>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-x-4">
+                  <DataRow label="Voltage" value={String(params.lv)} unit="V" />
+                  <DataRow label="Current" value={design.iLV.toFixed(1)} unit="A" />
+                  <DataRow label="Turns" value={String(design.nLV)} />
+                  <DataRow label="Conductor Area" value={design.aLVreq.toFixed(2)} unit="mm²" />
+                  <DataRow label="Foil" value={`${design.tLV.toFixed(2)} x ${Math.round(design.foilW)}`} unit="mm" />
+                  <DataRow label="Radial Layers" value={String(design.lvTurnLayers)} />
+                  <DataRow label="Inner Diameter" value={Math.round(design.lvID).toString()} unit="mm" />
+                  <DataRow label="Outer Diameter" value={Math.round(design.lvOD).toString()} unit="mm" />
+                  <DataRow label="Mean Turn Length" value={design.lmtLV.toFixed(3)} unit="m" />
+                  <DataRow label="Resistance" value={design.rLV.toExponential(3)} unit="ohm" />
+                  <DataRow label="I2R Loss" value={Math.round(design.i2rLV).toString()} unit="W" />
+                </div>
+              </Card>
+
+              <Card title="Tappings">
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-x-4">
+                  <DataRow label="Tap Type" value={params.tapType === 'oltc' ? 'On-load' : params.tapType === 'octc' ? 'Off-circuit' : 'None'} />
+                  <DataRow label="Tap Positions" value={String(design.tapSteps)} />
+                  <DataRow label="Turns per Step" value={design.turnsPerStep.toFixed(2)} />
+                  <DataRow label="Ratio Error" value={design.ratioErr.toFixed(4)} unit="%" tone={Math.abs(design.ratioErr) <= 0.5 ? 'ink' : 'alert'} />
+                </div>
+              </Card>
+
+              <Card title="Insulation">
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-x-4">
+                  <DataRow label="Cylinder Thickness" value={params.cylThk.toFixed(1)} unit="mm" />
+                  <DataRow label="HV Interlayer" value={params.hvInterlayer.toFixed(1)} unit="mm" />
+                  <DataRow label="HV Paper Covering" value={params.hvPaper.toFixed(2)} unit="mm" />
+                  <DataRow label="LV Interturn" value={params.lvIns.toFixed(2)} unit="mm" />
+                  <DataRow label="HV Ducts" value={String(design.hvDucts)} />
+                </div>
+              </Card>
+            </div>
+          )}
+
+          {/* CORE PARTS -- design.* fields directly */}
+          {activeTab === 'core' && (
+            <div className="space-y-4">
+              <Card title="Core Geometry" subtitle={design.shape === 'circ' ? 'Circular stepped' : 'Rectangular / wound'}>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-x-4">
+                  {design.shape === 'circ' ? (
+                    <DataRow label="Core Diameter" value={design.dCore.toFixed(1)} unit="mm" />
+                  ) : (
+                    <DataRow label="Limb Section" value={`${design.coreW.toFixed(1)} x ${design.coreD.toFixed(1)}`} unit="mm" />
+                  )}
+                  <DataRow label="Net Core Area" value={design.aNet.toFixed(1)} unit="cm²" />
+                  <DataRow label="Gross Core Area" value={design.aGross.toFixed(1)} unit="cm²" />
+                  <DataRow label="Window Height" value={Math.round(design.Hw).toString()} unit="mm" />
+                  <DataRow label="Window Width" value={Math.round(design.Ww).toString()} unit="mm" />
+                  <DataRow label="Limb Centre Distance" value={Math.round(design.cc).toString()} unit="mm" />
+                  <DataRow label="Core Height, Overall" value={Math.round(design.coreHeight).toString()} unit="mm" />
+                  <DataRow label="Core Width, Overall" value={Math.round(design.coreWidth).toString()} unit="mm" />
+                  <DataRow label="Yoke Depth" value={Math.round(design.yokeDepth).toString()} unit="mm" />
+                </div>
+              </Card>
+
+              <Card title="Core Steel and Excitation" subtitle={design.grade.name}>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-x-4">
+                  <DataRow label="Joint Construction" value={design.ct.name.split(',')[0]} />
+                  <DataRow label="Flux Density" value={design.B.toFixed(2)} unit="T" />
+                  <DataRow label="Building Factor" value={params.buildFactor.toFixed(2)} />
+                  <DataRow label="Specific Core Loss" value={design.wPerKg.toFixed(3)} unit="W/kg" />
+                  <DataRow label="No-Load Loss" value={Math.round(design.noLoad).toString()} unit="W" tone="copper" />
+                  <DataRow label="Exciting VA" value={design.vaPerKg.toFixed(2)} unit="VA/kg" />
+                  <DataRow label="No-Load Current" value={design.i0pct.toFixed(2)} unit="%" />
+                  <DataRow label="Sound Level" value={Math.round(design.noise).toString()} unit="dB(A)" />
+                </div>
+              </Card>
+            </div>
+          )}
+          {activeTab === 'drawings' && <Drawings2D design={design} params={params} project={project} />}
+          {activeTab === 'reports' && (
+            <DocumentsTab core={core} design={design} bom={bom} params={params} project={project} />
+          )}
+          {activeTab === '3d-model' && <CadViewerTab design={design} params={params} />}
         </div>
       </div>
 
-      {/* Right Sidebar (Metrics & Budget) */}
-      <aside className="w-full lg:w-[320px] order-1 lg:order-2 flex flex-col gap-6 print:hidden">
-        {/* Performance Metrics Card */}
-        <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
-          <h2 className="text-xs font-bold text-slate-800 tracking-wide uppercase mb-5">
-            Performance Metrics
-          </h2>
-          <div className="space-y-5">
-            <div className="flex justify-between items-end border-b border-slate-100 pb-3">
-              <div>
-                <div className="text-[10px] text-slate-500 uppercase tracking-wide">
-                  Total Losses
-                </div>
-                <div className="text-xl font-semibold text-slate-900">
-                  {((outputs.noLoadLosses + outputs.loadLosses) / 1000).toFixed(
-                    2,
-                  )}{" "}
-                  <span className="text-sm text-slate-500 font-normal">kW</span>
-                </div>
-              </div>
-              <div className="text-right">
-                <div className="text-[10px] text-slate-500 uppercase">
-                  No Load
-                </div>
-                <div className="text-sm font-medium text-slate-700">
-                  {outputs.noLoadLosses} W
-                </div>
-              </div>
-            </div>
+      {/* Right Sidebar */}
+      <aside className="w-full lg:w-[320px] shrink-0 order-1 lg:order-2 flex flex-col gap-4 print:hidden">
+        <Card title="Performance Metrics">
+          <DataRow label="No-Load Loss" value={String(Math.round(design.noLoad))} unit="W" />
+          <DataRow label="Load Loss" value={String(Math.round(design.loadLoss))} unit="W" />
+          <DataRow label="Impedance" value={design.pctZ.toFixed(2)} unit="%" tone={design.compliance.z.ok ? 'ink' : 'alert'} />
+          <DataRow label="Target Impedance" value={params.targetZ.toFixed(2)} unit="%" />
+          <DataRow label="Efficiency, Full Load" value={design.eff100.toFixed(2)} unit="%" />
+          <DataRow label="Current Density, LV" value={design.dLV.toFixed(2)} unit="A/mm²" />
+          <DataRow label="Current Density, HV" value={design.dHV.toFixed(2)} unit="A/mm²" />
+        </Card>
 
-            <div className="flex justify-between items-end border-b border-slate-100 pb-3">
-              <div>
-                <div className="text-[10px] text-slate-500 uppercase tracking-wide">
-                  Impedance
-                </div>
-                <div className="text-xl font-semibold text-slate-900">
-                  {outputs.impedance.toFixed(2)}{" "}
-                  <span className="text-sm text-slate-500 font-normal">%</span>
-                </div>
-              </div>
-              <div className="text-right">
-                <div className="text-[10px] text-slate-500 uppercase">
-                  Resistance
-                </div>
-                <div className="text-sm font-medium text-slate-700">
-                  {(outputs.impedance * 0.8).toFixed(2)}%
-                </div>
-              </div>
+        <div className={cardCls}>
+          <div className={cardHeaderCls}>
+            <span className={cardTitleCls}>Price</span>
+            <span className={cardSubtitleCls}>{design.compliant ? 'Compliant' : 'Not Compliant'}</span>
+          </div>
+          <div className={cardBodyCls}>
+            <div className="py-1.5">
+              <div className="text-[10px] font-display uppercase tracking-[0.1em] text-ink2">Ex-Works, Excludes GST</div>
+              <div className="font-mono text-[20px] font-semibold text-copper">{inr(bom.exFactory)}</div>
             </div>
-
-            <div className="flex justify-between items-end">
-              <div>
-                <div className="text-[10px] text-slate-500 uppercase tracking-wide">
-                  Peak Efficiency
-                </div>
-                <div className="text-xl font-semibold text-emerald-600">
-                  {Math.max(
-                    outputs.efficiency.load25,
-                    outputs.efficiency.load50,
-                    outputs.efficiency.load75,
-                    outputs.efficiency.load100,
-                  ).toFixed(2)}
-                  %
-                </div>
-              </div>
-              <div className="text-right">
-                <div className="text-[10px] text-slate-500 uppercase">
-                  Current Dens.
-                </div>
-                <div className="text-sm font-medium text-slate-700">
-                  {outputs.currentDensity.toFixed(2)} A/mm²
-                </div>
-              </div>
+            <div className="py-1.5 border-t border-dashed border-line">
+              <div className="text-[10px] font-display uppercase tracking-[0.1em] text-ink2">Delivered, Includes GST</div>
+              <div className={`font-mono text-[18px] font-semibold ${design.compliant ? 'text-good' : 'text-alert'}`}>{inr(bom.withGst)}</div>
             </div>
           </div>
         </div>
 
-        {/* Cost Analysis Card */}
-        <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm relative overflow-hidden">
-          {outputs.budgetAnalysis && (
-            <div
-              className={`absolute top-0 left-0 w-full h-1 ${outputs.budgetAnalysis.isWithinBudget ? "bg-emerald-500" : "bg-red-500"}`}
-            ></div>
-          )}
-          <h2 className="text-xs font-bold text-slate-800 tracking-wide uppercase mb-5">
-            Cost Analysis (INR)
-          </h2>
-
-          <div className="space-y-4">
-            <div className="flex justify-between items-end">
-              <div>
-                <div className="text-[10px] text-slate-500 uppercase tracking-wide">
-                  Material Cost
-                </div>
-                <div className="text-lg font-semibold text-slate-700 font-mono">
-                  ₹{" "}
-                  {outputs.totalMaterialCost.toLocaleString("en-IN", {
-                    minimumFractionDigits: 0,
-                    maximumFractionDigits: 0,
-                  })}
-                </div>
-              </div>
-            </div>
-            <div className="flex justify-between items-end">
-              <div>
-                <div className="text-[10px] text-slate-500 uppercase tracking-wide">
-                  Est. Selling Price
-                </div>
-                <div className="text-2xl font-bold text-blue-600 font-mono">
-                  ₹{" "}
-                  {outputs.sellingPrice.toLocaleString("en-IN", {
-                    minimumFractionDigits: 0,
-                    maximumFractionDigits: 0,
-                  })}
-                </div>
-              </div>
-            </div>
-
-            <div className="pt-4 border-t border-slate-100">
-              <div className="text-[10px] text-slate-500 uppercase mb-1">
-                Suggested Design Strategy
-              </div>
-              <div className="text-xs text-blue-600 font-medium bg-blue-50 p-2 rounded-md border border-blue-100">
-                {outputs.suggestedStrategy}
-              </div>
-            </div>
-
-            {outputs.budgetAnalysis && (
-              <div className="pt-4 border-t border-slate-100 mt-4">
-                <div className="text-xs font-bold uppercase mb-3 flex items-center justify-between">
-                  <span className="text-slate-800">Budget Analysis</span>
-                  <span
-                    className={`px-2 py-1 rounded-md text-[10px] font-bold ${outputs.budgetAnalysis.isWithinBudget ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"}`}
-                  >
-                    {outputs.budgetAnalysis.isWithinBudget
-                      ? "Within Budget"
-                      : "Exceeds Budget"}
-                  </span>
-                </div>
-
-                <div className="space-y-4">
-                  {!outputs.budgetAnalysis.isWithinBudget && (
-                    <div className="text-[11px] font-bold text-red-700 bg-red-50 p-2 rounded-md border border-red-200 flex justify-between">
-                      <span>Variance:</span>
-                      <span>
-                        +₹
-                        {outputs.budgetAnalysis.variance.toLocaleString(
-                          "en-IN",
-                          {
-                            minimumFractionDigits: 0,
-                            maximumFractionDigits: 0,
-                          },
-                        )}
-                      </span>
-                    </div>
-                  )}
-
-                  <div className="text-xs">
-                    <div className="font-semibold text-emerald-700 mb-1 flex items-center gap-1">
-                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-                      Pros
-                    </div>
-                    <ul className="list-disc pl-4 text-slate-600 space-y-1 text-[11px]">
-                      {outputs.budgetAnalysis.pros.map((p, i) => (
-                        <li key={i}>{p}</li>
-                      ))}
-                    </ul>
-                  </div>
-
-                  <div className="text-xs">
-                    <div className="font-semibold text-red-700 mb-1 flex items-center gap-1">
-                      <span className="w-1.5 h-1.5 rounded-full bg-red-500"></span>
-                      Cons
-                    </div>
-                    <ul className="list-disc pl-4 text-slate-600 space-y-1 text-[11px]">
-                      {outputs.budgetAnalysis.cons.map((p, i) => (
-                        <li key={i}>{p}</li>
-                      ))}
-                    </ul>
-                  </div>
-
-                  <div className="text-xs bg-slate-50 p-3 rounded-lg border border-slate-200">
-                    <div className="text-blue-700 font-bold mb-2">
-                      Design Adjustments
-                    </div>
-                    <ul className="list-disc pl-4 text-slate-700 space-y-1 text-[11px]">
-                      {outputs.budgetAnalysis.suggestedMods.map((p, i) => (
-                        <li key={i}>{p}</li>
-                      ))}
-                    </ul>
-                  </div>
-                </div>
-              </div>
-            )}
+        <Card title="Rate Card" subtitle="Session Only">
+          <p className="text-[10px] font-body text-steel mb-2">
+            Seeded from DEFAULT_RATES. Full rate-card management is TASKS.md item 4.
+          </p>
+          <div className="grid grid-cols-2 gap-2 pt-1">
+            <RateField label="Core, ₹/kg" k="core" rates={rates} onRatesChange={onRatesChange} />
+            <RateField label="Copper, ₹/kg" k="condCu" rates={rates} onRatesChange={onRatesChange} />
+            <RateField label="Aluminium, ₹/kg" k="condAl" rates={rates} onRatesChange={onRatesChange} />
+            <RateField label="Fluid, ₹/L" k="fluid" rates={rates} onRatesChange={onRatesChange} />
+            <RateField label="Margin, %" k="marginPct" rates={rates} onRatesChange={onRatesChange} />
+            <RateField label="GST, %" k="gstPct" rates={rates} onRatesChange={onRatesChange} />
           </div>
-        </div>
+        </Card>
       </aside>
     </div>
   );

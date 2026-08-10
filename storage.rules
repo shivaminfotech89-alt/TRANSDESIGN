@@ -1,0 +1,14 @@
+rules_version = '2';
+
+// Generated PDFs and drawings. Path: orgs/{orgId}/projects/{projectId}/{file}
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /orgs/{orgId}/projects/{projectId}/{allPaths=**} {
+      allow read: if request.auth != null &&
+        firestore.exists(/databases/(default)/documents/orgs/$(orgId)/members/$(request.auth.uid));
+      // Files are written by the PDF Cloud Function using the Admin SDK, which
+      // bypasses these rules. Clients never upload here.
+      allow write: if false;
+    }
+  }
+}

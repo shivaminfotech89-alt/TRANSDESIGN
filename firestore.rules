@@ -1,21 +1,104 @@
 rules_version = '2';
+
+// Transformer design platform — access control.
+// Everything is scoped to an organisation. A user sees a project only if a
+// member document exists for them under that organisation.
 service cloud.firestore {
   match /databases/{database}/documents {
-    match /projects/{projectId} {
-      allow read, write: if request.auth != null && request.auth.uid == resource.data.userId;
-      allow create: if request.auth != null && request.resource.data.userId == request.auth.uid;
+
+    function signedIn() {
+      return request.auth != null;
     }
-    match /suppliers/{supplierId} {
-      allow read, write: if request.auth != null && request.auth.uid == resource.data.userId;
-      allow create: if request.auth != null && request.resource.data.userId == request.auth.uid;
+    function member(orgId) {
+      return signedIn() &&
+        exists(/databases/$(database)/documents/orgs/$(orgId)/members/$(request.auth.uid));
     }
-    match /materials/{materialId} {
-      allow read, write: if request.auth != null && request.auth.uid == resource.data.userId;
-      allow create: if request.auth != null && request.resource.data.userId == request.auth.uid;
+    function role(orgId) {
+      return get(/databases/$(database)/documents/orgs/$(orgId)/members/$(request.auth.uid)).data.role;
     }
-    match /material_prices/{priceId} {
-      allow read, write: if request.auth != null && request.auth.uid == resource.data.userId;
-      allow create: if request.auth != null && request.resource.data.userId == request.auth.uid;
+    function canEdit(orgId) {
+      return member(orgId) && role(orgId) in ['owner', 'engineer', 'estimator'];
+    }
+    function isOwner(orgId) {
+      return member(orgId) && role(orgId) == 'owner';
+    }
+
+    // The other half of membership, see lib/types.ts UserIndex. A user may
+    // read and write only their own index -- never another member's, which
+    // means an invite flow cannot write it on someone else's behalf and must
+    // instead have the invitee accept and write their own on first sign-in.
+    match /users/{uid} {
+      allow read, write: if signedIn() && request.auth.uid == uid;
+    }
+
+    match /orgs/{orgId} {
+      allow read:   if member(orgId);
+      allow create: if signedIn() && request.resource.data.ownerUid == request.auth.uid;
+      allow update: if isOwner(orgId);
+      allow delete: if false;   // deleting an organisation is a support operation
+
+      // The owner's own member document is created immediately after the org
+      // document, in a separate write. Everyone else is added by the owner.
+      match /members/{uid} {
+        allow read: if member(orgId);
+        allow create: if signedIn() && (
+          (uid == request.auth.uid &&
+            get(/databases/$(database)/documents/orgs/$(orgId)).data.ownerUid == request.auth.uid)
+          || isOwner(orgId)
+        );
+        allow update, delete: if isOwner(orgId);
+      }
+
+      // Rate cards are commercially sensitive: readable by members, edited by
+      // estimators and above.
+      match /rateCards/{cardId} {
+        allow read:  if member(orgId);
+        allow write: if canEdit(orgId);
+      }
+
+      match /suppliers/{supplierId} {
+        allow read:  if member(orgId);
+        allow write: if canEdit(orgId);
+      }
+
+      match /items/{itemId} {
+        allow read:  if member(orgId);
+        allow write: if canEdit(orgId);
+      }
+
+      match /projects/{projectId} {
+        allow read:           if member(orgId);
+        allow create, update: if canEdit(orgId);
+        allow delete:         if isOwner(orgId);
+
+        // A revision is the audit trail. Once locked it is the issued
+        // quotation, and nothing about it may change again.
+        match /revisions/{revId} {
+          allow read: if member(orgId);
+          allow create: if canEdit(orgId)
+            && request.resource.data.createdBy == request.auth.uid
+            && request.resource.data.locked == false
+            && request.resource.data.engineVersion is string
+            && request.resource.data.input is map
+            && request.resource.data.rateSnapshot is map;
+          // the only permitted update is setting locked from false to true
+          allow update: if canEdit(orgId)
+            && resource.data.locked == false
+            && request.resource.data.locked == true
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['locked']);
+          allow delete: if isOwner(orgId) && resource.data.locked == false;
+        }
+
+        match /documents/{docId} {
+          allow read:  if member(orgId);
+          allow write: if canEdit(orgId);
+        }
+      }
+    }
+
+    // Anything not matched above is denied.
+    match /{document=**} {
+      allow read, write: if false;
     }
   }
 }

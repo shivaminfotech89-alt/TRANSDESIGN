@@ -1,0 +1,10 @@
+{
+  "firestore": {
+    "database": "ai-studio-transdesignengin-41442703-2634-4bab-af2b-b96345bc6846",
+    "rules": "firestore.rules",
+    "indexes": "firestore.indexes.json"
+  },
+  "storage": {
+    "rules": "storage.rules"
+  }
+}
