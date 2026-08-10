@@ -8,7 +8,7 @@
  * without bumping it, or old quotations stop reproducing.
  */
 
-export const ENGINE_VERSION = "1.1.0";
+export const ENGINE_VERSION = "1.2.0";
 
 const CONDUCTORS = {
   copper: { name: "Copper, EC grade", rho20: 0.017241, alpha: 0.00393, dens: 8890, dMax: 3.6, short: "Cu", proof: 1.0 },
@@ -45,6 +45,32 @@ const UM_LEVELS = {
   145: { li: 650, ac: 275 },
 };
 const bushMul = (um) => (um <= 1.1 ? 0.4 : um <= 12 ? 1 : um <= 24 ? 1.8 : um <= 36 ? 2.8 : um <= 52 ? 5.0 : um <= 72.5 ? 9.0 : 22);
+
+/* IEC 60076-1 vector group notation: HV connection letter, an optional
+   capital N if the HV star point is brought out, LV connection letter
+   (lower case), an optional lowercase n if the LV star point is brought
+   out, clock number. A delta side (D or d) never carries a neutral -- there
+   is no star point to bring out.
+   ENGINE_VERSION 1.2.0: this used to live only in the app layer
+   (src/lib/vectorGroup.ts) and buildBOM priced bushings at a fixed qty (3
+   HV, 4 LV) regardless of vector group. The 2D layout drawings and the 3D
+   model already read the real count from this same parsing; the BOM now
+   does too, so a design with a delta LV (no neutral, 3 bushings) or an
+   earthed HV neutral (4 bushings) is not quoted for bushings it does not
+   have, or missing one it does. */
+function parseVectorGroup(vector) {
+  const m = /^([DYZ])(N)?([dyz])(n)?(\d+)$/.exec(vector || "");
+  const hv = m ? m[1] : "D";
+  const hvNeutral = !!(m && m[2]);
+  const lv = m ? m[3] : "y";
+  const lvNeutral = !!(m && m[4]);
+  const clock = m ? parseInt(m[5], 10) : 11;
+  return {
+    hv, hvNeutral, lv, lvNeutral, clock,
+    hvLabels: ["1U", "1V", "1W", ...(hvNeutral ? ["1N"] : [])],
+    lvLabels: ["2u", "2v", "2w", ...(lvNeutral ? ["2n"] : [])],
+  };
+}
 
 /* Liquids and dry systems */
 const FLUIDS = {
@@ -572,6 +598,7 @@ function buildBOM(d, r, extras = []) {
   const p = d.p;
   const bHV = r.bushHV * bushMul(p.umHV);
   const bLV = r.bushLV * bushMul(p.umLV);
+  const vg = parseVectorGroup(p.vector);
   const coreRate = r.core * d.ct.costMul;
 
   const A = [
@@ -596,8 +623,8 @@ function buildBOM(d, r, extras = []) {
     ];
 
   const Cseg = [
-    { code: "BS-01", desc: `HV bushings ${p.umHV} kV, ${p.bilHV} kVp LI`, qty: 3, unit: "no", rate: bHV },
-    { code: "BS-02", desc: `LV bushings ${p.umLV} kV, ${Math.ceil(d.iLineLV)} A`, qty: 4, unit: "no", rate: bLV },
+    { code: "BS-01", desc: `HV bushings ${p.umHV} kV, ${p.bilHV} kVp LI, ${vg.hvLabels.join("/")}`, qty: vg.hvLabels.length, unit: "no", rate: bHV },
+    { code: "BS-02", desc: `LV bushings ${p.umLV} kV, ${Math.ceil(d.iLineLV)} A, ${vg.lvLabels.join("/")}`, qty: vg.lvLabels.length, unit: "no", rate: bLV },
     {
       code: "TC-01",
       desc: p.tapType === "oltc" ? `OLTC, +${p.tapPlus}/-${p.tapMinus}% in ${f1(p.tapStep)}% steps, ${d.tapSteps} positions`
@@ -1147,7 +1174,7 @@ export {
   deriveSpec, designTransformer, buildBOM, ownershipCost, searchDesigns,
   impacts, calcSheet, stepWidths, stampingSchedule, finLayout,
   documentRegister, routineTestSchedule, DOC_STATUS, REFS,
-  inr, lakhs, bushMul, condRate, rkCond, fluxRange, bushHeight,
+  inr, lakhs, bushMul, condRate, rkCond, fluxRange, bushHeight, parseVectorGroup,
 };
 
 export function computeDesign(core, over = {}, rates = DEFAULT_RATES, extras = []) {

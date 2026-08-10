@@ -48,7 +48,7 @@ interface SummaryData {
 }
 
 export default function App() {
-  const { user } = useAuth();
+  const { user, logOut } = useAuth();
   const { orgId } = useOrg();
 
   const [core, setCoreState] = useState<any>(ESSENTIALS);
@@ -106,7 +106,10 @@ export default function App() {
   };
 
   const handleSave = async () => {
-    if (!user) return;
+    // ProjectBar already disables the button for this; guarded again here so
+    // no future caller can save core/over while a different price (the
+    // preview's) sits on screen -- see previewActive's doc comment.
+    if (!user || budgetPreview) return;
     setSavingProject(true);
     try {
       let projectId = currentProjectId;
@@ -134,7 +137,7 @@ export default function App() {
   };
 
   const handleSaveAsCopy = async () => {
-    if (!user || !currentProjectId) return;
+    if (!user || !currentProjectId || budgetPreview) return;
     setSavingProject(true);
     try {
       const newName = `${projectName} (Copy)`;
@@ -385,9 +388,23 @@ export default function App() {
               Transformer Design &amp; Costing
             </h1>
           </div>
-          <div className="text-right font-mono text-[10px] text-ink2 leading-relaxed">
-            <div>{standardName}</div>
-            <div>All figures in Indian Rupees</div>
+          <div className="flex items-start gap-4">
+            <div className="text-right font-mono text-[10px] text-ink2 leading-relaxed">
+              <div>{standardName}</div>
+              <div>All figures in Indian Rupees</div>
+            </div>
+            {/* Every saved project lives in Firestore now, not browser state --
+                signing out and back in and reopening a project (TASKS.md item
+                5's acceptance test) needs a real way to sign out. */}
+            <div className="text-right font-mono text-[10px] text-ink2 leading-relaxed shrink-0">
+              <div className="truncate max-w-[180px]">{user?.email}</div>
+              <button
+                onClick={logOut}
+                className="font-display uppercase text-[9px] tracking-[0.14em] text-steel underline underline-offset-2"
+              >
+                Sign Out
+              </button>
+            </div>
           </div>
         </header>
 
@@ -417,6 +434,7 @@ export default function App() {
           onSave={handleSave} onSaveAsCopy={handleSaveAsCopy}
           onNew={() => setShowNewProjectModal(true)} onOpen={handleOpenProject}
           currentProjectId={currentProjectId} busy={savingProject} refreshKey={projectListVersion}
+          previewActive={!!budgetPreview}
         />
 
         {pendingConflict && (
