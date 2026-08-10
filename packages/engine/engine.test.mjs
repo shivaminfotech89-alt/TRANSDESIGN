@@ -15,8 +15,17 @@ const eq = (label, got, want, tol = 0) => {
 
 console.log("1000 kVA, 11 kV / 433 V, Dyn11, Level 2, copper");
 const r = E.computeDesign(E.ESSENTIALS, {}, E.DEFAULT_RATES, []);
-eq("ex-works", Math.round(r.bom.exFactory), 1601393, 500);
-eq("delivered", Math.round(r.bom.withGst), 1889643, 600);
+// ENGINE_VERSION 1.1.0: tankL used to add the end-wall clearance to the bare
+// core envelope (coreWidth) instead of the outer limbs' own HV coil
+// envelope, so the coil overhung the tank end wall by ~10 mm with zero
+// clearance instead of the declared 74 mm -- confirmed by the longitudinal
+// cross-section drawing. Fixing it makes the tank, and therefore the tank
+// plate, fluid and freight cost, longer: ex-works and delivered moved up
+// accordingly. Losses, impedance and core mass are untouched -- the active
+// part did not change, only how much tank it sits inside.
+eq("ex-works", Math.round(r.bom.exFactory), 1630080, 500);
+eq("delivered", Math.round(r.bom.withGst), 1923495, 600);
+eq("tank length mm", Math.round(r.design.tankL), 1368, 2);
 eq("no-load loss W", Math.round(r.design.noLoad), 1146, 5);
 eq("load loss W", Math.round(r.design.loadLoss), 9910, 30);
 eq("impedance %", +r.design.pctZ.toFixed(2), 5.00, 0.02);

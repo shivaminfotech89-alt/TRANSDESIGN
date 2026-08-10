@@ -68,14 +68,21 @@ Default case: 1000 kVA, 11 kV / 433 V, Dyn11, IS, Level 2, copper, ONAN, fin tan
 
 | Quantity | Value |
 |---|---|
-| Ex-works | ₹16,01,393 |
-| Delivered incl. GST | ₹18,89,643 |
+| Ex-works | ₹16,30,080 |
+| Delivered incl. GST | ₹19,23,495 |
+| Tank length | 1368 mm |
 | No-load loss | 1146 W |
 | Load loss | 9910 W |
 | Impedance | 5.00 % |
 | Efficiency | 98.91 % |
 | Core mass | 1210 kg |
 | Stepped core utilisation | 3 steps 0.8510, 9 steps 0.9483, 13 steps 0.9642 |
+
+Ex-works and delivered moved in ENGINE_VERSION 1.1.0: tankL was building the
+end-wall clearance off the bare core envelope instead of the outer limbs' own
+HV coil envelope, so the coil overhung the tank end wall by about 10 mm with
+zero clearance instead of the declared 74 mm. The active part is unchanged;
+only the tank is now the length it was always supposed to be.
 
 ---
 

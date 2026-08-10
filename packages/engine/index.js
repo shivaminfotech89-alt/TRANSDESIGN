@@ -8,7 +8,7 @@
  * without bumping it, or old quotations stop reproducing.
  */
 
-export const ENGINE_VERSION = "1.0.0";
+export const ENGINE_VERSION = "1.1.0";
 
 const CONDUCTORS = {
   copper: { name: "Copper, EC grade", rho20: 0.017241, alpha: 0.00393, dens: 8890, dMax: 3.6, short: "Cu", proof: 1.0 },
@@ -467,8 +467,22 @@ function designTransformer(p) {
   let fluidLitres = 0, oilRise = 0, windRise = 0, coilArea = 0, wEnclosure = 0;
   let kTank = 0, kFin = 0, tankDissip = 0, riseTarget = 0, forcedMul = 1;
 
+  /* Tank length must clear the outer limbs' own coil envelope, not their
+     bare core. coreWidth (2*cc + dCore) stops at the core surface, so
+     building the end allowance from it left the outer limbs' HV coil
+     overhanging the end wall with none of the declared endTankClr actually
+     free -- confirmed against the longitudinal cross-section drawing, off
+     by ~10 mm on the golden case with zero clearance instead of 74 mm.
+     g.cc already includes phaseClr beyond the coil envelope
+     (cc = coilAcross + phaseClr), so subtracting it back out gives the
+     true one-limb coil width to build the end allowance from -- the same
+     quantity tankW already correctly uses (as hvOD) for the side walls.
+     Fixed in ENGINE_VERSION 1.1.0; see engine.test.mjs for the
+     golden-number note. */
+  const coilAcross = g.cc - clr.phaseClr;
+
   if (!dry) {
-    tankL = coreWidth + 2 * clr.endTankClr;
+    tankL = 2 * g.cc + coilAcross + 2 * clr.endTankClr;
     tankW = (shape === "circ" ? g.hvOD : coreW + 2 * (clr.coreLvClr + g.lvRadial + clr.lvHvClr + g.hvRadial)) + 2 * clr.hvTankClr;
     tankH = coreHeight + p.bottomClr + p.topOilSpace;
     tankArea = (2 * (tankL + tankW) * tankH) / 1e6;
@@ -495,7 +509,7 @@ function designTransformer(p) {
     coilArea = 3 * ((perim(t1) + perim(t2)) * g.hLV + (perim(t3) + perim(t4)) * g.hHV) / 1e6;
     const forced = p.cooling === "AF" ? 1.55 : 1.0;
     windRise = Math.pow(totalLoss / (p.airDiss * coilArea * 1.35 * forced), 0.8);
-    tankL = coreWidth + 300;
+    tankL = 2 * g.cc + coilAcross + 300;
     tankW = (shape === "circ" ? g.hvOD : coreW + 2 * t4) + 320;
     tankH = coreHeight + 420;
     wEnclosure = ((2 * (tankL + tankW) * tankH + 2 * tankL * tankW) / 1e6) * 0.0016 * 7850;
