@@ -8,7 +8,7 @@
  * without bumping it, or old quotations stop reproducing.
  */
 
-export const ENGINE_VERSION = "1.2.0";
+export const ENGINE_VERSION = "1.3.0";
 
 const CONDUCTORS = {
   copper: { name: "Copper, EC grade", rho20: 0.017241, alpha: 0.00393, dens: 8890, dMax: 3.6, short: "Cu", proof: 1.0 },
@@ -129,11 +129,26 @@ function lossSchedule(kva, level, dry) {
 }
 
 /* ---------------- Clearances from withstand levels ---------------- */
+/* CALIBRATION.md item 1: two Mehir Transformers production sheets, both
+   11 kV class (Um 12 kV, 75 kVp LI), give a complete LV-HV radial gap
+   (cylinder and both oil ducts included) of 11 mm in oil against the old
+   6 + 0.19*bilHV formula's 20.25 mm there -- the base was roughly 1.8x too
+   large. The 0.19 slope is untouched: two sheets at one voltage class fix
+   one point on the curve, not its slope, so only the intercept moves,
+   solved from 11 = intercept + 0.19*75. The dry multiplier (DRY_TYPES'
+   clrMul) is also untouched -- the sheets' oil:dry ratio (11:25, 2.27)
+   already matches the engine's old ratio (2.25) to within one per cent, so
+   nothing there was wrong. Floored at 6 mm, the old formula's own value at
+   bilHV = 0, since shifting the intercept negative would otherwise give a
+   nonsensical clearance for very low voltage classes no sheet has checked.
+   UNVERIFIED above 11 kV: both sheets are the same voltage class, so the
+   36 kV+ (Um) end of this line has not been confirmed against anything.
+   Ask for a 33 kV class sheet before ever touching the slope. */
 function clearancesFrom(bilHV, bilLV, medium, dryType) {
   const k = medium === "dry" ? DRY_TYPES[dryType].clrMul : 1;
   return {
     coreLvClr: Math.round(Math.max(8, 3 + 0.5 * bilLV) * k),
-    lvHvClr: Math.round((6 + 0.19 * bilHV) * k),
+    lvHvClr: Math.round(Math.max(6, -3.25 + 0.19 * bilHV) * k),
     phaseClr: Math.round((4 + 0.16 * bilHV) * k),
     endClrLV: Math.round(Math.max(25, 10 + 0.5 * bilLV) * k),
     endClrHV: Math.round((15 + 0.52 * bilHV) * k),
@@ -165,12 +180,30 @@ function fluxSuggest(gk, lvl, kva) {
   const b = lvl === "conventional" ? 1.70 : lvl === "level1" ? 1.66 : lvl === "level2" ? 1.60 : 1.55;
   return Math.round(Math.min(b - nudge, CORE_GRADES[gk].bMax - 0.03) * 100) / 100;
 }
-const stepsSuggest = (kva) => (kva <= 63 ? 3 : kva <= 250 ? 5 : kva <= 630 ? 7 : kva <= 1600 ? 9 : kva <= 5000 ? 11 : 13);
+/* CALIBRATION.md item 3: the number of steps fills a circle, so it should
+   track the core diameter being filled, not the rating directly -- the
+   1250 kVA sheet uses 15 steps where the old kva-keyed table suggested only
+   9. Bands are the "roughly" ranges CALIBRATION.md gives, split at their
+   midpoints since the sheets pin two points inside them (271 mm at 15
+   steps, 245 mm implying 13) rather than every boundary. Takes an estimated
+   diameter, not kva -- see deriveSpec's dCoreEst for how that estimate is
+   built this early, before a real one exists. */
+const stepsSuggest = (dCoreEst) => (
+  dCoreEst <= 70 ? 3 : dCoreEst <= 100 ? 5 : dCoreEst <= 150 ? 7 : dCoreEst <= 200 ? 9
+    : dCoreEst <= 230 ? 11 : dCoreEst <= 260 ? 13 : 15
+);
 function densitySuggest(kva, cond, dry, isHV) {
   const l = Math.log10(Math.max(10, kva));
   const cu = 2.65 - 0.125 * (l - 2);
   let b = cond === "copper" ? cu : cond === "aluminium" ? cu * 0.78 : cu * 0.88;
-  if (dry) b *= 0.82;
+  /* CALIBRATION.md item 4: this used to multiply by 0.82, reasoning that air
+     cools worse than oil, and had the direction backwards -- class F's
+     100 K permitted rise against oil's 55 K dominates over the weaker
+     cooling, so a dry winding actually runs a HIGHER current density than
+     oil at the same rating, not a lower one. The 630 kVA sheet runs
+     2.79/2.89 A/mm^2 (LV/HV) where the old factor suggested 2.10/2.25.
+     1.10 is fitted from that sheet, the only dry one available. */
+  if (dry) b *= 1.10;
   if (isHV) b += 0.15;
   return Math.min(Math.round(b * 20) / 20, CONDUCTORS[cond].dMax);
 }
@@ -243,17 +276,57 @@ function deriveSpec(core, over = {}) {
   const gk = put("coreGrade", gradeSuggest(core.effLevel), null, Object.entries(CORE_GRADES).map(([k, v]) => [k, v.name]), `Thinner, lower-loss steel is what buys the ${EFF_LEVELS[core.effLevel].name} no-load figure.`);
   const ctk = put("coreType", gk === "amor" ? "amorWound" : "stepLap", null, Object.entries(CORE_TYPES).map(([k, v]) => [k, v.name]), "Step-lap mitred joints cut no-load loss and exciting current against a plain mitred or butt-lap joint.");
   put("buildFactor", CORE_TYPES[ctk].bf, [1.0, 1.45, 0.01], null, "Ratio of built core loss to catalogue loss for this joint. Set it from your own no-load test history if you have it.");
-  put("flux", fluxSuggest(gk, core.effLevel, kva), [1.20, CORE_GRADES[gk].bMax, 0.01], null, "Higher flux means a smaller, cheaper core and a higher no-load loss. This is the single biggest cost-versus-loss lever.");
-  put("steps", stepsSuggest(kva), null, Object.keys(STEP_UTIL).map((k) => [+k, k + " steps"]), "More steps fill the coil circle better and save steel, but cost more to cut and stack.");
-  put("etK", app.etK, [0.35, 0.62, 0.01], null, `Volts per turn = K\u221AkVA. ${app.name} practice sits near ${app.etK}.`);
+  const fluxSug = put("flux", fluxSuggest(gk, core.effLevel, kva), [1.20, CORE_GRADES[gk].bMax, 0.01], null, "Higher flux means a smaller, cheaper core and a higher no-load loss. This is the single biggest cost-versus-loss lever.");
+  /* CALIBRATION.md item 2: raised, and now split by medium -- a dry-type
+     winding runs a higher K than the same duty in oil. Fitted from Mehir
+     Transformers' two reference sheets: distribution's raw 0.45 -> 0.544
+     measured in oil (x1.21) -> 0.623 measured dry (x1.38). Both multipliers
+     are applied to every application's own base K, not just distribution's,
+     so the relative ordering already tuned into APPS (power runs higher
+     than distribution, isolation lower, and so on) is preserved -- only
+     distribution's own multiplier is confirmed by a sheet; the rest are
+     scaled by the same ratio, unverified. This raises cost, not lowers it:
+     a higher K needs a bigger core for the same flux density (Et = 4.44 f B
+     Ai), which is why CALIBRATION.md pairs this with item 1's clearance cut
+     rather than presenting either alone. */
+  const etkMul = dry ? 1.38 : 1.21;
+  const etkSug = Math.round(app.etK * etkMul * 1000) / 1000;
+  const etkEff = put("etK", etkSug, [0.35, 0.80, 0.01], null, `Volts per turn = K\u221AkVA. ${app.name} practice in ${dry ? "a dry-type winding" : "oil"} sits near ${etkSug}.`);
+  /* CALIBRATION.md item 3: step count should track the core diameter being
+     filled (STEP_UTIL is a circle-packing factor), not the rating directly
+     -- the 1250 kVA sheet uses 15 steps where the old kva-keyed table gave
+     9. There is no real core diameter yet this early in deriveSpec (it
+     depends on turns, which depend on the window solve in
+     designTransformer) -- estimate one from the same trial Et and flux
+     density just suggested above, using a fixed nominal utilisation
+     (0.94, designTransformer's own fallback when no step count is chosen
+     yet) rather than STEP_UTIL[steps], which needs the very step count this
+     is choosing. It only has to land in the right band: stepWidths() and
+     everything downstream always use the real STEP_UTIL[p.steps]
+     regardless of how this estimate landed. Checked against both sheets:
+     275 mm estimated vs 271 mm actual at 1250 kVA (15-step band), 248 mm vs
+     245 mm at 630 kVA (13-step band).
+     Uses etkEff (put()'s return value), not etkSug, so an explicit etK
+     override -- reference-designs.test.mjs gives the designer's own Et for
+     both sheets -- actually feeds this estimate instead of being silently
+     ignored in favour of the auto-suggestion nobody asked for. */
+  const etTrialSug = etkEff * Math.sqrt(kva);
+  const aNetEst = etTrialSug / (4.44 * (core.freq || 50) * fluxSug);
+  const dCoreEst = Math.sqrt((4 * aNetEst) / (Math.PI * 0.94 * CORE_GRADES[gk].sf)) * 1000;
+  put("steps", stepsSuggest(dCoreEst), null, Object.keys(STEP_UTIL).map((k) => [+k, k + " steps"]), "More steps fill the coil circle better and save steel, but cost more to cut and stack.");
   put("aspect", aspectSuggest(umHV), [2.0, 3.8, 0.05], null, "Starting window shape. The final height is solved to hit the declared impedance unless you turn that off.");
   put("autoWindow", true, null, [[true, "Solve height for the declared impedance"], [false, "Use the output equation only"]], "With this on, the window height is adjusted until the calculated impedance matches the declared value, which is what a designer does by hand.");
   put("autoFit", true, null, [[true, "Fit flux and current density to the loss limits"], [false, "Use the rating-based values only"]], "With this on, the flux density and the current densities are trimmed until the calculated losses sit just inside the declared limits, the cheapest core and coil that still passes.");
   put("windowSpace", 8, [6, 12, 0.5], null, "Numerator of the window space factor 8/(30+kV). Raise it if your coils pack tighter than average.");
 
   /* --- windings --- */
+  /* CALIBRATION.md item 5: read literally, kva > 630 with a custom loss
+     level fell through both conditions at exactly 630 kVA and silently
+     returned aluminium -- entering your own loss targets must not change
+     the winding metal. kva >= 630 closes the boundary gap; treating
+     "custom" the same as level2/level3 closes the other one. */
   const condSug = core.condPref !== "auto" ? core.condPref
-    : (kva > 630 || ["level2", "level3"].includes(core.effLevel)) ? "copper" : "aluminium";
+    : (kva >= 630 || ["level2", "level3", "custom"].includes(core.effLevel)) ? "copper" : "aluminium";
   const cLV = put("condLV", condSug, null, Object.entries(CONDUCTORS).map(([k, v]) => [k, v.name]), core.condPref === "auto" ? "Copper once the rating or the loss schedule makes aluminium coils too big." : "Set from your material preference.");
   const cHV = put("condHV", condSug, null, Object.entries(CONDUCTORS).map(([k, v]) => [k, v.name]), "Usually the same metal on both windings.");
   put("deltaLV", densitySuggest(kva, cLV, dry, false), rng(densitySuggest(kva, cLV, dry, false), 0.6, 1.35, 0.05), null, `Normal band for ${CONDUCTORS[cLV].short} at ${kva} kVA. Higher means less metal, more load loss and a hotter winding.`);
