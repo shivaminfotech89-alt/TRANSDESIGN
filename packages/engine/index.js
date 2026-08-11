@@ -1574,6 +1574,60 @@ function insulationPieceList(d, p) {
   return { derived, pending };
 }
 
+/* MANUFACTURING.md section 5: a direct print of the multi-coil HV winding
+   ENGINE_VERSION 1.5.0 added -- construction type, coil or disc count,
+   turns per coil, layers per coil, turns per layer.
+
+   d.layers (used for the radial-build calculation in designTransformer) is
+   a ceiling -- Math.ceil(nHVmax / (numGroups * turnsPerLayer)) -- sized to
+   the FULLEST group, not literally every group's own turn count. Printing
+   numGroups copies of that ceiling would overstate the total by however
+   many turns short of a full rectangle nHVmax actually is (44 discs at a
+   flat 15 turns each would total 660, not the 628 the winding actually
+   has). This spreads nHVmax across the groups as evenly as possible --
+   most groups at floor(nHVmax/numGroups), the remainder at one more turns
+   each -- so the printed schedule always sums to exactly nHVmax.
+
+   That even spread is still this engine's own approximation, not the
+   reference sheet's. The 1250 kVA sheet grades its 44 discs in five groups
+   (6 at 13, 12 at 15, 8 at 14, 12 at 15, 6 at 13) specifically so the
+   tap changer's regulating section falls in the thinner middle group --
+   a deliberate design choice tied to where the tap section sits, not
+   available here until the tap section's own placement (tappingSchedule,
+   section 1) feeds into this split, which it does not yet. The schedule
+   says so explicitly rather than letting a uniform 44-at-15 (or the
+   correct-summing 12-at-15/32-at-14 this function actually prints) read
+   as if it reproduced the sheet's own grading. */
+function windingSchedule(d, p) {
+  const hv = {
+    construction: d.hvConstruction,
+    label: d.hvConstruction === "crossover" ? "coil" : d.hvConstruction === "disc" ? "disc" : null,
+    groups: d.numGroups, turnsPerLayer: d.turnsPerLayer, layersPerGroup: d.layers,
+    totalTurns: d.nHVmax,
+  };
+  if (d.hvConstruction === "layer") {
+    return {
+      hv, groupRows: [],
+      note: "Single continuous layer winding -- not a multi-coil construction, nothing to distribute across groups.",
+    };
+  }
+  const base = Math.floor(d.nHVmax / d.numGroups);
+  const extra = d.nHVmax - base * d.numGroups; // this many groups carry one extra turn
+  const groupRows = [];
+  for (let i = 0; i < d.numGroups; i++) {
+    const turns = i < extra ? base + 1 : base;
+    groupRows.push({ index: i + 1, turns, layers: Math.ceil(turns / d.turnsPerLayer) });
+  }
+  const label = hv.label;
+  const note = `Turns spread as evenly as possible across ${d.numGroups} ${label}s to total ${d.nHVmax} exactly `
+    + `-- ${extra} ${label}${extra === 1 ? "" : "s"} at ${base + 1} turns, ${d.numGroups - extra} at ${base}. `
+    + `This is this engine's own even distribution, not the reference sheet's graded one: a real design varies `
+    + `turns per ${label} deliberately, fewest at the tap changer's regulating section, to place that section `
+    + `in the winding -- not yet done here, since it needs the tap section's own location (tappingSchedule) fed `
+    + `into this split. Read the row-by-row turns below as this engine's model, not a copy of a real winding schedule.`;
+  return { hv, groupRows, note };
+}
+
 const bushHeight = (um) => (um <= 1.1 ? 180 : um <= 12 ? 300 : um <= 24 ? 420 : um <= 36 ? 560 : um <= 52 ? 760 : 1100);
 
 const DOC_STATUS = { done: "Generated", part: "Partial", need: "Needs input" };
@@ -1662,7 +1716,7 @@ export {
   documentRegister, routineTestSchedule, DOC_STATUS, REFS,
   inr, lakhs, bushMul, condRate, rkCond, fluxRange, bushHeight, parseVectorGroup,
   etkCurve, fitEtkToCost, ETK_RANGE,
-  tappingSchedule, conductorSchedule, hardwareSchedule, insulationPieceList,
+  tappingSchedule, conductorSchedule, hardwareSchedule, insulationPieceList, windingSchedule,
 };
 
 export function computeDesign(core, over = {}, rates = DEFAULT_RATES, extras = []) {

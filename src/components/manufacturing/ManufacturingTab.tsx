@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import {
-  tappingSchedule, conductorSchedule, hardwareSchedule, insulationPieceList, finLayout,
+  tappingSchedule, conductorSchedule, hardwareSchedule, insulationPieceList, finLayout, windingSchedule,
 } from '@/packages/engine';
 import { Card, Button, thCls, tdCls, inputCls, labelCls } from '../ui';
 import { useAuth } from '../AuthContext';
@@ -15,6 +15,22 @@ interface ManufacturingTabProps {
 
 const f = (n: number, dp = 1) => (typeof n === 'number' ? n.toFixed(dp) : String(n));
 
+/** windingSchedule's groupRows is one row per coil/disc, but the even-spread
+ *  distribution it prints is always a run of "one more turn" groups
+ *  followed by a run of the base count -- collapsing consecutive identical
+ *  (turns, layers) rows into a numbered range keeps a 44-disc schedule
+ *  readable as the two or three bands it actually is, without hiding any
+ *  individual disc's own figure (still there via `from`-`to`). */
+function bandRows(rows: { index: number; turns: number; layers: number }[]) {
+  const bands: { from: number; to: number; turns: number; layers: number }[] = [];
+  for (const r of rows) {
+    const last = bands[bands.length - 1];
+    if (last && last.turns === r.turns && last.layers === r.layers) last.to = r.index;
+    else bands.push({ from: r.index, to: r.index, turns: r.turns, layers: r.layers });
+  }
+  return bands;
+}
+
 /** MANUFACTURING.md, build order steps 1-4. Reads straight off the live
  *  design and params -- nothing here is stored, exactly like every other
  *  tab (CLAUDE.md invariant 2), except the shop notes library itself, which
@@ -25,6 +41,7 @@ export function ManufacturingTab({ design: d, params: p }: ManufacturingTabProps
   const hw = hardwareSchedule(d, p);
   const ins = insulationPieceList(d, p);
   const fins = finLayout(d);
+  const wind = windingSchedule(d, p);
 
   return (
     <div className="space-y-4">
@@ -135,6 +152,44 @@ export function ManufacturingTab({ design: d, params: p }: ManufacturingTabProps
             HV split into {cond.hv.parallel} parallel conductors is a heuristic (practical single-strand ceiling),
             not confirmed against either reference sheet at this current -- check against the works' own practice.
           </p>
+        )}
+      </Card>
+
+      <Card title="Winding Schedule" subtitle={`HV -- ${wind.hv.construction} construction`}>
+        {wind.hv.construction === 'layer' ? (
+          <p className="text-[11px] text-steel px-1 py-2">{wind.note}</p>
+        ) : (
+          <>
+            <table className="w-full max-w-lg">
+              <tbody>
+                <tr><td className={tdCls}>{wind.hv.label === 'coil' ? 'Coils' : 'Discs'}</td><td className={`${tdCls} text-right font-mono`}>{wind.hv.groups}</td></tr>
+                <tr><td className={tdCls}>Turns per axial layer</td><td className={`${tdCls} text-right font-mono`}>{wind.hv.turnsPerLayer}</td></tr>
+                <tr><td className={tdCls}>Layers per {wind.hv.label}, at the fullest</td><td className={`${tdCls} text-right font-mono`}>{wind.hv.layersPerGroup}</td></tr>
+                <tr><td className={tdCls}>Total HV turns (extreme tap)</td><td className={`${tdCls} text-right font-mono`}>{wind.hv.totalTurns}</td></tr>
+              </tbody>
+            </table>
+            <div className="overflow-x-auto mt-3">
+              <table className="w-full">
+                <thead>
+                  <tr>
+                    <th className={thCls}>{wind.hv.label === 'coil' ? 'Coil' : 'Disc'} numbers</th>
+                    <th className={`${thCls} text-right`}>Turns each</th>
+                    <th className={`${thCls} text-right`}>Layers each</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {bandRows(wind.groupRows).map((b) => (
+                    <tr key={b.from}>
+                      <td className={`${tdCls} font-mono`}>{b.from === b.to ? b.from : `${b.from}-${b.to}`}</td>
+                      <td className={`${tdCls} text-right font-mono`}>{b.turns}</td>
+                      <td className={`${tdCls} text-right font-mono`}>{b.layers}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <p className="text-[10px] text-amber px-1 pt-2">{wind.note}</p>
+          </>
         )}
       </Card>
 

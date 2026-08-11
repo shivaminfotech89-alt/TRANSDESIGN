@@ -132,10 +132,22 @@ which construction to use:
 - 630 kVA, dry: **crossover**, 6 coils of 13 layers of 10 turns per layer --
   all three match the sheet's own structure exactly.
 
-`d.hvConstruction`, `d.numGroups` and `d.layers` (packages/engine/index.js)
-carry these outputs already. The winding schedule itself -- a direct print
-of them, per this section's own original instruction -- is the next piece
-of work, not yet built.
+`windingSchedule(d, p)` (packages/engine/index.js) prints these: construction
+type, group count, turns per layer, and, for crossover and disc, a row per
+coil or disc giving its own turns and layers -- nHVmax spread across the
+groups as evenly as possible so the printed schedule always sums exactly,
+rather than a flat group-count-times-ceiling that overstates the total.
+Shown in the Manufacturing tab's Winding Schedule card, consecutive
+identical rows collapsed into a range (44 discs prints as two bands, not
+44 lines) without hiding any individual disc's own figure.
+
+**This is this engine's own even distribution, stated as such on every
+schedule it prints, not the reference sheets' graded one.** The 1250 kVA
+sheet's own five-group grading (fewest turns in the disc group nearest the
+tap changer's regulating section) is a deliberate design choice tied to
+where the tap section sits, not reproduced here -- it needs the tap
+section's own placement (tappingSchedule, section 1) fed into the split,
+queued for after LV multi-layer strip construction, not attempted yet.
 
 ## 6. Axial spacer and gap schedule — needs engine capability first
 
