@@ -136,21 +136,37 @@ const r = E.computeDesign(E.ESSENTIALS, {}, E.DEFAULT_RATES, []);
 //
 // DEFAULT_RATES also updated (CALIBRATION.md section 7, same source sheet):
 // core, condCu, frameMS, tankMS and fluid. A rate, not a formula -- no
-// ENGINE_VERSION bump for this part -- but ex-works and delivered are built
-// from DEFAULT_RATES directly and move with it. Nothing else here does:
-// geometry, losses and construction are all unmoved, confirming the rate
-// change reached only price, not the design etK settled on.
-eq("ex-works", Math.round(r.bom.exFactory), 2546910, 800);
-eq("delivered", Math.round(r.bom.withGst), 3005354, 900);
-eq("tank length mm", Math.round(r.design.tankL), 1691, 2);
-eq("no-load loss W", Math.round(r.design.noLoad), 1303, 5);
-eq("load loss W", Math.round(r.design.loadLoss), 6105, 30);
-eq("impedance %", +r.design.pctZ.toFixed(2), 5.00, 0.02);
-eq("efficiency %", +r.design.eff100.toFixed(2), 99.26, 0.02);
-eq("core mass kg", Math.round(r.design.wCore), 1894, 15);
+// ENGINE_VERSION bump for this part.
+//
+// ENGINE_VERSION 1.7.1: fitEtkToCost no longer falls back to the fixed AUTO
+// suggestion when nothing on the swept range is compliant -- it builds at
+// the cheapest point on the curve instead, flagged (etkNonCompliant: true,
+// etkSearchNote naming exactly what is missed and by how much). This
+// default case is exactly the scenario that motivated it: the fixed
+// suggestion (K = 0.545) was carrying a core about 230 kg heavier than the
+// cheapest point on its own curve for no compliance benefit, since neither
+// point is compliant anyway (see 1.7.0's note on the 1.42 T flux floor).
+// The cheapest point here is K = 0.70, the swept range's own edge -- worth
+// noting the way CALIBRATION.md section 2 already flags a boundary-sitting
+// optimum as usually meaning the boundary, not the optimum, is what's in
+// question, though this is a different search (cheapest among non-
+// compliant points, not a real economic minimum) and not evidence the
+// 0.40-0.70 range itself needs revisiting on its own. Still only misses
+// no-load loss here (1678 W against 1196 W); impedance and thermal both
+// stay within tolerance at this K, unlike the 100 kVA case in the
+// impedance-solve check below, where the cheapest point misses both.
+eq("ex-works", Math.round(r.bom.exFactory), 2501338, 800);
+eq("delivered", Math.round(r.bom.withGst), 2951579, 900);
+eq("tank length mm", Math.round(r.design.tankL), 1849, 2);
+eq("no-load loss W", Math.round(r.design.noLoad), 1678, 5);
+eq("load loss W", Math.round(r.design.loadLoss), 5020, 30);
+eq("impedance %", +r.design.pctZ.toFixed(2), 4.73, 0.02);
+eq("efficiency %", +r.design.eff100.toFixed(2), 99.33, 0.02);
+eq("core mass kg", Math.round(r.design.wCore), 2440, 15);
 eq("compliant", r.design.compliant, false);
 eq("HV construction", r.design.hvConstruction, "crossover");
 eq("LV construction", r.design.lvConstruction, "strip");
+eq("etK non-compliant, flagged", r.etkNonCompliant, true);
 
 console.log("\nstepped core utilisation matches the classical table");
 [[3, 0.851], [5, 0.9079], [9, 0.9483], [13, 0.9642]].forEach(([n, u]) =>
@@ -203,13 +219,20 @@ const impedanceDev = (kva, baselinePct) => {
   else console.log(`  ok   ${kva} kVA: ${msg}`);
 };
 // ENGINE_VERSION 1.7.0's load loss recalibration changed the flux/density
-// landscape autoFit searches, moving every one of these baselines again --
-// 2000 and 2500 kVA both now converge exactly, 100 and 630 kVA shifted by
-// a couple of points. Recorded as found, not tuned toward a round number.
-impedanceDev(100, 1.46);
-impedanceDev(630, 3.96);
+// landscape autoFit searches, moving every one of these baselines once;
+// 1.7.1's fitEtkToCost fix (below) moved them again, in some cases a lot --
+// 100 kVA's cheapest non-compliant point happens to also miss impedance
+// badly (-26.91%, not just the no-load loss the 630 kVA case in
+// CALIBRATION.md's own investigation centred on). That is a real,
+// legitimate finding this test now surfaces rather than a defect in
+// picking it: the cheapest point at 100 kVA genuinely fails both, and an
+// engineer building to it needs both facts, which etkSearchNote reports on
+// the design itself (see the default case above). Recorded as found, not
+// tuned toward a round number, same as every other baseline in this file.
+impedanceDev(100, -26.91);
+impedanceDev(630, -8.46);
 impedanceDev(2000, 0.00);
-impedanceDev(2500, 0.00);
+impedanceDev(2500, -1.80);
 
 console.log(failures ? `\n${failures} FAILURES` : "\nall passed");
 process.exit(failures ? 1 : 0);

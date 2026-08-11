@@ -543,6 +543,14 @@ export default function App() {
   const activeBom = viewingRevision ? viewedResult!.bom : budgetPreview ? budgetPreview.bom : result.bom;
   const activeParams = viewingRevision ? viewedResult!.params : budgetPreview ? budgetPreview.d.p : result.params;
   const activePreviewKey = budgetPreview ? candidateKey(budgetPreview) : null;
+  // CALIBRATION.md, fitEtkToCost: a budget preview candidate comes from
+  // searchDesigns, which builds with designTransformer/buildBOM directly
+  // and never runs the etK cost search at all, so there is no non-
+  // compliance concept to show for one -- the live design's own warning
+  // (or the viewed revision's, frozen at save time) reappears once the
+  // preview is discarded or adopted.
+  const activeEtkWarning = viewingRevision ? viewedResult!.etkNonCompliant : budgetPreview ? false : result.etkNonCompliant;
+  const activeEtkNote = viewingRevision ? viewedResult!.etkSearchNote : budgetPreview ? undefined : result.etkSearchNote;
 
   const handleAdoptBudget = () => {
     if (!budgetPreview || readOnlyLive) return;
@@ -702,6 +710,15 @@ export default function App() {
         </header>
 
         <RatingPlate design={activeDesign} bom={activeBom} params={activeParams} />
+
+        {activeEtkWarning && (
+          <div className="bg-white border border-amber rounded-[2px] px-4 py-3 print:hidden">
+            <div className="text-[11px] font-display uppercase tracking-[0.14em] text-amber mb-1">
+              No Volts-Per-Turn Setting Meets Every Declared Limit
+            </div>
+            <p className="text-[11px] text-ink2">{activeEtkNote}</p>
+          </div>
+        )}
 
         {budgetPreview && !viewingRevision && (
           <div className="bg-white border border-copper rounded-[2px] px-4 py-3 print:hidden flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">

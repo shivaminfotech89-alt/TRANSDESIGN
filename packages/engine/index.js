@@ -8,7 +8,7 @@
  * without bumping it, or old quotations stop reproducing.
  */
 
-export const ENGINE_VERSION = "1.7.0";
+export const ENGINE_VERSION = "1.7.1";
 
 const CONDUCTORS = {
   copper: { name: "Copper, EC grade", rho20: 0.017241, alpha: 0.00393, dens: 8890, dMax: 3.6, short: "Cu", proof: 1.0 },
@@ -1061,31 +1061,57 @@ function etkCurve(p, rates, range = ETK_RANGE) {
    from a customer's tender, a past design, a value entered by hand -- and is
    never second-guessed by a cost search, same as an explicit flux or density
    is never re-fit to the loss schedule.
-   Only ever chooses among points etkCurve has already marked feasible --
-   impedance, thermal and loss limits, the same three checks searchDesigns
-   itself gates on. It must never fall back to the cheapest point on the
-   curve regardless of compliance: an earlier version did exactly that
-   whenever nothing on the swept range was feasible, and at small ratings
-   where the 1.42 T flux floor already keeps no-load loss outside the
-   schedule at every K (not something K can fix), it picked the single
-   worst point for impedance on the entire curve purely because it was
-   cheapest -- a real transformer would have to be built to that undeclared
-   impedance, chosen by nobody. If nothing on the curve is feasible, that is
-   a fact about this design worth surfacing, not a search to relax until
-   something passes: return no override (deriveSpec's own suggestion stands,
-   exactly as it did before this search existed) and say why in
-   etkSearchNote, which computeDesign carries through to its own result. */
+
+   When some point on the swept range is fully compliant (impedance, thermal
+   and loss limits, the same three checks searchDesigns itself gates on),
+   the cheapest of those is used, same as always.
+
+   When none is: an earlier version of this function fell back to
+   deriveSpec's own fixed AUTO suggestion, reasoning that picking a
+   non-compliant point at all was worse than admitting the search found
+   nothing. That reasoning traded a real, quantifiable saving (at 630 kVA,
+   the fixed suggestion builds a core roughly 230 kg heavier than the
+   cheapest point on the very same curve) for silence about a limitation
+   that was going to be true regardless of which K got built -- the fixed
+   suggestion is not compliant either at ratings where nothing on the curve
+   is. Discarding the saving did not make the design any more compliant; it
+   only hid the cost of not being. Now the cheapest point on the whole
+   curve is used regardless, exactly as it would be if it had passed, but
+   flagged explicitly (etkNonCompliant: true) with which limit the chosen
+   point actually misses and by how much -- an engineer building to a K
+   that cannot meet its own declared no-load loss needs to be told that
+   plainly, not have it quietly averted by building something heavier and
+   still non-compliant instead. */
 function fitEtkToCost(p, over = {}, rates = DEFAULT_RATES) {
   if (over.etK !== undefined) return {};
   const curve = etkCurve(p, rates);
+  if (!curve.length) return {};
   const pool = curve.filter((pt) => pt.feasible);
-  if (!pool.length) {
-    return curve.length
-      ? { etkSearchNote: `No K from ${ETK_RANGE[0]} to ${ETK_RANGE[ETK_RANGE.length - 1]} keeps this design within its declared impedance, thermal and loss limits at ${p.kva} kVA -- kept the auto-suggested K = ${p.etK} rather than optimising cost through a non-compliant point.` }
-      : {};
+  if (pool.length) {
+    const best = pool.reduce((a, b) => (b.exFactory < a.exFactory ? b : a));
+    return { etK: best.etK };
   }
-  const best = pool.reduce((a, b) => (b.exFactory < a.exFactory ? b : a));
-  return { etK: best.etK };
+
+  const best = curve.reduce((a, b) => (b.exFactory < a.exFactory ? b : a));
+  const d = designTransformer({ ...p, etK: best.etK });
+  const zOk = Math.abs(d.pctZ - p.targetZ) / p.targetZ <= p.zTol / 100;
+  const missed = [];
+  if (!d.compliance.nll.ok) missed.push(`no-load loss ${Math.round(d.compliance.nll.val)} W against ${Math.round(d.compliance.nll.lim)} W declared`);
+  if (!d.compliance.ll.ok) missed.push(`load loss ${Math.round(d.compliance.ll.val)} W against ${Math.round(d.compliance.ll.lim)} W declared`);
+  if (!zOk) missed.push(`impedance ${d.pctZ.toFixed(2)}% against ${p.targetZ}% declared`);
+  if (!d.compliance.rise.ok) missed.push(`top-oil/enclosure rise ${d.compliance.rise.val.toFixed(1)} against ${d.compliance.rise.lim} °C`);
+  if (!d.compliance.wRise.ok) missed.push(`winding rise ${d.compliance.wRise.val.toFixed(1)} against ${d.compliance.wRise.lim} °C`);
+  const bFloor = p.coreGrade === "amor" ? 1.20 : 1.42;
+  const floorNote = d.B <= bFloor + 0.001
+    ? ` Flux is already at the ${bFloor.toFixed(2)} T floor for this core grade -- no lower K closes this; it needs a different loss schedule or a different grade.`
+    : "";
+  return {
+    etK: best.etK,
+    etkNonCompliant: true,
+    etkSearchNote: `No K from ${ETK_RANGE[0]} to ${ETK_RANGE[ETK_RANGE.length - 1]} keeps this design within every declared limit at ${p.kva} kVA. `
+      + `Built at the cheapest point on the curve, K = ${best.etK}, ${inr(best.exFactory)} ex-works, rather than the fixed AUTO suggestion -- `
+      + `still misses ${missed.join("; ")}.${floorNote}`,
+  };
 }
 
 /* ============================================================
@@ -1822,14 +1848,15 @@ export function computeDesign(core, over = {}, rates = DEFAULT_RATES, extras = [
   // the same flux and current density the actual build will use, and before
   // designTransformer so an AUTO etK is never built at deriveSpec's raw
   // fixed-multiplier guess when the project's own rates say otherwise.
-  // etkSearchNote (no compliant K found) is reporting, not a design
-  // parameter -- kept off of p/fitted so it never reaches designTransformer.
-  const { etkSearchNote, ...etkOverride } = fitEtkToCost(p0, over, rates);
+  // etkSearchNote/etkNonCompliant (no compliant K found) are reporting, not
+  // design parameters -- kept off of p/fitted so they never reach
+  // designTransformer.
+  const { etkSearchNote, etkNonCompliant, ...etkOverride } = fitEtkToCost(p0, over, rates);
   const fittedAll = { ...fitted, ...etkOverride };
   const p = { ...p0, ...etkOverride };
   const design = designTransformer(p);
   const bom = buildBOM(design, rates, extras);
-  return { spec, params: p, fitted: fittedAll, design, bom, engineVersion: ENGINE_VERSION, etkSearchNote };
+  return { spec, params: p, fitted: fittedAll, design, bom, engineVersion: ENGINE_VERSION, etkSearchNote, etkNonCompliant: !!etkNonCompliant };
 }
 
 export function fitToSchedule(S, over = {}) {

@@ -277,6 +277,35 @@ Also corrected the "Not adopted" section below: the old coefficient's
 wrong, not evidence their own 7600 W was an unusually premium figure. At 32,
 the schedule estimate is 7540 W -- 7600 W is an ordinary Level 2 number.
 
+**No-load coefficient, not touched, and why.** Investigating the residual mass
+gap after items 3 and 4 (packages/engine/index.js `_tmp` scripts, not kept)
+found that a 630 kVA enquiry at Level 2, no override, cannot meet its own
+no-load ceiling at any K in the swept range, including the fully joint case
+(flux and current density re-fit at each K, not just the frozen-density
+`etkCurve` sweep) -- flux sits at the 1.42 T floor throughout and no-load
+loss still exceeds its limit by 3-20% depending on K. That is the load-loss
+recalibration above changing the *split* between the two loss ceilings
+without a matching correction to the no-load side, which this session did
+not touch.
+
+The no-load coefficient (4.6, `lossSchedule`'s `nll` term) is therefore the
+strongest remaining candidate for its own recalibration. It is **not**
+changed here: the load loss coefficient was moved on two independent
+confirming points (630 kVA and 1250 kVA, both within 1.4%), and there is no
+equivalent no-load figure from either sheet to anchor a change against.
+Inferring a new coefficient from the post-item-3 imbalance alone would be
+exactly the curve-fitting this whole document has avoided -- evidence that
+something is *probably* wrong is not the same as evidence for what the
+right number *is*.
+
+What would settle it: guaranteed no-load loss figures from two or three more
+real designs, at ratings away from the two already available (630 kVA and
+1250 kVA both sit in the middle of the range 100 kVA to several MVA covers).
+Most useful: one design at 100-300 kVA and one at 2000 kVA or above, since a
+coefficient fitted to two adjacent mid-range points has no evidence either
+way about whether the same exponent (0.805, also untouched, also unconfirmed
+independently) holds at the ends of the range it is applied across.
+
 ## 7. DEFAULT_RATES
 
 **Source: the 630 kVA Level 1 costing sheet, 2026-08-11.** Five of
