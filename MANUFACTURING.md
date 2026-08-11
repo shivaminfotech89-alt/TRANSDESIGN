@@ -46,6 +46,23 @@ Transposition rule: required whenever more than two conductors sit in parallel
 radially. The 1250 kVA notes "Transposition 1 No, very important on both
 layers".
 
+**LV, ENGINE_VERSION 1.6.0.** LV was one continuous foil or, above T_MIN
+thickness, a thin strip with several turns sharing an axial pass — a single
+conductor per turn either way, so it had no axial-by-radial arrangement to
+report. Above `lvFoilMaxKva` (suggested 300, AUTO by default, same approach
+as HV's own construction selection) the turn's required cross-section now
+splits into `lvAxCount` x `lvRadCount` parallel conductors, reported in the
+sheets' own notation next to HV's. The 630 kVA dry reference reaches 4 axial
+x 2 radial, an exact match to its own sheet's "8 conductors in 4 axial by 2
+radial." The 1250 kVA reference reaches 9 axial x 2 radial over 4 layers
+(72 total), against its sheet's own 5 axial by 6 radial over two layers
+(30 total) — LV OD itself closes to within 3% of the sheet's 374 mm, but the
+internal split does not match structurally. One `lvStripAspect` (width to
+thickness ratio) was fitted to both sheets' dimensions at once; there is no
+evidence a real design uses the same one at both, which is the most direct
+explanation for why 630's arrangement matches and 1250's does not. Reported
+plainly as a known gap in `reference-designs.test.mjs`, not asserted.
+
 ## 3. Hardware schedule — derivable now
 
 Count and size from the calculated geometry, never from a fixed list:

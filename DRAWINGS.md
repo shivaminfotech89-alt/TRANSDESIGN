@@ -118,13 +118,24 @@ mass.
 ## Windings: drawings 8, 9, 10
 
 ### 8. LV winding drawing
-Inner cylinder, winding block with turns drawn across the radial build, end
-blocks, start and finish tabs.
+Inner cylinder, winding block, end blocks, start and finish tabs. Below
+`lvFoilMaxKva` (ENGINE_VERSION 1.6.0), a single conductor per turn, radial
+lines mark each real layer, as before this section existed. Above it, LV
+multi-layer strip construction: the turn's own cross-section is
+`lvAxCount` x `lvRadCount` parallel conductors, and the radial lines mark
+every one of `lvTurnLayers` x `lvRadCount` cells this produces, layer
+boundaries drawn heavier so they stay visually distinct from the
+parallel-conductor divisions within a layer. `lvAxCount` (conductors laid
+side by side along the winding height) is not visible in this radial
+cross-section, same as HV's own axially-stacked coil or disc count isn't
+shown here either — stated in the schedule instead.
 Dimension: winding height, radial build, end block height, cylinder thickness,
 inside and outside diameter.
-Schedule: conductor and form, section, area, turns per phase, radial layers,
-interturn insulation, mean turn, current, current density, resistance at the
-reference temperature, mass for three phases.
+Schedule: conductor and form, section (one conductor), area (one turn), turns
+per phase, parallel conductors and their axial-by-radial arrangement (strip
+construction only), radial layers, interturn insulation, mean turn, current,
+current density, resistance at the reference temperature, mass for three
+phases.
 
 ### 9. HV winding drawing
 LV to HV gap, then the HV winding drawn as its actual construction

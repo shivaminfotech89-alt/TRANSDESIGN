@@ -129,7 +129,7 @@ export function ManufacturingTab({ design: d, params: p }: ManufacturingTabProps
                 <tr><td className={tdCls}>Bare size</td><td className={`${tdCls} text-right font-mono`}>{f(cond.lv.bare.w, 2)} x {f(cond.lv.bare.t, 3)} mm</td></tr>
                 <tr><td className={tdCls}>Radial layers</td><td className={`${tdCls} text-right font-mono`}>{cond.lv.layers}</td></tr>
                 <tr><td className={tdCls}>Covering</td><td className={`${tdCls} text-right`}>{cond.lv.covering}</td></tr>
-                <tr><td className={tdCls}>Parallel</td><td className={`${tdCls} text-right font-mono`}>{cond.lv.parallel}</td></tr>
+                <tr><td className={tdCls}>Parallel</td><td className={`${tdCls} text-right font-mono`}>{cond.lv.parallel}{cond.lv.arrangement ? ` (${cond.lv.arrangement})` : ''}</td></tr>
                 <tr><td className={tdCls}>Transposition</td><td className={`${tdCls} text-right`}>{cond.lv.transposition ? 'Required' : 'Not required'}</td></tr>
               </tbody>
             </table>
@@ -151,6 +151,13 @@ export function ManufacturingTab({ design: d, params: p }: ManufacturingTabProps
           <p className="text-[10px] text-amber px-1 pt-2">
             HV split into {cond.hv.parallel} parallel conductors is a heuristic (practical single-strand ceiling),
             not confirmed against either reference sheet at this current -- check against the works' own practice.
+          </p>
+        )}
+        {cond.lv.parallel > 1 && (
+          <p className="text-[10px] text-steel px-1 pt-2">
+            LV split into {cond.lv.parallel} parallel conductors matches the 630 kVA dry reference's own 4 axial x 2
+            radial exactly; the 1250 kVA reference's own 5 axial by 6 radial over two layers is not reproduced
+            structurally even where the overall LV OD is close -- check against the works' own practice at that rating.
           </p>
         )}
       </Card>

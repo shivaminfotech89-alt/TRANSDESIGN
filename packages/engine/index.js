@@ -8,7 +8,7 @@
  * without bumping it, or old quotations stop reproducing.
  */
 
-export const ENGINE_VERSION = "1.5.0";
+export const ENGINE_VERSION = "1.6.0";
 
 const CONDUCTORS = {
   copper: { name: "Copper, EC grade", rho20: 0.017241, alpha: 0.00393, dens: 8890, dMax: 3.6, short: "Cu", proof: 1.0 },
@@ -365,13 +365,19 @@ function deriveSpec(core, over = {}) {
      but there is no oil-immersed crossover reference to fit that against,
      so the same figure is used for both media rather than guessing a split. */
   put("hvCoilGap", 20, [1, 30, 0.5], null, "Axial gap between adjacent crossover coils, for insulation, cooling and the crossover lead. Fitted from the 630 kVA dry reference; likely conservative for oil.");
-  /* 4.5 mm reproduces the 1250 kVA reference's 44 discs almost exactly
-     (44 against a target of 44, HV OD within 0.4%, tank length within
-     0.4%) -- fitted directly against that outcome, not against the sheet's
-     own stated 97.5 mm over 43 gaps (2.3 mm average), which assumes this
-     engine's own axHV/rdHV conductor sizing matches the sheet's, and it
-     does not exactly. */
-  put("hvDiscGap", 4.5, [1, 10, 0.1], null, "Axial gap between adjacent discs. Fitted from the 1250 kVA reference.");
+  /* 3.5 mm, not the 4.5 mm ENGINE_VERSION 1.5.0 first fitted. LV multi-layer
+     strip construction (below) shares the same window-height bisection --
+     a correctly-built LV radial build changes how tall the window needs to
+     be to hit the declared impedance, which changes how many discs the
+     window holds, so getting LV right moved the disc count that best fits
+     HV OD and tank length too. Refitted jointly with the LV parameters
+     below rather than held fixed while only LV was tuned -- 4.5 mm on its
+     own, with LV now correct, overshoots HV OD by several per cent. 44
+     discs (the sheet's own count) no longer falls out of this fit; 53
+     does, at HV OD within 1.5% and tank length within 1.4%, still real
+     accuracy, just against a different disc count than the earlier,
+     LV-still-wrong fit landed on. */
+  put("hvDiscGap", 3.5, [1, 10, 0.1], null, "Axial gap between adjacent discs. Fitted jointly with the LV strip parameters against both reference sheets.");
 
   /* --- clearances from the impulse level --- */
   const cl = clearancesFrom(S.bilHV, S.bilLV, core.medium, S.dryType);
@@ -384,6 +390,35 @@ function deriveSpec(core, over = {}) {
   put("hvTankClr", cl.hvTankClr, rng(cl.hvTankClr, 0.6, 2.2, 1), null, clNote);
   put("endTankClr", cl.endTankClr, rng(cl.endTankClr, 0.6, 2.2, 1), null, clNote);
   put("cylThk", Math.round(cl.cylThk * 10) / 10, rng(cl.cylThk, 0.6, 2.2, 0.1), null, "Insulating cylinder thickness.");
+
+  /* --- LV winding construction --- */
+  /* Strip above lvFoilMaxKva, same approach as HV construction
+     (MANUFACTURING.md): the turn's own required cross-section splits into
+     axCount x radCount parallel conductors above the threshold, a single
+     conductor (full-height foil, or a thin T_MIN strip sharing an axial
+     pass with others) below it, unchanged from before this section
+     existed. Confirmed at both reference ratings, which both sit above
+     the threshold -- nothing here is confirmed at a rating small enough
+     to still be foil, so treat lvFoilMaxKva as a placed-below-both-
+     references guess for where the crossover actually is, the same
+     caveat hvLayerMaxKva/hvDiscMinKva carry for HV.
+
+     lvStripMaxMM2 and lvStripAspect are fitted jointly against both
+     sheets (together with hvDiscGap above, since the two windings share
+     one window-height solve): 630 kVA dry reaches 4 axial x 2 radial,
+     an exact match to the sheet's own "8 conductors in 4 axial by 2
+     radial," at LV radial build within 1.5% of 20 mm. 1250 kVA oil
+     reaches 9 axial x 2 radial x 4 layers (36 conductors) against the
+     sheet's 30 in 5 axial by 6 radial over two layers -- LV OD closes to
+     within 1.5% of 374 mm, but the breakdown itself does not structurally
+     match the sheet's, unlike 630's. One aspect ratio was fitted to both
+     ratings at once; a real design likely does not use the same one at
+     both, which is the most direct explanation for why 630's structure
+     matches and 1250's doesn't. */
+  put("lvFoilMaxKva", 300, [50, 1000, 50], null, "Below this rating, LV is a single conductor -- full-height foil, or a thin strip if several turns share an axial pass. Above it, LV splits into parallel conductors.");
+  put("lvStripMaxMM2", 40, [10, 150, 5], null, "Practical area for one LV strip conductor before it splits into more than one, arranged axial x radial.");
+  put("lvStripAspect", 3.5, [1.2, 6.0, 0.1], null, "Width to thickness ratio of one LV strip conductor.");
+  put("lvStripGap", 2, [0.5, 6, 0.5], null, "Gap between LV strip conductors placed side by side axially within one turn.");
 
   /* --- construction constants --- */
   put("lvIns", 0.30, [0.10, 1.20, 0.05], null, "Interturn insulation on the LV foil or strip.");
@@ -493,18 +528,42 @@ function designTransformer(p) {
     const hLV = Math.max(100, Hw - 2 * clr.endClrLV);
     const hHV = Math.max(100, Hw - 2 * clr.endClrHV);
 
-    /* LV: full-height foil where the thickness is practical, otherwise a
-       helical strip winding in several radial layers */
-    const wFull = Math.max(20, hLV - 10);
-    let foilW, tLV, lvTurnLayers;
-    if (aLVreq / wFull >= T_MIN) {
-      foilW = wFull; tLV = aLVreq / wFull; lvTurnLayers = nLV;
+    /* LV: a single conductor (full-height foil, or a thin T_MIN strip with
+       several turns sharing an axial pass) below p.lvFoilMaxKva -- the
+       original model, unchanged. At or above it, LV multi-layer strip
+       construction: the turn's own required cross-section is split into
+       axCount x radCount parallel conductors, the same practical-strand
+       idea conductorSchedule already uses for HV, repeated across however
+       many radial winding layers the turn count needs to fit axially.
+       Both branches populate the same five outputs so the radial-build
+       formula below never needs to know which one ran -- axCount = radCount
+       = 1 in the single-conductor branch reduces it to exactly the old
+       formula. */
+    let foilW, tLV, lvTurnLayers, lvAxCount, lvRadCount;
+    if (p.kva < p.lvFoilMaxKva) {
+      const wFull = Math.max(20, hLV - 10);
+      if (aLVreq / wFull >= T_MIN) {
+        foilW = wFull; tLV = aLVreq / wFull; lvTurnLayers = nLV;
+      } else {
+        tLV = T_MIN; foilW = aLVreq / T_MIN;
+        const perAxial = Math.max(1, Math.floor(hLV / (foilW + 2)));
+        lvTurnLayers = Math.ceil(nLV / perAxial);
+      }
+      lvAxCount = 1; lvRadCount = 1;
     } else {
-      tLV = T_MIN; foilW = aLVreq / T_MIN;
-      const perAxial = Math.max(1, Math.floor(hLV / (foilW + 2)));
+      const aspect = p.lvStripAspect;
+      let n = Math.max(1, Math.ceil(aLVreq / p.lvStripMaxMM2));
+      lvRadCount = Math.max(1, Math.round(Math.sqrt(n / aspect)));
+      lvAxCount = Math.max(1, Math.ceil(n / lvRadCount));
+      n = lvAxCount * lvRadCount;
+      const stripArea = aLVreq / n;
+      tLV = Math.sqrt(stripArea / aspect);
+      foilW = aspect * tLV;
+      const turnAxialWidth = lvAxCount * (foilW + p.lvStripGap);
+      const perAxial = Math.max(1, Math.floor(hLV / turnAxialWidth));
       lvTurnLayers = Math.ceil(nLV / perAxial);
     }
-    let lvRadial = lvTurnLayers * (tLV + p.lvIns);
+    let lvRadial = lvTurnLayers * lvRadCount * (tLV + p.lvIns);
     lvRadial += (lvRadial > 22 ? 2 : 1) * 6;
 
     /* HV: layer, crossover or disc winding, selected by p.hvConstruction
@@ -589,6 +648,7 @@ function designTransformer(p) {
       pctX, pctR, pctZ: Math.sqrt(pctX * pctX + pctR * pctR),
       voltsPerLayer: et * turnsPerLayer,
       numGroups, groupGap,
+      lvAxCount, lvRadCount,
     };
   };
 
@@ -753,6 +813,8 @@ function designTransformer(p) {
     rhoLV: rho(cLV), rhoHV: rho(cHV), dEff: g.dEff, hEff: g.hEff, X: g.X, lmtMean: g.lmtMean,
     lvTurnLayers: g.lvTurnLayers, hvDucts: g.hvDucts, i2r: g.i2rLV + g.i2rHV,
     tLVin: g.tLVin, tLVout: g.tLVout, tHVin: g.tHVin, tHVout: g.tHVout,
+    lvAxCount: g.lvAxCount, lvRadCount: g.lvRadCount,
+    lvConstruction: p.kva < p.lvFoilMaxKva ? "foil" : "strip",
   };
 }
 
@@ -1411,36 +1473,51 @@ function tappingSchedule(d, p) {
   };
 }
 
-/* MANUFACTURING.md section 2: LV in this engine is one continuous foil or,
-   above T_MIN thickness, a multi-layer strip -- a single conductor per
-   turn either way, never a bundle of parallel wires, so "parallel" and
-   "axial x radial" only apply to HV. HV itself is modelled as a single
-   required cross-section (aHVreq), not a chosen number of parallel
-   strands, so the split below is a heuristic, not something the engine
-   already derives elsewhere or something either reference design confirms:
-   both come out well under HV_STRAND_MAX_MM2 (single strand, the plain
-   axHV/rdHV the engine already computes), so multi-strand splitting is
-   untested against real data. MANUFACTURING.md's own "10.75 x 3.5 ) 8,
-   4A x 2R" example is given as the SHEETS' notation convention to follow,
-   not a confirmed number for either reference design's actual HV current --
-   at the 1250 kVA reference this heuristic's own required area (14.3 mm^2)
-   is nowhere near 8 strands' worth (301 mm^2 at 10.75 x 3.5), so that
+/* MANUFACTURING.md sections 2 and 5: both windings now report the sheets'
+   own "N conductors, axial x radial" notation, in the SAME field shape --
+   parallel/arrangement/transposition -- so the winding schedule prints
+   both the same way, not LV in prose and HV in a grid.
+
+   LV's axCount/radCount (ENGINE_VERSION 1.6.0, designTransformer's own
+   lvAxCount/lvRadCount) are real engine outputs, not a heuristic layered
+   on afterward the way HV's split below still is: LV multi-layer strip
+   construction was fitted directly against both reference sheets (630 kVA
+   reaches 4 axial x 2 radial, an exact match to the sheet's own "8
+   conductors in 4 axial by 2 radial"; 1250 kVA does not structurally
+   match its sheet's 5 axial by 6 radial, recorded in deriveSpec's own
+   lvStripAspect/lvStripMaxMM2 note).
+
+   HV itself is still modelled as a single required cross-section
+   (aHVreq), not a chosen number of parallel strands, so its split below
+   remains a heuristic, not something the engine already derives
+   elsewhere or something either reference design confirms: both come out
+   well under HV_STRAND_MAX_MM2 (single strand, the plain axHV/rdHV the
+   engine already computes), so multi-strand splitting is untested against
+   real data. MANUFACTURING.md's own "10.75 x 3.5 ) 8, 4A x 2R" example is
+   given as the SHEETS' notation convention to follow, not a confirmed
+   number for either reference design's actual HV current -- at the
+   1250 kVA reference this heuristic's own required area (14.3 mm^2) is
+   nowhere near 8 strands' worth (301 mm^2 at 10.75 x 3.5), so that
    example cannot be the 1250 kVA sheet's real HV conductor, or is a
    different rating's. HV_STRAND_MAX_MM2 is therefore a generic practical
    ceiling for a single rectangular strand (windability, eddy loss in the
    strand), not a calibrated figure -- treat any split it produces as a
-   heuristic for the works to confirm, more so than the rest of this
-   section. Transposition required whenever more than two conductors sit in
+   heuristic for the works to confirm, more so than LV's own split above.
+   Transposition required whenever more than two conductors sit in
    parallel radially, the sheets' own rule ("very important on both
-   layers" for the notation example's 2-radial arrangement). */
+   layers" for the notation example's 2-radial arrangement) -- applied to
+   both windings now, not just HV. */
 const HV_STRAND_MAX_MM2 = 37.6;
 function conductorSchedule(d, p) {
+  const lvParallel = d.lvAxCount * d.lvRadCount;
   const lv = {
     bare: { w: +d.foilW.toFixed(2), t: +d.tLV.toFixed(3) },
     layers: d.lvTurnLayers,
-    construction: d.lvTurnLayers > 1 ? "Multi-layer strip winding" : "Single continuous foil",
+    construction: d.lvConstruction === "strip" ? "Multi-layer strip winding" : (d.lvTurnLayers > 1 ? "Multi-layer strip winding" : "Single continuous foil"),
     covering: `${p.lvIns.toFixed(2)} mm interleaved paper between turns`,
-    parallel: 1, arrangement: null, transposition: false,
+    parallel: lvParallel,
+    arrangement: lvParallel > 1 ? `${d.lvAxCount}A x ${d.lvRadCount}R` : null,
+    transposition: d.lvRadCount > 2,
   };
 
   const aspect = 2.1;

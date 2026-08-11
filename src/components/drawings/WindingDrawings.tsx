@@ -104,10 +104,19 @@ function BreakMark({ x, y }: { x: number; y: number }) {
  *  full-height-foil regime that is one line per turn (lvTurnLayers === nLV);
  *  where the foil is thin enough to need several axial turns per radial
  *  layer instead, each division still bounds a real layer, just one that
- *  holds more than one turn, named in the note beneath. LV is still a
- *  single foil or strip regardless of rating (MANUFACTURING.md section 6,
- *  not yet done) so this drawing, unlike HV's, does not vary by
- *  construction. */
+ *  holds more than one turn, named in the note beneath.
+ *
+ *  ENGINE_VERSION 1.6.0, MANUFACTURING.md LV multi-layer strip
+ *  construction: above p.lvFoilMaxKva, each radial layer is itself
+ *  lvRadCount parallel conductors stacked radially (design.lvAxCount more
+ *  stacked axially, not visible in this radial cross-section the same way
+ *  HV's crossover coils aren't drawn axially subdivided here either --
+ *  see the Parallel Conductors row instead). The radial division lines
+ *  below now mark every one of the lvTurnLayers x lvRadCount cells this
+ *  produces, not just the lvTurnLayers layer boundaries -- layer
+ *  boundaries drawn heavier so the two are still visually distinct. Foil
+ *  construction (lvRadCount === 1) reduces this to exactly the single set
+ *  of layer lines this drawing always had. */
 export function LvWindingDrawing({ design, params, project }: Props) {
   const arrowId = useId();
   const box = { w: 380, h: 320 };
@@ -121,7 +130,12 @@ export function LvWindingDrawing({ design, params, project }: Props) {
   const lvX = cylX + cylW, lvW = design.lvRadial * scaleX;
 
   const perAxial = Math.max(1, Math.round(design.nLV / design.lvTurnLayers));
-  const turnLines = Array.from({ length: design.lvTurnLayers - 1 }, (_, i) => lvX + ((i + 1) * lvW) / design.lvTurnLayers);
+  const isStrip = design.lvConstruction === 'strip';
+  const cellCount = design.lvTurnLayers * design.lvRadCount;
+  const cellLines = Array.from({ length: cellCount - 1 }, (_, i) => ({
+    x: lvX + ((i + 1) * lvW) / cellCount,
+    isLayerBoundary: (i + 1) % design.lvRadCount === 0,
+  }));
 
   const heightDimX = lvX + lvW + 16;
   const radialDimY = bottomEndY + endH + 14;
@@ -129,7 +143,7 @@ export function LvWindingDrawing({ design, params, project }: Props) {
   return (
     <Card
       title="LV Winding Drawing"
-      subtitle={`Drawing ${drawingNo(project, '08')} · ${design.cLV.name}, radial scale exaggerated relative to height for legibility`}
+      subtitle={`Drawing ${drawingNo(project, '08')} · ${design.cLV.name}, ${isStrip ? `multi-layer strip, ${design.lvAxCount}A x ${design.lvRadCount}R per layer` : 'full-height foil'}, radial scale exaggerated relative to height for legibility`}
     >
       <div className="flex flex-col sm:flex-row gap-4 items-start">
         <svg width={box.w} height={box.h} viewBox={`0 0 ${box.w} ${box.h}`} className="shrink-0">
@@ -138,8 +152,8 @@ export function LvWindingDrawing({ design, params, project }: Props) {
           <rect x={cylX} y={blockY} width={cylW} height={blockH} fill="var(--color-sheetAlt)" stroke="var(--color-ink)" strokeWidth={0.8} />
           {/* Winding block */}
           <rect x={lvX} y={blockY} width={lvW} height={blockH} fill="none" stroke="var(--color-ink)" strokeWidth={1} />
-          {turnLines.map((tx, i) => (
-            <line key={i} x1={tx} y1={blockY} x2={tx} y2={bottomEndY} stroke="var(--color-copper)" strokeWidth={0.3} />
+          {cellLines.map((c, i) => (
+            <line key={i} x1={c.x} y1={blockY} x2={c.x} y2={bottomEndY} stroke="var(--color-copper)" strokeWidth={c.isLayerBoundary ? 0.6 : 0.25} />
           ))}
           <EndBlocks x={lvX} w={lvW} topY={originY} h={endH} bottomY={bottomEndY} />
           {/* Start / finish tabs */}
@@ -161,11 +175,14 @@ export function LvWindingDrawing({ design, params, project }: Props) {
           <UnitsNote x={6} y={box.h - 6} />
         </svg>
         <div className="flex-1 min-w-0 space-y-1">
-          <DataRow label="Conductor and Form" value={`${design.cLV.name}, ${perAxial > 1 ? 'helical strip' : 'full-height foil'}`} />
-          <DataRow label="Section" value={`${design.foilW.toFixed(0)} x ${design.tLV.toFixed(2)}`} unit="mm" />
-          <DataRow label="Area" value={design.aLVreq.toFixed(1)} unit="mm²" />
+          <DataRow label="Conductor and Form" value={`${design.cLV.name}, ${isStrip ? 'multi-layer strip' : (perAxial > 1 ? 'helical strip' : 'full-height foil')}`} />
+          <DataRow label="Section, One Conductor" value={`${design.foilW.toFixed(isStrip ? 2 : 0)} x ${design.tLV.toFixed(isStrip ? 3 : 2)}`} unit="mm" />
+          <DataRow label="Area, One Turn" value={design.aLVreq.toFixed(1)} unit="mm²" />
           <DataRow label="Turns per Phase" value={String(design.nLV)} />
-          <DataRow label="Radial Layers" value={perAxial > 1 ? `${design.lvTurnLayers} (${perAxial} turns each)` : String(design.lvTurnLayers)} />
+          {isStrip && (
+            <DataRow label="Parallel Conductors" value={`${design.lvAxCount * design.lvRadCount} (${design.lvAxCount}A x ${design.lvRadCount}R)`} />
+          )}
+          <DataRow label="Radial Layers" value={!isStrip && perAxial > 1 ? `${design.lvTurnLayers} (${perAxial} turns each)` : String(design.lvTurnLayers)} />
           <DataRow label="Interturn Insulation" value={params.lvIns.toFixed(2)} unit="mm" />
           <DataRow label="Mean Turn" value={design.lmtLV.toFixed(3)} unit="m" />
           <DataRow label="Current" value={design.iLV.toFixed(1)} unit="A" />
