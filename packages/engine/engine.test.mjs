@@ -133,8 +133,15 @@ const r = E.computeDesign(E.ESSENTIALS, {}, E.DEFAULT_RATES, []);
 // something this change caused -- something it made visible here for the
 // first time in this particular golden case. etK falls back to the AUTO
 // suggestion (0.545) as a result, same fitEtkToCost path.
-eq("ex-works", Math.round(r.bom.exFactory), 2422079, 800);
-eq("delivered", Math.round(r.bom.withGst), 2858053, 900);
+//
+// DEFAULT_RATES also updated (CALIBRATION.md section 7, same source sheet):
+// core, condCu, frameMS, tankMS and fluid. A rate, not a formula -- no
+// ENGINE_VERSION bump for this part -- but ex-works and delivered are built
+// from DEFAULT_RATES directly and move with it. Nothing else here does:
+// geometry, losses and construction are all unmoved, confirming the rate
+// change reached only price, not the design etK settled on.
+eq("ex-works", Math.round(r.bom.exFactory), 2546910, 800);
+eq("delivered", Math.round(r.bom.withGst), 3005354, 900);
 eq("tank length mm", Math.round(r.design.tankL), 1691, 2);
 eq("no-load loss W", Math.round(r.design.noLoad), 1303, 5);
 eq("load loss W", Math.round(r.design.loadLoss), 6105, 30);

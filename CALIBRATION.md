@@ -277,6 +277,33 @@ Also corrected the "Not adopted" section below: the old coefficient's
 wrong, not evidence their own 7600 W was an unusually premium figure. At 32,
 the schedule estimate is 7540 W -- 7600 W is an ordinary Level 2 number.
 
+## 7. DEFAULT_RATES
+
+**Source: the 630 kVA Level 1 costing sheet, 2026-08-11.** Five of
+`DEFAULT_RATES`'s figures (packages/engine/index.js) taken directly from that
+sheet's own material rates:
+
+| Rate key | Old | New |
+|---|---|---|
+| `core` (CRGO, ₹/kg) | 305 | 240 |
+| `condCu` (copper, ₹/kg) | 1050 | 1415 |
+| `frameMS` (frame steel, ₹/kg) | 98 | 70 |
+| `tankMS` (tank steel, ₹/kg) | 118 | 86 |
+| `fluid` (oil, ₹/L) | 135 | 115 |
+
+Every other figure in `DEFAULT_RATES` is unchanged -- not confirmed against
+this sheet, not moved on the strength of five numbers from one document. This
+is the engineering-default tier only, the bottom of the price-source
+hierarchy TASKS.md item 11.4 built (`src/lib/pricing.ts`): a project with its
+own rate card, or item-master prices resolving over it, never reads
+`DEFAULT_RATES` at all. Changing it moves `engine.test.mjs`'s own golden
+numbers (which build against `DEFAULT_RATES` explicitly) but reprices no
+saved revision, each of which carries its own frozen `rateSnapshot`.
+
+Not an `ENGINE_VERSION` bump: this is a rate, not a formula (CLAUDE.md
+invariant 4 is about formulas specifically), and nothing about how a price is
+*computed* from a rate changed.
+
 ---
 
 ## Verification after the changes

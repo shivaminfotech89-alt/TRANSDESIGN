@@ -451,9 +451,16 @@ function deriveSpec(core, over = {}) {
   return { S, SUG, RNG, OPT, NOTE };
 }
 
+/* core, condCu, frameMS, tankMS and fluid taken from the 630 kVA Level 1
+   costing sheet (CALIBRATION.md, "DEFAULT_RATES" section), 2026-08-11.
+   Everything else in this object is unchanged -- not confirmed against
+   that sheet, and not touched on the strength of five figures from one
+   document. This is the engineering-default rate card only, the lowest
+   tier of the price-source hierarchy (src/lib/pricing.ts): any project
+   with its own rate card or item-master prices never reads this. */
 const DEFAULT_RATES = {
-  core: 305, condCu: 1050, condAl: 340, condCca: 560, insulation: 385,
-  frameMS: 98, tankMS: 118, fin: 152, radiator: 168, fluid: 135,
+  core: 240, condCu: 1415, condAl: 340, condCca: 560, insulation: 385,
+  frameMS: 70, tankMS: 86, fin: 152, radiator: 168, fluid: 115,
   paint: 340, bushHV: 2400, bushLV: 1900, octc: 9500, oltc: 465000, dualLink: 12000,
   cableBox: 18000, fittings: 26000, plateSet: 3500, resin: 380, enclosure: 155,
   labWind: 65, labCore: 22, labTank: 34, assembly: 42000,
