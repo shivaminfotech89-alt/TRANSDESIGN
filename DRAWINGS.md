@@ -127,21 +127,48 @@ interturn insulation, mean turn, current, current density, resistance at the
 reference temperature, mass for three phases.
 
 ### 9. HV winding drawing
-LV to HV gap, winding block with every layer drawn separately, cooling ducts,
-end blocks.
+LV to HV gap, then the HV winding drawn as its actual construction
+(MANUFACTURING.md section 5, ENGINE_VERSION 1.5.0): a single continuous
+layer with every layer drawn separately and cooling ducts among them, as
+before, for layer construction; crossover coils stacked axially, each with
+its own internal layer divisions; or discs stacked axially with gaps
+between them, one turn deep each. Construction, group count and layers
+per group are read straight from the engine's own output
+(`design.hvConstruction`/`numGroups`/`layers`), never decided by the
+drawing. At a high group count (a disc winding routinely has several
+dozen) a legible subset is drawn, same technique as drawing 14's radiator
+panels, with a break mark between non-adjacent drawn groups; group count
+and every dimension in the schedule are always the complete figures.
+End blocks unchanged for all three constructions.
 Dimension: winding height, radial build, gap to LV, inside and outside diameter.
-Schedule: conductor, section, area, turns at normal and extreme tap, layers
-times turns per layer, volts per layer, interlayer insulation, duct count and
-width, mean turn, current, current density, resistance, mass.
+Schedule: conductor, section, area, turns at normal and extreme tap,
+construction, group count, layers times turns per layer, volts per layer,
+interlayer insulation, duct count and width, mean turn, current, current
+density, resistance, mass.
 
 ### 10. Tap winding drawing
-The tapped section of the HV winding drawn in detail, every tap lead brought out
-and numbered, routed to the tap changer terminal block.
-Dimension: tap section height, position of each tap take-off from the coil end.
+For layer HV construction, the tapped section drawn schematically as
+before -- a manufacturing layout choice, not a calculated quantity, so the
+take-off position from the coil end still prints "to be specified."
+
+For crossover and disc HV, each tap lead is drawn coming off the actual
+coil or disc its turns-in-circuit falls within, found by walking the
+winding schedule's own per-group turns -- the same group layout drawing 9
+draws, so the two cannot disagree on where a group physically sits. The
+regulating section (MANUFACTURING.md section 1) is shaded across the real
+groups it spans, not a schematic band. Only tap positions landing in the
+drawing's legible subset get a lead line; the table beside it is always
+complete.
+
+Dimension: winding height, radial build, gap to LV, inside and outside
+diameter (from drawing 9's own layout); tap section height and take-off
+position print "to be specified" only for layer construction.
 Beside it, the tap table: position number, percentage, HV turns in circuit,
-voltage at that tap, and the resulting volts per turn. All of this is computed:
-turns per step and tap positions come from the engine.
-Note: tap changer type, number of positions, step percentage.
+voltage at that tap, the resulting volts per turn, and (crossover/disc only)
+which coil or disc that position comes off. All of this is computed: turns
+per step and tap positions come from the engine.
+Note: tap changer type, number of positions, step percentage, and
+(crossover/disc only) the regulating section's turn count and group range.
 
 ---
 
