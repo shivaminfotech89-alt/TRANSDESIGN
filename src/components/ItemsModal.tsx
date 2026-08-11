@@ -14,7 +14,7 @@ interface ItemsModalProps {
 type ItemDraft = Omit<Item, 'updatedAt' | 'updatedBy' | 'prices'>;
 
 const blankItemDraft = (): ItemDraft => ({
-  code: '', description: '', unit: 'kg', category: 'A', rateKey: '', preferredSupplierId: '',
+  code: '', description: '', unit: 'kg', category: 'A', rateKey: '', preferredSupplierId: '', partNumber: '',
 });
 
 const CATEGORY_LABELS: Record<ItemCategory, string> = {
@@ -81,7 +81,7 @@ export function ItemsModal({ orgId, uid, canEdit, onClose }: ItemsModalProps) {
   const openEdit = (it: Item & { id: string }) => {
     setDraft({
       code: it.code, description: it.description, unit: it.unit, category: it.category,
-      rateKey: it.rateKey, preferredSupplierId: it.preferredSupplierId,
+      rateKey: it.rateKey, preferredSupplierId: it.preferredSupplierId, partNumber: it.partNumber || '',
     });
     setPrices(it.prices);
     setEditingId(it.id);
@@ -157,6 +157,7 @@ export function ItemsModal({ orgId, uid, canEdit, onClose }: ItemsModalProps) {
                     <div className="text-[9px] font-mono text-steel">
                       {CATEGORY_LABELS[it.category]} &middot; unit {it.unit}
                       {it.rateKey ? <> &middot; prices {RATE_KEY_LABELS[it.rateKey] || it.rateKey}</> : <> &middot; not wired to costing</>}
+                      {it.partNumber ? <> &middot; part# {it.partNumber}</> : null}
                     </div>
                     <div className="text-[9px] text-steel">
                       {it.preferredSupplierId ? `Preferred supplier: ${supplierName(it.preferredSupplierId)}` : 'No preferred supplier'}
@@ -193,6 +194,10 @@ export function ItemsModal({ orgId, uid, canEdit, onClose }: ItemsModalProps) {
                 <div className="space-y-1">
                   <label className={labelCls}>Unit</label>
                   <input value={draft.unit} onChange={(e) => setDraft({ ...draft, unit: e.target.value })} className={inputCls} placeholder="kg, L, no, set..." />
+                </div>
+                <div className="space-y-1">
+                  <label className={labelCls}>Manufacturer / Catalogue Part Number</label>
+                  <input value={draft.partNumber} onChange={(e) => setDraft({ ...draft, partNumber: e.target.value })} className={inputCls} placeholder="Optional -- distinct from the item code above" />
                 </div>
                 <div className="space-y-1 sm:col-span-2">
                   <label className={labelCls}>Description</label>

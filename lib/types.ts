@@ -263,6 +263,10 @@ export interface Item {
   rateKey: string;
   /** "" = no company-designated default supplier for this item. */
   preferredSupplierId: string;
+  /** Manufacturer or catalogue part number -- distinct from `code`, which is
+   *  this works' own item-master code. "" if none is held; the BOM must not
+   *  invent one to fill the column. */
+  partNumber: string;
   prices: ItemPrice[];
   updatedBy: string;
   updatedAt: number;

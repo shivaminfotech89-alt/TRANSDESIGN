@@ -473,6 +473,18 @@ export default function App() {
     [orgSuppliers],
   );
 
+  // documentRegister #12: item code and part number per BOM line, keyed the
+  // same way resolveRates already keys a rate -- by rateKey. First item
+  // wins if more than one shares a rateKey, an edge case rather than the
+  // norm; the item master doesn't enforce one item per rate.
+  const itemsByRateKey = useMemo(() => {
+    const m = new Map<string, Item & { id: string }>();
+    for (const it of orgItems) {
+      if (it.rateKey && !m.has(it.rateKey)) m.set(it.rateKey, it);
+    }
+    return m;
+  }, [orgItems]);
+
   // TASKS.md item 11.4: the price source hierarchy. When ratesAreFrozen (a
   // just-opened or just-viewed revision, untouched since), skip resolution
   // entirely and use the frozen rates verbatim -- src/lib/pricing.ts's own
@@ -816,6 +828,7 @@ export default function App() {
               rateSources={viewingRevision ? (viewingRevision.rateSources || {}) : budgetPreview ? {} : rateSources}
               priceLocks={viewingRevision ? (viewingRevision.input.priceLocks || {}) : priceLocks}
               onTogglePriceLock={handleTogglePriceLock}
+              itemsByRateKey={itemsByRateKey}
               activePreviewKey={activePreviewKey}
               onSelectPreview={(candidate) => { setViewingRevision(null); setBudgetPreview(candidate); }}
             />
