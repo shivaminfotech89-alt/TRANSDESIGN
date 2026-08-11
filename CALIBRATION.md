@@ -42,17 +42,108 @@ impedance.
 
 ## 2. Volts per turn constant
 
-| Design | Engine suggests | Designer uses |
-|---|---|---|
-| 1250 kVA oil | 0.450 | 0.544 |
-| 630 kVA dry | 0.453 | 0.623 |
+**Superseded below.** The first pass raised the suggestion to a fixed
+per-medium constant (0.544 oil, 0.623 dry, both against the designer's own
+figures) and stopped there. A cost sweep done afterwards showed that framing
+was wrong in a way accuracy-fitting alone couldn't catch: K does not have one
+correct value for a given medium, because it isn't fitted to a physical
+constant, it is a trade between two priced materials.
 
-Raise the suggestion and let it vary with medium: dry types carry a higher
-constant than oil. Do not simply set 0.55 everywhere.
+### Why there is a minimum, not a constant
 
-Note this correction makes designs **dearer**, not cheaper: on the 1250 kVA it
-moves core steel from 1570 to 2124 kg. It is a correction toward accuracy, not
-toward cost. Both must be applied together.
+Et = K√kVA = 4.44 f B Ai. For a fixed flux density B, a higher K means a
+bigger net core area Ai, so a bigger, heavier core -- but Et also sets the
+volts per turn, so a higher K means fewer turns for the same phase voltage,
+and fewer turns is less copper. K therefore buys core steel and sells winding
+copper as it rises, and spends the other way as it falls. Somewhere between
+is whatever balance is cheapest, and where that sits depends on the price of
+steel against the price of copper, not on the duty or the medium alone. A
+constant fitted to match one designer's output at one pair of rates is only
+ever right at that designer's own rates.
+
+### The search
+
+`etkCurve(p, rates)` (packages/engine/index.js) sweeps K from 0.40 to 0.70 in
+steps of 0.02, holding flux, current density, steps and everything else in
+`p` fixed, and returns ex-works at each point. `fitEtkToCost` reads that curve
+and raises an AUTO `etK` to whichever point is cheapest, the same way
+`fitToSchedule` already raises AUTO flux and current density to whatever the
+loss schedule needs -- it runs inside `computeDesign`, after `fitToSchedule`
+so the K search sees the same flux and density the actual build will use, and
+only when `etK` is not explicitly overridden, so a designer's own figure (or
+these two reference sheets') is never second-guessed.
+
+`deriveSpec`'s own suggestion is unchanged -- it has no rates to search
+against, and is still the fixed per-medium multiplier from the first pass
+(0.544 oil, 0.623 dry), used as the form's AUTO display and as the bootstrap
+estimate `steps` is chosen from. The economic raise happens one layer up, in
+`computeDesign`, exactly where `fitToSchedule` already does the equivalent
+job for flux and density.
+
+`searchDesigns` gained the same lever for its own grid (`opts.etKs`), plus
+`opts.stepsList` and `opts.tapTypes` for completeness, all following the
+existing `opts.grades`/`opts.conds` pattern -- default to the design's own
+single current value, so an existing call site's candidate count is
+unchanged unless it opts in. The Fit to Budget search opts into `etKs` by
+default (material, grade and tank were already swept there; a design that is
+mainly cheaper because of K should surface in the same results). `stepsList`
+and `tapTypes` are left at their default single value in that search --
+crossing either one in as well turns a two-second grid into ten or more, for
+a lever that on most enquiries is not really a free choice (a tap changer is
+a functional requirement of the duty, not a cost knob, unless the
+application itself already has none -- isolation, UPS). The Fit to Budget
+tab also has its own K Sweep panel, plotting this curve directly for the
+design on screen with its minimum marked, so an engineer sees the shape of
+it rather than trusting one point.
+
+### What the search actually finds
+
+The 1250 kVA reference, at its own guaranteed losses, 15 steps and OLTC (the
+values sections 1 and 3-5 hold fixed so this isolates K alone), swept against
+`DEFAULT_RATES`:
+
+| K | Ex-works |
+|---|---|
+| 0.40 | ₹26,17,771 |
+| 0.46 | ₹25,87,246 |
+| **0.50** | **₹25,83,272 (cheapest)** |
+| 0.54 (designer's own, rounds to this step) | ₹26,02,728 |
+| 0.58 | ₹26,12,780 |
+| 0.70 | ₹26,98,226 |
+
+The curve is genuinely U-shaped and the minimum (K = 0.50) is about ₹19,000
+(0.8%) cheaper than the designer's own K = 0.544 at these rates -- a real but
+modest saving, not a dramatic one. The 1000 kVA default enquiry (no reference
+overrides, ordinary Level 2 distribution) shows the same shape at a smaller
+scale: the AUTO suggestion is still 0.545, but `fitEtkToCost` raises the
+built design to K = 0.48, ₹15,48,160 against ₹15,52,599 pinned at 0.545.
+
+Moving the rates moves the minimum, confirming the trade is real rather than
+noise:
+
+- **Copper at ₹1600/kg** (up from ₹1050): the 1250 kVA optimum moves from
+  K = 0.50 to **K = 0.58**. Dearer copper makes fewer turns worth more, so
+  the balance shifts toward a bigger core and less winding metal.
+- **CRGO at ₹240/kg** (down from ₹305): the optimum stays at K = 0.50 at this
+  step size on this design. Cheaper steel pushes the same direction as dearer
+  copper -- more core is worth buying either way -- but a 21% cut here isn't
+  as large a swing as the 52% copper rise above, and 0.02 steps aren't fine
+  enough to show a small shift. The direction is right; do not read the flat
+  result as "steel price doesn't matter."
+
+### Why the designer's own sheet sits above the computed optimum
+
+Both reference designs were priced at K = 0.544 / 0.623, above what
+`DEFAULT_RATES` optimises to. The copper-price sweep above shows exactly the
+direction that would explain it: a designer facing copper that is dear
+relative to steel, or steel that is cheap relative to copper, rationally
+lands on a higher K than one at this engine's default rates would. The most
+likely explanation is that Mehir Transformers' own CRGO cost, or their
+supplier terms on it, sit below what `DEFAULT_RATES.core` assumes -- not that
+0.544 is wrong, but that it is the right answer to a different set of prices
+than the ones shipped as the engine's default. This is a hypothesis, not a
+confirmed number: nothing in the two reference sheets states their actual
+steel cost, and it is not asserted as a test.
 
 ## 3. Steps in the stack
 
@@ -95,6 +186,22 @@ turn, step count and guaranteed losses:
 
 These are the most valuable tests in the project: they check the engine against
 transformers that were actually built, not against its own past output.
+
+`reference-designs.test.mjs` is split into two groups: group 1 is the five
+hard assertions above, and a failure there is a regression. Group 2 is the
+1250 kVA LV OD, HV OD and tank length, which do not close (the engine models
+the LV as a single full-height foil and the HV as one continuous layer,
+where this sheet uses a multi-layer LV strip and an HV disc winding --
+MANUFACTURING.md sections 5 and 6, their own future phase). Group 2 prints
+its deviation every run against a recorded baseline (-4.4%, -6.2%, and the
+tank figure) and only fails if a deviation gets worse than recorded --
+otherwise a permanently red suite for a known, tracked gap stops being read.
+
+**ENGINE_VERSION 1.4.0** (section 2, above): both reference designs give
+`etK` explicitly, so `fitEtkToCost` never runs against them and neither
+group's numbers moved. Only enquiries that leave `etK` on AUTO see the new
+economically-raised value -- `engine.test.mjs`'s default 1000 kVA case is
+one, and its golden numbers moved accordingly, recorded there.
 
 ---
 

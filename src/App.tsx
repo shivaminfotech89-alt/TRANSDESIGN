@@ -40,9 +40,16 @@ type PendingConflict =
  *  just these into `over` -- deriveSpec() re-derives everything else from
  *  `core` exactly as it already does, and locking flux/deltaLV/deltaHV here
  *  also locks autoFit, so the recompute reproduces the previewed numbers
- *  exactly rather than a fresh auto-fit landing nearby. */
+ *  exactly rather than a fresh auto-fit landing nearby.
+ *  etK, steps and tapType (CALIBRATION.md section 2): these three are on
+ *  every candidate whether or not the search actually swept them, so
+ *  copying them across is always safe -- but locking etK here also matters
+ *  when it WAS swept: without it, computeDesign's fitEtkToCost would treat
+ *  the adopted K as AUTO again and re-optimise it against the live rates,
+ *  which can land somewhere other than what was previewed. */
 const BUDGET_OVER_KEYS = [
   'coreType', 'coreGrade', 'flux', 'condLV', 'condHV', 'deltaLV', 'deltaHV', 'tankType', 'oilRiseTarget', 'lvHvClr',
+  'etK', 'steps', 'tapType',
 ] as const;
 
 type EditAction =
@@ -797,7 +804,7 @@ export default function App() {
               core={core} design={activeDesign} bom={activeBom} params={activeParams}
               liveDesign={result.design} liveBom={result.bom} liveParams={result.params}
               project={buildMeta(projectName)}
-              rates={rates} onRatesChange={setRates}
+              rates={rates} onRatesChange={setRates} effectiveRates={effectiveRates}
               rateCard={orgRateCards.find((c) => c.id === rateCardId) || null}
               onManageRateCards={() => setShowRateCards(true)}
               pricingLocked={!!budgetPreview || !!viewingRevision || readOnlyLive}

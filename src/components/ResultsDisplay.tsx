@@ -26,6 +26,13 @@ interface ResultsDisplayProps {
   project: any;
   rates: Record<string, number>;
   onRatesChange: (rates: Record<string, number>) => void;
+  /** TASKS.md item 11.4's fully resolved rates (item/supplier price
+   *  hierarchy applied, or the frozen snapshot for a revision) -- what the
+   *  live BOM is actually priced at. `rates` above is the editable base rate
+   *  card the RateField panel writes to; the Budget tab's search needs the
+   *  landed cost the design will really be quoted at, per CALIBRATION.md
+   *  section 2's K search, not the unresolved card underneath it. */
+  effectiveRates: Record<string, number>;
   /** The real orgs/{orgId}/rateCards document the live `rates` were seeded
    *  from -- null only if the org has no rate card yet or the price on
    *  screen came from a revision whose own card no longer resolves. */
@@ -117,7 +124,7 @@ function PriceSourceBadge({ source }: { source: PriceResolution | undefined }) {
 }
 
 export function ResultsDisplay({
-  core, design, bom, params, liveDesign, liveBom, liveParams, project, rates, onRatesChange,
+  core, design, bom, params, liveDesign, liveBom, liveParams, project, rates, onRatesChange, effectiveRates,
   rateCard, onManageRateCards, pricingLocked, rateSources, priceLocks, onTogglePriceLock,
   activePreviewKey, onSelectPreview,
 }: ResultsDisplayProps) {
@@ -376,7 +383,7 @@ export function ResultsDisplay({
               never the currently previewed one, see ResultsDisplayProps note. */}
           {activeTab === 'budget' && (
             <BudgetTab
-              design={liveDesign} bom={liveBom} params={liveParams} rates={rates}
+              design={liveDesign} bom={liveBom} params={liveParams} rates={effectiveRates}
               activePreviewKey={activePreviewKey} onSelectPreview={onSelectPreview}
             />
           )}

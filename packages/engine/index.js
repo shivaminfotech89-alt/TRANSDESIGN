@@ -8,7 +8,7 @@
  * without bumping it, or old quotations stop reproducing.
  */
 
-export const ENGINE_VERSION = "1.3.0";
+export const ENGINE_VERSION = "1.4.0";
 
 const CONDUCTORS = {
   copper: { name: "Copper, EC grade", rho20: 0.017241, alpha: 0.00393, dens: 8890, dMax: 3.6, short: "Cu", proof: 1.0 },
@@ -767,6 +767,23 @@ function searchDesigns(base, rates, band, opts) {
   const conds = opts.conds.length ? opts.conds : [base.condLV];
   const tanks = opts.tanks.length ? opts.tanks : [base.tankType];
   const cores = opts.cores.length ? opts.cores : [base.coreType];
+  /* CALIBRATION.md section 2: K (etK) trades core steel for winding copper
+     the same way material and core grade trade cost against loss, so it
+     belongs in this same search -- a cheaper design can be one tank over
+     with a different K, not only a different grade or metal. Defaults to
+     the single value already in the design when the caller doesn't ask for
+     a sweep, so an existing call site's candidate count and running time
+     are unchanged unless it opts in.
+     steps and tapType are wired the same way but are not defaulted on by
+     BudgetTab: steps multiplies the grid by up to 7 and tapType by up to 3,
+     and for most enquiries neither is a real cost lever -- the tap changer
+     is a functional requirement of the duty, not a knob a cost search
+     should be turning, unless the application itself already says none
+     (isolation, UPS). Left here as genuine opt-in dimensions for whatever
+     calls with a narrower grid, e.g. a single-material re-check. */
+  const etKs = opts.etKs && opts.etKs.length ? opts.etKs : [base.etK];
+  const stepsList = opts.stepsList && opts.stepsList.length ? opts.stepsList : [base.steps];
+  const tapTypes = opts.tapTypes && opts.tapTypes.length ? opts.tapTypes : [base.tapType];
   const dScales = [0.72, 0.80, 0.88, 0.95, 1.03, 1.12, 1.22, 1.32];
   const gapScales = [0.9, 1.0, 1.12];
   const riseTargets = opts.allowHotter ? [45, 50] : [base.oilRiseTarget];
@@ -786,25 +803,32 @@ function searchDesigns(base, rates, band, opts) {
             for (const tk of tanks) {
               for (const gs of gapScales) {
                 for (const rt of riseTargets) {
-                  const cand = {
-                    ...base, coreType: core, buildFactor: ctd.bf, coreGrade: g, flux: B,
-                    condLV: cond, condHV: cond,
-                    deltaLV: Math.min(anchLV * ds, CONDUCTORS[cond].dMax),
-                    deltaHV: Math.min(anchHV * ds, CONDUCTORS[cond].dMax),
-                    autoClearance: false, tankType: tk, oilRiseTarget: rt,
-                    lvHvClr: Math.round(base.lvHvClr * gs),
-                  };
-                  const d = designTransformer(cand);
-                  if (!isFinite(d.wCore) || d.wCore <= 0) continue;
-                  const bom = buildBOM(d, rates);
-                  const zOk = Math.abs(d.pctZ - base.targetZ) / base.targetZ <= opts.zTol / 100;
-                  const thermalOk = d.compliance.rise.ok && d.compliance.wRise.ok;
-                  const lossOk = !opts.enforceLimits || (d.compliance.nll.ok && d.compliance.ll.ok);
-                  results.push({
-                    inputs: cand, d, bom, price: bom.exFactory, tco: bom.tco,
-                    zOk, thermalOk, lossOk, feasible: zOk && thermalOk && lossOk,
-                    withinBudget: bom.exFactory >= (band.min || 0) && bom.exFactory <= (band.max ?? Infinity),
-                  });
+                  for (const ek of etKs) {
+                    for (const st of stepsList) {
+                      for (const tt of tapTypes) {
+                        const cand = {
+                          ...base, coreType: core, buildFactor: ctd.bf, coreGrade: g, flux: B,
+                          condLV: cond, condHV: cond,
+                          deltaLV: Math.min(anchLV * ds, CONDUCTORS[cond].dMax),
+                          deltaHV: Math.min(anchHV * ds, CONDUCTORS[cond].dMax),
+                          autoClearance: false, tankType: tk, oilRiseTarget: rt,
+                          lvHvClr: Math.round(base.lvHvClr * gs),
+                          etK: ek, steps: st, tapType: tt,
+                        };
+                        const d = designTransformer(cand);
+                        if (!isFinite(d.wCore) || d.wCore <= 0) continue;
+                        const bom = buildBOM(d, rates);
+                        const zOk = Math.abs(d.pctZ - base.targetZ) / base.targetZ <= opts.zTol / 100;
+                        const thermalOk = d.compliance.rise.ok && d.compliance.wRise.ok;
+                        const lossOk = !opts.enforceLimits || (d.compliance.nll.ok && d.compliance.ll.ok);
+                        results.push({
+                          inputs: cand, d, bom, price: bom.exFactory, tco: bom.tco,
+                          zOk, thermalOk, lossOk, feasible: zOk && thermalOk && lossOk,
+                          withinBudget: bom.exFactory >= (band.min || 0) && bom.exFactory <= (band.max ?? Infinity),
+                        });
+                      }
+                    }
+                  }
                 }
               }
             }
@@ -816,11 +840,59 @@ function searchDesigns(base, rates, band, opts) {
   const best = new Map();
   for (const x of results) {
     const k = [x.inputs.coreType, x.inputs.coreGrade, x.inputs.condLV, x.inputs.tankType,
-      x.d.B.toFixed(2), x.d.dLV.toFixed(2), x.d.dHV.toFixed(2)].join("|");
+      x.d.B.toFixed(2), x.d.dLV.toFixed(2), x.d.dHV.toFixed(2),
+      x.inputs.etK.toFixed(2), x.inputs.steps, x.inputs.tapType].join("|");
     const prev = best.get(k);
     if (!prev || x.tco < prev.tco) best.set(k, x);
   }
   return [...best.values()];
+}
+
+/* CALIBRATION.md section 2: K = Et/sqrt(kVA) trades core steel for winding
+   copper (Et = K sqrt(kVA) = 4.44 f B Ai -- a higher K needs a bigger core
+   for the same flux density, but fewer turns and so less copper for the
+   same current). There is a real cost minimum, but its position depends on
+   the copper to steel price ratio, not on the duty alone, which is why it
+   is a search rather than a constant. This sweeps K alone, holding every
+   other resolved parameter fixed (flux, current density, steps, tap type --
+   whatever fitToSchedule and the rest of deriveSpec already settled for p),
+   so the curve isolates K's own effect on ex-works price instead of
+   confounding it with a simultaneous re-optimisation of flux or density at
+   every point. That is also why it is a separate, small function rather
+   than folded into searchDesigns' own etK dimension: this curve is read by
+   fitEtkToCost on every computeDesign call and by the Fit to Budget K panel,
+   both of which want one clean line, not one point out of the big grid's
+   many thousands. */
+const ETK_RANGE = Array.from({ length: 16 }, (_, i) => Math.round((0.40 + i * 0.02) * 100) / 100);
+function etkCurve(p, rates, range = ETK_RANGE) {
+  const pts = [];
+  for (const k of range) {
+    const d = designTransformer({ ...p, etK: k });
+    if (!isFinite(d.wCore) || d.wCore <= 0) continue;
+    const bom = buildBOM(d, rates);
+    const zOk = Math.abs(d.pctZ - p.targetZ) / p.targetZ <= p.zTol / 100;
+    const thermalOk = d.compliance.rise.ok && d.compliance.wRise.ok;
+    const lossOk = d.compliance.nll.ok && d.compliance.ll.ok;
+    pts.push({ etK: k, exFactory: bom.exFactory, feasible: zOk && thermalOk && lossOk });
+  }
+  return pts;
+}
+
+/* Raises the AUTO etK from deriveSpec's fixed per-application multiplier
+   (CALIBRATION.md section 2's "not adopted as a constant") to whatever this
+   project's own rates put at the bottom of etkCurve. Mirrors fitToSchedule's
+   own lockF/lockD gate: an explicit over.etK is the designer's own figure --
+   from a customer's tender, a past design, a value entered by hand -- and is
+   never second-guessed by a cost search, same as an explicit flux or density
+   is never re-fit to the loss schedule. */
+function fitEtkToCost(p, over = {}, rates = DEFAULT_RATES) {
+  if (over.etK !== undefined) return {};
+  const curve = etkCurve(p, rates);
+  const pool = curve.filter((pt) => pt.feasible);
+  const pts = pool.length ? pool : curve;
+  if (!pts.length) return {};
+  const best = pts.reduce((a, b) => (b.exFactory < a.exFactory ? b : a));
+  return { etK: best.etK };
 }
 
 /* ============================================================
@@ -1248,15 +1320,23 @@ export {
   impacts, calcSheet, stepWidths, stampingSchedule, finLayout,
   documentRegister, routineTestSchedule, DOC_STATUS, REFS,
   inr, lakhs, bushMul, condRate, rkCond, fluxRange, bushHeight, parseVectorGroup,
+  etkCurve, fitEtkToCost, ETK_RANGE,
 };
 
 export function computeDesign(core, over = {}, rates = DEFAULT_RATES, extras = []) {
   const spec = deriveSpec(core, over);
   const fitted = fitToSchedule(spec.S, over);
-  const p = { ...spec.S, ...fitted };
+  const p0 = { ...spec.S, ...fitted };
+  // CALIBRATION.md section 2: runs after fitToSchedule so the K search sees
+  // the same flux and current density the actual build will use, and before
+  // designTransformer so an AUTO etK is never built at deriveSpec's raw
+  // fixed-multiplier guess when the project's own rates say otherwise.
+  const etkFit = fitEtkToCost(p0, over, rates);
+  const fittedAll = { ...fitted, ...etkFit };
+  const p = { ...p0, ...etkFit };
   const design = designTransformer(p);
   const bom = buildBOM(design, rates, extras);
-  return { spec, params: p, fitted, design, bom, engineVersion: ENGINE_VERSION };
+  return { spec, params: p, fitted: fittedAll, design, bom, engineVersion: ENGINE_VERSION };
 }
 
 export function fitToSchedule(S, over = {}) {

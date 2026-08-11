@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { searchDesigns, CORE_GRADES, CONDUCTORS, inr } from '@/packages/engine';
+import { searchDesigns, etkCurve, ETK_RANGE, CORE_GRADES, CONDUCTORS, inr } from '@/packages/engine';
 import { Card, Button, thCls, tdCls, inputCls, labelCls } from '../ui';
 
 interface BudgetTabProps {
@@ -89,12 +89,79 @@ function ResultsTable({ rows, current, activePreviewKey, onSelectPreview, showMa
   );
 }
 
+/** CALIBRATION.md section 2: K trades core steel for winding copper, and
+ *  the cheapest point moves with the copper to steel price ratio rather
+ *  than sitting at a fixed number -- this is the shape of that curve for
+ *  the design on screen, not a claim about which point is right. K alone
+ *  varies; flux, current density, steps, material and tank stay at the
+ *  live design's own values, the same isolation packages/engine's own
+ *  etkCurve() is built for, so the line shows K's own effect on price
+ *  rather than several dimensions moving at once. */
+function KSweepPanel({ params, rates }: { params: any; rates: Record<string, number> }) {
+  const curve = useMemo(() => etkCurve(params, rates), [params, rates]);
+  if (curve.length < 2) return null;
+
+  const prices = curve.map((p) => p.exFactory);
+  const minPrice = Math.min(...prices);
+  const maxPrice = Math.max(...prices);
+  const priceRange = Math.max(1, maxPrice - minPrice);
+  const feasiblePts = curve.filter((p) => p.feasible);
+  const best = (feasiblePts.length ? feasiblePts : curve).reduce((a, b) => (b.exFactory < a.exFactory ? b : a));
+
+  const W = 640, H = 190, padL = 64, padR = 16, padT = 28, padB = 26;
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+  const kMin = ETK_RANGE[0], kMax = ETK_RANGE[ETK_RANGE.length - 1];
+  const xAt = (k: number) => padL + ((k - kMin) / (kMax - kMin)) * plotW;
+  const yAt = (price: number) => padT + (1 - (price - minPrice) / priceRange) * plotH;
+  const pathD = curve.map((p, i) => `${i === 0 ? 'M' : 'L'} ${xAt(p.etK).toFixed(1)} ${yAt(p.exFactory).toFixed(1)}`).join(' ');
+  const bestX = xAt(best.etK), bestY = yAt(best.exFactory);
+  const curX = xAt(params.etK);
+  const bestLabelBelow = bestY < padT + 16;
+  const curLabelRight = curX < padL + plotW / 2;
+
+  return (
+    <Card title="K Sweep" subtitle="Ex-works against volts per turn (K), everything else held at the current design">
+      <div className="px-1 pb-2">
+        <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ maxHeight: 240 }}>
+          <line x1={padL} y1={padT} x2={padL} y2={H - padB} stroke="var(--color-rule)" strokeWidth={1} />
+          <line x1={padL} y1={H - padB} x2={W - padR} y2={H - padB} stroke="var(--color-rule)" strokeWidth={1} />
+          <text x={padL - 6} y={padT + 4} textAnchor="end" fontSize="9" fill="var(--color-steel)">{inr(maxPrice)}</text>
+          <text x={padL - 6} y={H - padB} textAnchor="end" fontSize="9" fill="var(--color-steel)">{inr(minPrice)}</text>
+          <text x={padL} y={H - padB + 14} textAnchor="middle" fontSize="9" fill="var(--color-steel)">{kMin.toFixed(2)}</text>
+          <text x={W - padR} y={H - padB + 14} textAnchor="middle" fontSize="9" fill="var(--color-steel)">{kMax.toFixed(2)}</text>
+
+          <line x1={curX} y1={padT} x2={curX} y2={H - padB} stroke="var(--color-steel)" strokeWidth={1} strokeDasharray="3,3" />
+          <text x={curX + (curLabelRight ? 4 : -4)} y={padT - 6} textAnchor={curLabelRight ? 'start' : 'end'} fontSize="9" fill="var(--color-steel)">
+            current design, K={params.etK.toFixed(2)}
+          </text>
+
+          <path d={pathD} fill="none" stroke="var(--color-ink2)" strokeWidth={1.5} />
+          {curve.map((p) => (
+            <circle key={p.etK} cx={xAt(p.etK)} cy={yAt(p.exFactory)} r={2}
+              fill={p.feasible ? 'var(--color-ink2)' : 'var(--color-amber)'} />
+          ))}
+
+          <circle cx={bestX} cy={bestY} r={4} fill="none" stroke="var(--color-good)" strokeWidth={1.5} />
+          <text x={bestX} y={bestY + (bestLabelBelow ? 16 : -8)} textAnchor="middle" fontSize="9" fontWeight={600} fill="var(--color-good)">
+            cheapest, K={best.etK.toFixed(2)} · {inr(best.exFactory)}
+          </text>
+        </svg>
+        <p className="text-[10px] text-steel px-1 pt-1">
+          Flux, current density, steps, material and tank are held at the current design's own values -- only K
+          moves along this line. Amber points miss the declared impedance, thermal or loss limit at that K.
+        </p>
+      </div>
+    </Card>
+  );
+}
+
 export function BudgetTab({ design, bom, params, rates, activePreviewKey, onSelectPreview }: BudgetTabProps) {
   const current = { design, bom, params };
   const [minLakh, setMinLakh] = useState(() => Math.max(0, Math.round((bom.exFactory / 1e5 - 2) * 100) / 100));
   const [maxLakh, setMaxLakh] = useState(() => Math.round((bom.exFactory / 1e5) * 100) / 100);
   const [band, setBand] = useState<{ min: number; max: number } | null>(null);
   const [results, setResults] = useState<any[]>([]);
+  const [searching, setSearching] = useState(false);
 
   const runSearch = () => {
     const b = { min: minLakh * 1e5, max: maxLakh * 1e5 };
@@ -106,9 +173,24 @@ export function BudgetTab({ design, bom, params, rates, activePreviewKey, onSele
       allowHotter: false,
       zTol: params.zTol,
       enforceLimits: true,
+      // CALIBRATION.md section 2: K is swept alongside material, grade and
+      // tank rather than left fixed, so a design that is cheaper mainly
+      // because of a different K surfaces here too, not only in the
+      // dedicated K Sweep panel below. steps and tapType are left at their
+      // singleton default -- crossing either into this grid as well pushes
+      // a sub-two-second search well past ten, for a lever that is rarely a
+      // real cost choice on top of K, material and grade.
+      etKs: ETK_RANGE,
     };
-    setResults(searchDesigns(params, rates, b, opts));
-    setBand(b);
+    // Deferred one tick so the "Searching" state actually paints before the
+    // synchronous grid search (a few thousand designTransformer + buildBOM
+    // calls, roughly two seconds with etK included) blocks the main thread.
+    setSearching(true);
+    setTimeout(() => {
+      setResults(searchDesigns(params, rates, b, opts));
+      setBand(b);
+      setSearching(false);
+    }, 0);
   };
 
   const feasible = useMemo(() => results.filter((r) => r.feasible), [results]);
@@ -160,9 +242,11 @@ export function BudgetTab({ design, bom, params, rates, activePreviewKey, onSele
             <label className={labelCls}>Maximum (₹ lakh)</label>
             <input type="number" step={0.1} value={maxLakh} onChange={(e) => setMaxLakh(Number(e.target.value))} className={`${inputCls} w-32`} />
           </div>
-          <Button variant="primary" onClick={runSearch}>Search</Button>
+          <Button variant="primary" onClick={runSearch} disabled={searching}>{searching ? 'Searching…' : 'Search'}</Button>
         </div>
       </Card>
+
+      <KSweepPanel params={params} rates={rates} />
 
       {results.length > 0 && (
         <>
