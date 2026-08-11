@@ -179,8 +179,8 @@ export function ManufacturingTab({ design: d, params: p }: ManufacturingTabProps
             </tr>
             {hw.neutralBusbar && (
               <tr>
-                <td className={tdCls}>Neutral busbar</td>
-                <td className={`${tdCls} font-mono`}>{hw.neutralBusbar.w} x {hw.neutralBusbar.t} mm ({hw.neutralBusbar.area} mm&sup2; required)</td>
+                <td className={tdCls}>Neutral busbar, calculated minimum</td>
+                <td className={`${tdCls} font-mono`}>{hw.neutralBusbar.w} x {hw.neutralBusbar.t} mm ({hw.neutralBusbar.area} mm&sup2; from LV current density)</td>
                 <td className={`${tdCls} text-right font-mono`}>1</td>
                 <td className={tdCls}>{hw.neutralBusbar.material}</td>
               </tr>

@@ -8,7 +8,7 @@
  * without bumping it, or old quotations stop reproducing.
  */
 
-export const ENGINE_VERSION = "1.4.1";
+export const ENGINE_VERSION = "1.4.2";
 
 const CONDUCTORS = {
   copper: { name: "Copper, EC grade", rho20: 0.017241, alpha: 0.00393, dens: 8890, dMax: 3.6, short: "Cu", proof: 1.0 },
@@ -625,7 +625,22 @@ function designTransformer(p) {
   const iscMult = 100 / g.pctZ;
   const noise = 39 + 12.5 * Math.log10(Math.max(1, p.kva / 100)) + (B - 1.6) * 28 + grade.noise + (dry ? 4 : 0);
 
-  const sch = p.effLevel === "custom" ? { nll: p.limitNLL, ll: p.limitLL } : lossSchedule(p.kva, p.effLevel, dry);
+  /* p.limitNLL/limitLL are always the single source of truth here, not
+     just when effLevel is "custom": deriveSpec's put("limitNLL", ...) sets
+     them from lossSchedule(kva, effLevel, dry) for every level, AND lets an
+     explicit over.limitNLL/limitLL replace that suggestion regardless of
+     which level is selected -- the whole point of typing a guaranteed
+     figure into the enquiry is that it binds, not only when the level
+     dropdown happens to say "Custom". Re-deriving sch from lossSchedule()
+     fresh here, gated on effLevel, silently ignored that override: a
+     reference reproduction giving its own limitNLL/limitLL with effLevel
+     left at "level2" (the common case, since nobody re-labels a real
+     enquiry's level just to enter its own guaranteed figures) was checked
+     for compliance against the engine's own auto schedule instead of the
+     figure actually entered. searchDesigns' and fitEtkToCost's own
+     compliance.nll/ll.ok checks inherit this fix for free, since both read
+     it from here rather than re-deriving it themselves. */
+  const sch = { nll: p.limitNLL, ll: p.limitLL };
   const compliance = {
     nll: { val: noLoad, lim: sch.nll, ok: noLoad <= sch.nll },
     ll: { val: loadLoss, lim: sch.ll, ok: loadLoss <= sch.ll },
@@ -1408,21 +1423,28 @@ function hardwareSchedule(d, p) {
   };
   const lugs = { qty: "to be specified", plateThickness: "to be specified" };
 
-  /* Neutral busbar, MANUFACTURING.md's own instruction: cross-section from
-     LV current at the LV winding's own current density. This gives 667
-     mm^2 at the 1250 kVA reference against the sheet's stated 1500 mm^2
-     minimum -- a real, unexplained gap, not a rounding difference: a
-     neutral conductor is conventionally not sized at full phase current
-     density for continuous rated current in the first place (it carries
-     unbalance and triplen-harmonic current, not the full line current, in
-     normal service). Reported as the instruction gives it, flagged rather
-     than silently padded to match one example. */
+  /* Neutral busbar. MANUFACTURING.md's own instruction gives the
+     calculation (cross-section from LV current at the LV winding's own
+     current density) -- this is that calculated MINIMUM, not a claim about
+     what a works would actually fit. It gives 667 mm^2 at the 1250 kVA
+     reference against the sheet's own 1500 mm^2, more than double, and
+     that gap is not something to reproduce by fitting a fudge factor: a
+     neutral busbar is conventionally sized for fault duty and mechanical
+     robustness, not continuous-current density -- it carries a full
+     phase-to-neutral fault current well above the small unbalance and
+     triplen-harmonic current it sees in normal service, and has to survive
+     the mechanical force of that fault without a current-density
+     calculation ever entering into it. The engine has no fault-current or
+     mechanical-force model for this piece, so it cannot derive the 1500
+     mm^2 figure or anything like it -- printing the continuous-duty
+     minimum with that explanation is the honest answer, not a padded
+     number invented to match one sheet. See MANUFACTURING.md section 3. */
   const vg = parseVectorGroup(p.vector);
   let neutralBusbar = null;
   if (vg.lvNeutral) {
     const area = d.iLineLV / d.dLV;
     const t = 15, w = Math.max(25, Math.ceil(area / t / 5) * 5);
-    neutralBusbar = { area: +area.toFixed(1), w, t, material: "Copper", note: "From LV current at LV current density -- check against the works' own neutral-sizing standard; the 1250 kVA sheet's own 1500 mm2 is well above this figure." };
+    neutralBusbar = { area: +area.toFixed(1), w, t, material: "Copper", note: "Calculated minimum from LV current at LV current density. Works practice commonly sizes the neutral busbar well above this, for fault duty and mechanical robustness rather than continuous current -- the 1250 kVA reference sheet's own figure (1500 mm2) is more than double this calculation." };
   }
 
   const deltaWire = [];

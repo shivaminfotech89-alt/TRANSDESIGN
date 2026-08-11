@@ -63,6 +63,21 @@ The 1250 kVA sheet gives 18 mm diameter tie rods 635 mm long with 55 mm thread
 both ends, 8 off, stainless throughout; core bolts 18 x 380, 8 off; foot plates
 100 x 15 MS flat, 3 off; neutral busbar minimum 1500 mm², 100 x 15 copper.
 
+**Neutral busbar, why the calculation undershoots the sheet.** The current-density
+calculation above gives 667 mm² at the 1250 kVA reference, well under the sheet's
+own 1500 mm². This is not a rounding gap and not something to close by fitting a
+multiplier to the one example: a neutral busbar is conventionally sized for fault
+duty and mechanical robustness, not continuous-current density. In normal service
+it carries only unbalance and triplen-harmonic current, a small fraction of a
+phase current — but on a phase-to-neutral fault it carries a fault current far
+above rated, and has to survive the mechanical force of that fault without a
+current-density calculation ever entering into the sizing. The engine has no
+fault-current or mechanical-force model for this piece, and building one is its
+own undertaking, not a natural extension of the geometry this section otherwise
+derives from. Print the calculated continuous-duty minimum, and say plainly that
+works practice commonly sizes above it for fault duty — that is the honest answer
+to a question the engine cannot fully calculate, not a number to reproduce.
+
 ## 4. Insulation piece list — partly derivable
 
 Every insulating item as a count of pieces with material and thickness, not as a

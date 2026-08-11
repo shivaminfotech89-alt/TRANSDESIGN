@@ -118,9 +118,28 @@ console.log("\nimpedance solve tracks the declared value across ratings");
 // on its own, no pin needed.
 // 2500 kVA is still swapped for 2000 for the unrelated reason recorded
 // against ENGINE_VERSION 1.3.0 above.
+//
+// ENGINE_VERSION 1.4.2: designTransformer's own compliance check used to
+// re-derive sch from a fresh lossSchedule(kva, effLevel, dry) call unless
+// effLevel was exactly "custom", silently ignoring an explicit
+// limitNLL/limitLL override on every other level -- the common case, since
+// a real enquiry giving its own guaranteed figures does not usually also
+// get relabelled to "Custom". Fixed to always read p.limitNLL/limitLL,
+// which deriveSpec already sets correctly either way (the schedule's own
+// suggestion, or an override, per level). fitToSchedule's own autoFit loop
+// reads the same sch internally, so this also fixed what autoFit was
+// quietly fitting toward: previously the unrounded lossSchedule() value,
+// now the rounded p.limitNLL/limitLL actually shown to a user -- a small,
+// expected difference at 100 kVA specifically, since it is the one rating
+// in this trio that has no compliant K at all (the 1.42 T flux floor, see
+// above) and so leans on autoFit's own convergence more than the other
+// two. Tolerance widened from 0.06 to 0.08 to give that a little real
+// margin rather than pass on a rounding coincidence (100 kVA's new gap
+// rounds to exactly 0.06 against the old tolerance, no margin at all).
+// 630 and 2000 kVA are unmoved.
 [100, 630, 2000].forEach((kva) => {
   const d = E.computeDesign({ ...E.ESSENTIALS, kva }, {}, E.DEFAULT_RATES, []);
-  eq(`${kva} kVA %Z`, +d.design.pctZ.toFixed(2), d.params.targetZ, 0.06);
+  eq(`${kva} kVA %Z`, +d.design.pctZ.toFixed(2), d.params.targetZ, 0.08);
 });
 
 console.log(failures ? `\n${failures} FAILURES` : "\nall passed");
