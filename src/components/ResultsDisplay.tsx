@@ -8,6 +8,7 @@ import { CadViewerTab } from './cad/CadViewerTab';
 import { DocumentsTab } from './documents/DocumentsTab';
 import { BudgetTab } from './budget/BudgetTab';
 import { CompareQuoteTab } from './compare/CompareQuoteTab';
+import { PRICE_SOURCE_LABELS, type PriceResolution } from '../lib/pricing';
 
 interface ResultsDisplayProps {
   core: any;
@@ -35,6 +36,16 @@ interface ResultsDisplayProps {
    *  would silently change what those show, the same ambiguity App.tsx's
    *  own aside already guards against for every other edit surface. */
   pricingLocked: boolean;
+  /** TASKS.md item 11.4: which tier resolved each rate key currently in
+   *  `rates`/`bom` -- keyed the same way a BOM row's own `rk` field is, so
+   *  a row looks itself up directly. Empty for a budget preview (an
+   *  engine-generated alternative, not a priced BOM) or when pricingLocked
+   *  makes the concept moot for what's on screen. */
+  rateSources: Record<string, PriceResolution>;
+  /** Rate keys locked for this project only -- which rows get the "Locked"
+   *  badge and the toggle's label. */
+  priceLocks: Record<string, number>;
+  onTogglePriceLock: (rateKey: string) => void;
   activePreviewKey: string | null;
   onSelectPreview: (candidate: any | null) => void;
 }
@@ -68,9 +79,47 @@ function RateField({ label, k, rates, onRatesChange }: { label: string; k: strin
   );
 }
 
+const fmtSourceDate = (ms: number) => new Date(ms).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+
+/**
+ * TASKS.md item 11.4: "an engineering default must be visibly distinct from
+ * a supplier quotation... they must never look alike in a document that
+ * goes to a customer." A supplier-sourced or project-locked rate is a
+ * filled, coloured badge -- a commitment someone made in writing. An
+ * engineering default is a dashed outline in steel -- an estimate, nothing
+ * more. Neither is print:hidden: the distinction has to survive into
+ * whatever gets printed or exported, not just the screen.
+ */
+function PriceSourceBadge({ source }: { source: PriceResolution | undefined }) {
+  if (!source) return null;
+  if (source.tier === 'engineering-default') {
+    return (
+      <span
+        className="inline-block font-display uppercase text-[8px] tracking-[0.1em] text-steel border border-dashed border-steel rounded-[2px] px-1 py-0.5"
+        title="Engineering default -- an estimate, not a supplier quotation"
+      >
+        Est.
+      </span>
+    );
+  }
+  const fill = source.tier === 'project-locked' ? 'bg-copper' : 'bg-patina';
+  const detail = source.tier === 'project-locked'
+    ? 'Locked'
+    : `${source.supplierName || 'Supplier'}${source.date ? `, ${fmtSourceDate(source.date)}` : ''}`;
+  return (
+    <span
+      className={`inline-block font-display uppercase text-[8px] tracking-[0.1em] text-white ${fill} rounded-[2px] px-1 py-0.5`}
+      title={`${PRICE_SOURCE_LABELS[source.tier]} -- a supplier's own commitment, not an estimate`}
+    >
+      {detail}
+    </span>
+  );
+}
+
 export function ResultsDisplay({
   core, design, bom, params, liveDesign, liveBom, liveParams, project, rates, onRatesChange,
-  rateCard, onManageRateCards, pricingLocked, activePreviewKey, onSelectPreview,
+  rateCard, onManageRateCards, pricingLocked, rateSources, priceLocks, onTogglePriceLock,
+  activePreviewKey, onSelectPreview,
 }: ResultsDisplayProps) {
   const [activeTab, setActiveTab] = useState<Tab>('overview');
   const [isSaving, setIsSaving] = useState(false);
@@ -264,7 +313,9 @@ export function ResultsDisplay({
                       <tr>
                         <th className={thCls}>Code</th><th className={thCls}>Description</th>
                         <th className={`${thCls} text-right`}>Quantity</th><th className={thCls}>Unit</th>
-                        <th className={`${thCls} text-right`}>Rate (₹)</th><th className={`${thCls} text-right`}>Total (₹)</th>
+                        <th className={`${thCls} text-right`}>Rate (₹)</th>
+                        <th className={thCls}>Source</th>
+                        <th className={`${thCls} text-right`}>Total (₹)</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -275,6 +326,22 @@ export function ResultsDisplay({
                           <td className={`${tdCls} text-right font-mono text-[11px]`}>{r.qty.toLocaleString('en-IN', { maximumFractionDigits: 1 })}</td>
                           <td className={`${tdCls} text-[10px] text-steel`}>{r.unit}</td>
                           <td className={`${tdCls} text-right font-mono text-[11px]`}>{Math.round(r.rate).toLocaleString('en-IN')}</td>
+                          <td className={tdCls}>
+                            {r.rk && (
+                              <div className="flex items-center gap-1.5">
+                                <PriceSourceBadge source={rateSources[r.rk]} />
+                                {!pricingLocked && (
+                                  <button
+                                    type="button"
+                                    onClick={() => onTogglePriceLock(r.rk)}
+                                    className="text-[8px] font-display uppercase tracking-[0.08em] text-steel underline underline-offset-2"
+                                  >
+                                    {r.rk in priceLocks ? 'Unlock' : 'Lock'}
+                                  </button>
+                                )}
+                              </div>
+                            )}
+                          </td>
                           <td className={`${tdCls} text-right font-mono text-[11px] font-semibold text-ink`}>{Math.round(r.qty * r.rate).toLocaleString('en-IN')}</td>
                         </tr>
                       ))}

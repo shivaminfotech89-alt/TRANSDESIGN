@@ -7,6 +7,7 @@
  *   orgs/{orgId}/members/{uid}
  *   orgs/{orgId}/rateCards/{rateCardId}
  *   orgs/{orgId}/suppliers/{supplierId}
+ *   orgs/{orgId}/items/{itemId}
  *   orgs/{orgId}/projects/{projectId}
  *   orgs/{orgId}/projects/{projectId}/revisions/{revId}
  *   orgs/{orgId}/projects/{projectId}/documents/{docId}
@@ -19,7 +20,7 @@ import { db } from "./firebase";
 import { DEFAULT_RATES } from "@/packages/engine";
 import type {
   Project, ProjectMeta, Revision, RateCard, Rates, DesignSummary,
-  EnquiryInput, ProjectStatus, GeneratedDocument, Org, Member, Supplier,
+  EnquiryInput, ProjectStatus, GeneratedDocument, Org, Member, Supplier, Item,
 } from "./types";
 
 const orgRef = (orgId: string) => doc(db, "orgs", orgId);
@@ -29,6 +30,7 @@ const revisionsRef = (orgId: string, id: string) =>
   collection(db, "orgs", orgId, "projects", id, "revisions");
 const rateCardsRef = (orgId: string) => collection(db, "orgs", orgId, "rateCards");
 const suppliersRef = (orgId: string) => collection(db, "orgs", orgId, "suppliers");
+const itemsRef = (orgId: string) => collection(db, "orgs", orgId, "items");
 
 const pad = (n: number) => String(n).padStart(3, "0");
 
@@ -177,6 +179,7 @@ export async function saveRevision(
     input: Revision["input"];
     rateCardId: string;
     rateSnapshot: Rates;
+    rateSources?: Revision["rateSources"];
     engineVersion: string;
     summary: DesignSummary;
     note?: string;
@@ -190,6 +193,7 @@ export async function saveRevision(
     input: payload.input,
     rateCardId: payload.rateCardId,
     rateSnapshot: payload.rateSnapshot,
+    ...(payload.rateSources ? { rateSources: payload.rateSources } : {}),
     engineVersion: payload.engineVersion,
     summary: payload.summary,
     locked: false,
@@ -320,6 +324,40 @@ export async function saveSupplier(
 
 export async function deleteSupplier(orgId: string, id: string): Promise<void> {
   await deleteDoc(doc(suppliersRef(orgId), id));
+}
+
+/* ---------------- item master ---------------- */
+
+export async function listItems(orgId: string): Promise<Array<Item & { id: string }>> {
+  const snap = await getDocs(query(itemsRef(orgId), orderBy("code")));
+  return snap.docs.map((d) => ({ id: d.id, ...(d.data() as Item) }));
+}
+
+export async function getItem(orgId: string, id: string): Promise<Item | null> {
+  const s = await getDoc(doc(itemsRef(orgId), id));
+  return s.exists() ? (s.data() as Item) : null;
+}
+
+/**
+ * Master data, edited in place, same as a supplier -- price records inside
+ * `item.prices` are themselves an append-only history (nothing here deletes
+ * an old price), but the item's own code/description/rateKey/preferred
+ * supplier are just current facts, not a dated series.
+ */
+export async function saveItem(
+  orgId: string, uid: string, id: string | null, item: Omit<Item, "updatedAt" | "updatedBy">
+): Promise<string> {
+  const record = { ...item, updatedBy: uid, updatedAt: Date.now() };
+  if (id) {
+    await setDoc(doc(itemsRef(orgId), id), record);
+    return id;
+  }
+  const ref = await addDoc(itemsRef(orgId), record);
+  return ref.id;
+}
+
+export async function deleteItem(orgId: string, id: string): Promise<void> {
+  await deleteDoc(doc(itemsRef(orgId), id));
 }
 
 /* ---------------- generated documents ---------------- */
