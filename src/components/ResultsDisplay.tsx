@@ -6,8 +6,10 @@ import { LvWindingDrawing, HvWindingDrawing, TapWindingDrawing } from './drawing
 import { InternalAssemblyDrawing } from './drawings/SectionDrawings';
 import { CadViewerTab } from './cad/CadViewerTab';
 import { DocumentsTab } from './documents/DocumentsTab';
+import { ManufacturingTab } from './manufacturing/ManufacturingTab';
 import { BudgetTab } from './budget/BudgetTab';
 import { CompareQuoteTab } from './compare/CompareQuoteTab';
+import { PRICE_SOURCE_LABELS, type PriceResolution } from '../lib/pricing';
 
 interface ResultsDisplayProps {
   core: any;
@@ -25,11 +27,38 @@ interface ResultsDisplayProps {
   project: any;
   rates: Record<string, number>;
   onRatesChange: (rates: Record<string, number>) => void;
+  /** TASKS.md item 11.4's fully resolved rates (item/supplier price
+   *  hierarchy applied, or the frozen snapshot for a revision) -- what the
+   *  live BOM is actually priced at. `rates` above is the editable base rate
+   *  card the RateField panel writes to; the Budget tab's search needs the
+   *  landed cost the design will really be quoted at, per CALIBRATION.md
+   *  section 2's K search, not the unresolved card underneath it. */
+  effectiveRates: Record<string, number>;
+  /** The real orgs/{orgId}/rateCards document the live `rates` were seeded
+   *  from -- null only if the org has no rate card yet or the price on
+   *  screen came from a revision whose own card no longer resolves. */
+  rateCard: { id: string; name: string; effectiveFrom: number } | null;
+  onManageRateCards: () => void;
+  /** True while a budget preview, a viewed revision, or a locked live
+   *  revision is on screen -- editing rates or switching the rate card
+   *  would silently change what those show, the same ambiguity App.tsx's
+   *  own aside already guards against for every other edit surface. */
+  pricingLocked: boolean;
+  /** TASKS.md item 11.4: which tier resolved each rate key currently in
+   *  `rates`/`bom` -- keyed the same way a BOM row's own `rk` field is, so
+   *  a row looks itself up directly. Empty for a budget preview (an
+   *  engine-generated alternative, not a priced BOM) or when pricingLocked
+   *  makes the concept moot for what's on screen. */
+  rateSources: Record<string, PriceResolution>;
+  /** Rate keys locked for this project only -- which rows get the "Locked"
+   *  badge and the toggle's label. */
+  priceLocks: Record<string, number>;
+  onTogglePriceLock: (rateKey: string) => void;
   activePreviewKey: string | null;
   onSelectPreview: (candidate: any | null) => void;
 }
 
-type Tab = 'overview' | 'calculations' | 'bom' | 'winding' | 'core' | 'drawings' | 'reports' | '3d-model' | 'budget' | 'compare';
+type Tab = 'overview' | 'calculations' | 'bom' | 'winding' | 'core' | 'drawings' | 'reports' | 'manufacturing' | '3d-model' | 'budget' | 'compare';
 
 const TABS: { id: Tab; label: string; pending?: boolean }[] = [
   { id: 'overview', label: 'Overview' },
@@ -41,6 +70,7 @@ const TABS: { id: Tab; label: string; pending?: boolean }[] = [
   { id: 'core', label: 'Core Parts' },
   { id: 'drawings', label: '2D Drawings' },
   { id: 'reports', label: 'Reports & Docs' },
+  { id: 'manufacturing', label: 'Manufacturing' },
   { id: '3d-model', label: '3D CAD Model' },
 ];
 
@@ -58,8 +88,46 @@ function RateField({ label, k, rates, onRatesChange }: { label: string; k: strin
   );
 }
 
+const fmtSourceDate = (ms: number) => new Date(ms).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+
+/**
+ * TASKS.md item 11.4: "an engineering default must be visibly distinct from
+ * a supplier quotation... they must never look alike in a document that
+ * goes to a customer." A supplier-sourced or project-locked rate is a
+ * filled, coloured badge -- a commitment someone made in writing. An
+ * engineering default is a dashed outline in steel -- an estimate, nothing
+ * more. Neither is print:hidden: the distinction has to survive into
+ * whatever gets printed or exported, not just the screen.
+ */
+function PriceSourceBadge({ source }: { source: PriceResolution | undefined }) {
+  if (!source) return null;
+  if (source.tier === 'engineering-default') {
+    return (
+      <span
+        className="inline-block font-display uppercase text-[8px] tracking-[0.1em] text-steel border border-dashed border-steel rounded-[2px] px-1 py-0.5"
+        title="Engineering default -- an estimate, not a supplier quotation"
+      >
+        Est.
+      </span>
+    );
+  }
+  const fill = source.tier === 'project-locked' ? 'bg-copper' : 'bg-patina';
+  const detail = source.tier === 'project-locked'
+    ? 'Locked'
+    : `${source.supplierName || 'Supplier'}${source.date ? `, ${fmtSourceDate(source.date)}` : ''}`;
+  return (
+    <span
+      className={`inline-block font-display uppercase text-[8px] tracking-[0.1em] text-white ${fill} rounded-[2px] px-1 py-0.5`}
+      title={`${PRICE_SOURCE_LABELS[source.tier]} -- a supplier's own commitment, not an estimate`}
+    >
+      {detail}
+    </span>
+  );
+}
+
 export function ResultsDisplay({
-  core, design, bom, params, liveDesign, liveBom, liveParams, project, rates, onRatesChange,
+  core, design, bom, params, liveDesign, liveBom, liveParams, project, rates, onRatesChange, effectiveRates,
+  rateCard, onManageRateCards, pricingLocked, rateSources, priceLocks, onTogglePriceLock,
   activePreviewKey, onSelectPreview,
 }: ResultsDisplayProps) {
   const [activeTab, setActiveTab] = useState<Tab>('overview');
@@ -254,7 +322,9 @@ export function ResultsDisplay({
                       <tr>
                         <th className={thCls}>Code</th><th className={thCls}>Description</th>
                         <th className={`${thCls} text-right`}>Quantity</th><th className={thCls}>Unit</th>
-                        <th className={`${thCls} text-right`}>Rate (₹)</th><th className={`${thCls} text-right`}>Total (₹)</th>
+                        <th className={`${thCls} text-right`}>Rate (₹)</th>
+                        <th className={thCls}>Source</th>
+                        <th className={`${thCls} text-right`}>Total (₹)</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -265,6 +335,22 @@ export function ResultsDisplay({
                           <td className={`${tdCls} text-right font-mono text-[11px]`}>{r.qty.toLocaleString('en-IN', { maximumFractionDigits: 1 })}</td>
                           <td className={`${tdCls} text-[10px] text-steel`}>{r.unit}</td>
                           <td className={`${tdCls} text-right font-mono text-[11px]`}>{Math.round(r.rate).toLocaleString('en-IN')}</td>
+                          <td className={tdCls}>
+                            {r.rk && (
+                              <div className="flex items-center gap-1.5">
+                                <PriceSourceBadge source={rateSources[r.rk]} />
+                                {!pricingLocked && (
+                                  <button
+                                    type="button"
+                                    onClick={() => onTogglePriceLock(r.rk)}
+                                    className="text-[8px] font-display uppercase tracking-[0.08em] text-steel underline underline-offset-2"
+                                  >
+                                    {r.rk in priceLocks ? 'Unlock' : 'Lock'}
+                                  </button>
+                                )}
+                              </div>
+                            )}
+                          </td>
                           <td className={`${tdCls} text-right font-mono text-[11px] font-semibold text-ink`}>{Math.round(r.qty * r.rate).toLocaleString('en-IN')}</td>
                         </tr>
                       ))}
@@ -299,7 +385,7 @@ export function ResultsDisplay({
               never the currently previewed one, see ResultsDisplayProps note. */}
           {activeTab === 'budget' && (
             <BudgetTab
-              design={liveDesign} bom={liveBom} params={liveParams} rates={rates}
+              design={liveDesign} bom={liveBom} params={liveParams} rates={effectiveRates}
               activePreviewKey={activePreviewKey} onSelectPreview={onSelectPreview}
             />
           )}
@@ -428,6 +514,7 @@ export function ResultsDisplay({
           {activeTab === 'reports' && (
             <DocumentsTab core={core} design={design} bom={bom} params={params} project={project} />
           )}
+          {activeTab === 'manufacturing' && <ManufacturingTab design={design} params={params} />}
           {activeTab === '3d-model' && <CadViewerTab design={design} params={params} />}
         </div>
       </div>
@@ -461,17 +548,27 @@ export function ResultsDisplay({
           </div>
         </div>
 
-        <Card title="Rate Card" subtitle="Session Only">
+        <Card
+          title="Rate Card"
+          subtitle={rateCard ? rateCard.name : 'No Rate Card Resolved'}
+        >
           <p className="text-[10px] font-body text-steel mb-2">
-            Seeded from DEFAULT_RATES. Full rate-card management is TASKS.md item 4.
+            {pricingLocked
+              ? 'What is on screen is not the live design -- return to it before changing rates or switching cards.'
+              : rateCard
+                ? `Effective from ${new Date(rateCard.effectiveFrom).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}. Editing below only changes this design's live price -- it does not change the saved rate card.`
+                : 'This price is not backed by a saved rate card -- open Manage Rate Cards to select or create one.'}
           </p>
-          <div className="grid grid-cols-2 gap-2 pt-1">
+          <div className={`grid grid-cols-2 gap-2 pt-1 ${pricingLocked ? 'opacity-50 pointer-events-none' : ''}`}>
             <RateField label="Core, ₹/kg" k="core" rates={rates} onRatesChange={onRatesChange} />
             <RateField label="Copper, ₹/kg" k="condCu" rates={rates} onRatesChange={onRatesChange} />
             <RateField label="Aluminium, ₹/kg" k="condAl" rates={rates} onRatesChange={onRatesChange} />
             <RateField label="Fluid, ₹/L" k="fluid" rates={rates} onRatesChange={onRatesChange} />
             <RateField label="Margin, %" k="marginPct" rates={rates} onRatesChange={onRatesChange} />
             <RateField label="GST, %" k="gstPct" rates={rates} onRatesChange={onRatesChange} />
+          </div>
+          <div className="pt-2">
+            <Button variant="secondary" onClick={onManageRateCards} disabled={pricingLocked}>Manage Rate Cards</Button>
           </div>
         </Card>
       </aside>

@@ -6,6 +6,9 @@
  *   orgs/{orgId}
  *   orgs/{orgId}/members/{uid}
  *   orgs/{orgId}/rateCards/{rateCardId}
+ *   orgs/{orgId}/suppliers/{supplierId}
+ *   orgs/{orgId}/items/{itemId}
+ *   orgs/{orgId}/shopNotes/{noteId}
  *   orgs/{orgId}/projects/{projectId}
  *   orgs/{orgId}/projects/{projectId}/revisions/{revId}
  *   orgs/{orgId}/projects/{projectId}/documents/{docId}
@@ -18,7 +21,7 @@ import { db } from "./firebase";
 import { DEFAULT_RATES } from "@/packages/engine";
 import type {
   Project, ProjectMeta, Revision, RateCard, Rates, DesignSummary,
-  EnquiryInput, ProjectStatus, GeneratedDocument, Org, Member,
+  EnquiryInput, ProjectStatus, GeneratedDocument, Org, Member, Supplier, Item, ShopNote,
 } from "./types";
 
 const orgRef = (orgId: string) => doc(db, "orgs", orgId);
@@ -27,6 +30,9 @@ const projectRef = (orgId: string, id: string) => doc(db, "orgs", orgId, "projec
 const revisionsRef = (orgId: string, id: string) =>
   collection(db, "orgs", orgId, "projects", id, "revisions");
 const rateCardsRef = (orgId: string) => collection(db, "orgs", orgId, "rateCards");
+const suppliersRef = (orgId: string) => collection(db, "orgs", orgId, "suppliers");
+const itemsRef = (orgId: string) => collection(db, "orgs", orgId, "items");
+const shopNotesRef = (orgId: string) => collection(db, "orgs", orgId, "shopNotes");
 
 const pad = (n: number) => String(n).padStart(3, "0");
 
@@ -175,6 +181,7 @@ export async function saveRevision(
     input: Revision["input"];
     rateCardId: string;
     rateSnapshot: Rates;
+    rateSources?: Revision["rateSources"];
     engineVersion: string;
     summary: DesignSummary;
     note?: string;
@@ -188,6 +195,7 @@ export async function saveRevision(
     input: payload.input,
     rateCardId: payload.rateCardId,
     rateSnapshot: payload.rateSnapshot,
+    ...(payload.rateSources ? { rateSources: payload.rateSources } : {}),
     engineVersion: payload.engineVersion,
     summary: payload.summary,
     locked: false,
@@ -263,6 +271,150 @@ export async function saveRateCard(
   await setDoc(doc(rateCardsRef(orgId), id), {
     ...card, updatedBy: uid, updatedAt: Date.now(),
   });
+}
+
+/**
+ * A fresh id for a new dated rate card version. Rate cards are never edited
+ * in place -- effective-from dating means each change is a new document, so
+ * a project that already froze a rateSnapshot from an older card keeps
+ * reading exactly what it saved, per lib/types.ts's own rule for revisions.
+ */
+export function newRateCardId(orgId: string): string {
+  return doc(rateCardsRef(orgId)).id;
+}
+
+/** The rate card actually in force right now: among cards already
+ *  effective (effectiveFrom <= now), the most recently dated one --
+ *  listRateCards() already sorts effectiveFrom descending, so that is
+ *  simply the first one that qualifies. Falls back to the single most
+ *  recent card overall if every card is future-dated, so there is always
+ *  an active one rather than none. */
+export function currentRateCard(cards: Array<RateCard & { id: string }>): (RateCard & { id: string }) | null {
+  const now = Date.now();
+  return cards.find((c) => c.effectiveFrom <= now) || cards[0] || null;
+}
+
+/* ---------------- suppliers ---------------- */
+
+export async function listSuppliers(orgId: string): Promise<Array<Supplier & { id: string }>> {
+  const snap = await getDocs(query(suppliersRef(orgId), orderBy("name")));
+  return snap.docs.map((d) => ({ id: d.id, ...(d.data() as Supplier) }));
+}
+
+export async function getSupplier(orgId: string, id: string): Promise<Supplier | null> {
+  const s = await getDoc(doc(suppliersRef(orgId), id));
+  return s.exists() ? (s.data() as Supplier) : null;
+}
+
+/**
+ * Master data, edited in place -- unlike a rate card, a supplier's contact
+ * or lead time changing is not a priced event worth dating and preserving,
+ * see lib/types.ts Supplier. Pass an id to update that supplier, or null to
+ * create a new one.
+ */
+export async function saveSupplier(
+  orgId: string, uid: string, id: string | null, supplier: Omit<Supplier, "updatedAt" | "updatedBy">
+): Promise<string> {
+  const record = { ...supplier, updatedBy: uid, updatedAt: Date.now() };
+  if (id) {
+    await setDoc(doc(suppliersRef(orgId), id), record);
+    return id;
+  }
+  const ref = await addDoc(suppliersRef(orgId), record);
+  return ref.id;
+}
+
+export async function deleteSupplier(orgId: string, id: string): Promise<void> {
+  await deleteDoc(doc(suppliersRef(orgId), id));
+}
+
+/* ---------------- item master ---------------- */
+
+export async function listItems(orgId: string): Promise<Array<Item & { id: string }>> {
+  const snap = await getDocs(query(itemsRef(orgId), orderBy("code")));
+  return snap.docs.map((d) => ({ id: d.id, ...(d.data() as Item) }));
+}
+
+export async function getItem(orgId: string, id: string): Promise<Item | null> {
+  const s = await getDoc(doc(itemsRef(orgId), id));
+  return s.exists() ? (s.data() as Item) : null;
+}
+
+/**
+ * Master data, edited in place, same as a supplier -- price records inside
+ * `item.prices` are themselves an append-only history (nothing here deletes
+ * an old price), but the item's own code/description/rateKey/preferred
+ * supplier are just current facts, not a dated series.
+ */
+export async function saveItem(
+  orgId: string, uid: string, id: string | null, item: Omit<Item, "updatedAt" | "updatedBy">
+): Promise<string> {
+  const record = { ...item, updatedBy: uid, updatedAt: Date.now() };
+  if (id) {
+    await setDoc(doc(itemsRef(orgId), id), record);
+    return id;
+  }
+  const ref = await addDoc(itemsRef(orgId), record);
+  return ref.id;
+}
+
+export async function deleteItem(orgId: string, id: string): Promise<void> {
+  await deleteDoc(doc(itemsRef(orgId), id));
+}
+
+/* ---------------- shop notes (MANUFACTURING.md section 8) ---------------- */
+
+export async function listShopNotes(orgId: string): Promise<Array<ShopNote & { id: string }>> {
+  const snap = await getDocs(query(shopNotesRef(orgId), orderBy("category")));
+  return snap.docs.map((d) => ({ id: d.id, ...(d.data() as ShopNote) }));
+}
+
+/**
+ * Standing instructions, edited in place -- see lib/types.ts ShopNote. Pass
+ * an id to update that note, or null to create a new one. Never called by
+ * the engine or by document generation: MANUFACTURING.md is explicit that
+ * these are entered, not generated.
+ */
+export async function saveShopNote(
+  orgId: string, uid: string, id: string | null, note: Omit<ShopNote, "updatedAt" | "updatedBy">
+): Promise<string> {
+  const record = { ...note, updatedBy: uid, updatedAt: Date.now() };
+  if (id) {
+    await setDoc(doc(shopNotesRef(orgId), id), record);
+    return id;
+  }
+  const ref = await addDoc(shopNotesRef(orgId), record);
+  return ref.id;
+}
+
+export async function deleteShopNote(orgId: string, id: string): Promise<void> {
+  await deleteDoc(doc(shopNotesRef(orgId), id));
+}
+
+/**
+ * MANUFACTURING.md section 8's own seven examples, "which show the
+ * character of what is wanted" -- not a default library, an illustration
+ * to review and prune. Called only from an explicit "Load example notes"
+ * action, never automatically on org creation: seeding data an org didn't
+ * ask for is not this function's call to make. fromReferenceSheet stays
+ * true on every one of these so they stay visibly "came from a sample
+ * sheet, not works practice" even after a user edits the wording.
+ */
+export async function seedShopNotes(orgId: string, uid: string): Promise<void> {
+  const examples: Array<Omit<ShopNote, "updatedAt" | "updatedBy">> = [
+    { text: "Use only EC grade copper. Very important.", category: "winding", fromReferenceSheet: true },
+    { text: "LT covering should not be less than 0.44 to 0.45 mm imported paper.", category: "winding", fromReferenceSheet: true },
+    { text: "HT covering should be 0.34 to 0.35 mm TPC imported.", category: "winding", fromReferenceSheet: true },
+    { text: "Pie shape phanti should not be less than 75 x 8 mm thick.", category: "core", fromReferenceSheet: true },
+    { text: "The core shall be earthed through a tinned copper earthing plate bolted on the core frame channels.", category: "core", fromReferenceSheet: true },
+    { text: "MS steel plate on all LV cuts, very important.", category: "winding", fromReferenceSheet: true },
+    { text: "Complete stainless steel tie rods to be used.", category: "core", fromReferenceSheet: true },
+  ];
+  const batch = writeBatch(db);
+  for (const note of examples) {
+    batch.set(doc(shopNotesRef(orgId)), { ...note, updatedBy: uid, updatedAt: Date.now() });
+  }
+  await batch.commit();
 }
 
 /* ---------------- generated documents ---------------- */

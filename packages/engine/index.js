@@ -8,7 +8,7 @@
  * without bumping it, or old quotations stop reproducing.
  */
 
-export const ENGINE_VERSION = "1.2.0";
+export const ENGINE_VERSION = "1.4.2";
 
 const CONDUCTORS = {
   copper: { name: "Copper, EC grade", rho20: 0.017241, alpha: 0.00393, dens: 8890, dMax: 3.6, short: "Cu", proof: 1.0 },
@@ -129,11 +129,26 @@ function lossSchedule(kva, level, dry) {
 }
 
 /* ---------------- Clearances from withstand levels ---------------- */
+/* CALIBRATION.md item 1: two Mehir Transformers production sheets, both
+   11 kV class (Um 12 kV, 75 kVp LI), give a complete LV-HV radial gap
+   (cylinder and both oil ducts included) of 11 mm in oil against the old
+   6 + 0.19*bilHV formula's 20.25 mm there -- the base was roughly 1.8x too
+   large. The 0.19 slope is untouched: two sheets at one voltage class fix
+   one point on the curve, not its slope, so only the intercept moves,
+   solved from 11 = intercept + 0.19*75. The dry multiplier (DRY_TYPES'
+   clrMul) is also untouched -- the sheets' oil:dry ratio (11:25, 2.27)
+   already matches the engine's old ratio (2.25) to within one per cent, so
+   nothing there was wrong. Floored at 6 mm, the old formula's own value at
+   bilHV = 0, since shifting the intercept negative would otherwise give a
+   nonsensical clearance for very low voltage classes no sheet has checked.
+   UNVERIFIED above 11 kV: both sheets are the same voltage class, so the
+   36 kV+ (Um) end of this line has not been confirmed against anything.
+   Ask for a 33 kV class sheet before ever touching the slope. */
 function clearancesFrom(bilHV, bilLV, medium, dryType) {
   const k = medium === "dry" ? DRY_TYPES[dryType].clrMul : 1;
   return {
     coreLvClr: Math.round(Math.max(8, 3 + 0.5 * bilLV) * k),
-    lvHvClr: Math.round((6 + 0.19 * bilHV) * k),
+    lvHvClr: Math.round(Math.max(6, -3.25 + 0.19 * bilHV) * k),
     phaseClr: Math.round((4 + 0.16 * bilHV) * k),
     endClrLV: Math.round(Math.max(25, 10 + 0.5 * bilLV) * k),
     endClrHV: Math.round((15 + 0.52 * bilHV) * k),
@@ -165,12 +180,30 @@ function fluxSuggest(gk, lvl, kva) {
   const b = lvl === "conventional" ? 1.70 : lvl === "level1" ? 1.66 : lvl === "level2" ? 1.60 : 1.55;
   return Math.round(Math.min(b - nudge, CORE_GRADES[gk].bMax - 0.03) * 100) / 100;
 }
-const stepsSuggest = (kva) => (kva <= 63 ? 3 : kva <= 250 ? 5 : kva <= 630 ? 7 : kva <= 1600 ? 9 : kva <= 5000 ? 11 : 13);
+/* CALIBRATION.md item 3: the number of steps fills a circle, so it should
+   track the core diameter being filled, not the rating directly -- the
+   1250 kVA sheet uses 15 steps where the old kva-keyed table suggested only
+   9. Bands are the "roughly" ranges CALIBRATION.md gives, split at their
+   midpoints since the sheets pin two points inside them (271 mm at 15
+   steps, 245 mm implying 13) rather than every boundary. Takes an estimated
+   diameter, not kva -- see deriveSpec's dCoreEst for how that estimate is
+   built this early, before a real one exists. */
+const stepsSuggest = (dCoreEst) => (
+  dCoreEst <= 70 ? 3 : dCoreEst <= 100 ? 5 : dCoreEst <= 150 ? 7 : dCoreEst <= 200 ? 9
+    : dCoreEst <= 230 ? 11 : dCoreEst <= 260 ? 13 : 15
+);
 function densitySuggest(kva, cond, dry, isHV) {
   const l = Math.log10(Math.max(10, kva));
   const cu = 2.65 - 0.125 * (l - 2);
   let b = cond === "copper" ? cu : cond === "aluminium" ? cu * 0.78 : cu * 0.88;
-  if (dry) b *= 0.82;
+  /* CALIBRATION.md item 4: this used to multiply by 0.82, reasoning that air
+     cools worse than oil, and had the direction backwards -- class F's
+     100 K permitted rise against oil's 55 K dominates over the weaker
+     cooling, so a dry winding actually runs a HIGHER current density than
+     oil at the same rating, not a lower one. The 630 kVA sheet runs
+     2.79/2.89 A/mm^2 (LV/HV) where the old factor suggested 2.10/2.25.
+     1.10 is fitted from that sheet, the only dry one available. */
+  if (dry) b *= 1.10;
   if (isHV) b += 0.15;
   return Math.min(Math.round(b * 20) / 20, CONDUCTORS[cond].dMax);
 }
@@ -243,17 +276,57 @@ function deriveSpec(core, over = {}) {
   const gk = put("coreGrade", gradeSuggest(core.effLevel), null, Object.entries(CORE_GRADES).map(([k, v]) => [k, v.name]), `Thinner, lower-loss steel is what buys the ${EFF_LEVELS[core.effLevel].name} no-load figure.`);
   const ctk = put("coreType", gk === "amor" ? "amorWound" : "stepLap", null, Object.entries(CORE_TYPES).map(([k, v]) => [k, v.name]), "Step-lap mitred joints cut no-load loss and exciting current against a plain mitred or butt-lap joint.");
   put("buildFactor", CORE_TYPES[ctk].bf, [1.0, 1.45, 0.01], null, "Ratio of built core loss to catalogue loss for this joint. Set it from your own no-load test history if you have it.");
-  put("flux", fluxSuggest(gk, core.effLevel, kva), [1.20, CORE_GRADES[gk].bMax, 0.01], null, "Higher flux means a smaller, cheaper core and a higher no-load loss. This is the single biggest cost-versus-loss lever.");
-  put("steps", stepsSuggest(kva), null, Object.keys(STEP_UTIL).map((k) => [+k, k + " steps"]), "More steps fill the coil circle better and save steel, but cost more to cut and stack.");
-  put("etK", app.etK, [0.35, 0.62, 0.01], null, `Volts per turn = K\u221AkVA. ${app.name} practice sits near ${app.etK}.`);
+  const fluxSug = put("flux", fluxSuggest(gk, core.effLevel, kva), [1.20, CORE_GRADES[gk].bMax, 0.01], null, "Higher flux means a smaller, cheaper core and a higher no-load loss. This is the single biggest cost-versus-loss lever.");
+  /* CALIBRATION.md item 2: raised, and now split by medium -- a dry-type
+     winding runs a higher K than the same duty in oil. Fitted from Mehir
+     Transformers' two reference sheets: distribution's raw 0.45 -> 0.544
+     measured in oil (x1.21) -> 0.623 measured dry (x1.38). Both multipliers
+     are applied to every application's own base K, not just distribution's,
+     so the relative ordering already tuned into APPS (power runs higher
+     than distribution, isolation lower, and so on) is preserved -- only
+     distribution's own multiplier is confirmed by a sheet; the rest are
+     scaled by the same ratio, unverified. This raises cost, not lowers it:
+     a higher K needs a bigger core for the same flux density (Et = 4.44 f B
+     Ai), which is why CALIBRATION.md pairs this with item 1's clearance cut
+     rather than presenting either alone. */
+  const etkMul = dry ? 1.38 : 1.21;
+  const etkSug = Math.round(app.etK * etkMul * 1000) / 1000;
+  const etkEff = put("etK", etkSug, [0.35, 0.80, 0.01], null, `Volts per turn = K\u221AkVA. ${app.name} practice in ${dry ? "a dry-type winding" : "oil"} sits near ${etkSug}.`);
+  /* CALIBRATION.md item 3: step count should track the core diameter being
+     filled (STEP_UTIL is a circle-packing factor), not the rating directly
+     -- the 1250 kVA sheet uses 15 steps where the old kva-keyed table gave
+     9. There is no real core diameter yet this early in deriveSpec (it
+     depends on turns, which depend on the window solve in
+     designTransformer) -- estimate one from the same trial Et and flux
+     density just suggested above, using a fixed nominal utilisation
+     (0.94, designTransformer's own fallback when no step count is chosen
+     yet) rather than STEP_UTIL[steps], which needs the very step count this
+     is choosing. It only has to land in the right band: stepWidths() and
+     everything downstream always use the real STEP_UTIL[p.steps]
+     regardless of how this estimate landed. Checked against both sheets:
+     275 mm estimated vs 271 mm actual at 1250 kVA (15-step band), 248 mm vs
+     245 mm at 630 kVA (13-step band).
+     Uses etkEff (put()'s return value), not etkSug, so an explicit etK
+     override -- reference-designs.test.mjs gives the designer's own Et for
+     both sheets -- actually feeds this estimate instead of being silently
+     ignored in favour of the auto-suggestion nobody asked for. */
+  const etTrialSug = etkEff * Math.sqrt(kva);
+  const aNetEst = etTrialSug / (4.44 * (core.freq || 50) * fluxSug);
+  const dCoreEst = Math.sqrt((4 * aNetEst) / (Math.PI * 0.94 * CORE_GRADES[gk].sf)) * 1000;
+  put("steps", stepsSuggest(dCoreEst), null, Object.keys(STEP_UTIL).map((k) => [+k, k + " steps"]), "More steps fill the coil circle better and save steel, but cost more to cut and stack.");
   put("aspect", aspectSuggest(umHV), [2.0, 3.8, 0.05], null, "Starting window shape. The final height is solved to hit the declared impedance unless you turn that off.");
   put("autoWindow", true, null, [[true, "Solve height for the declared impedance"], [false, "Use the output equation only"]], "With this on, the window height is adjusted until the calculated impedance matches the declared value, which is what a designer does by hand.");
   put("autoFit", true, null, [[true, "Fit flux and current density to the loss limits"], [false, "Use the rating-based values only"]], "With this on, the flux density and the current densities are trimmed until the calculated losses sit just inside the declared limits, the cheapest core and coil that still passes.");
   put("windowSpace", 8, [6, 12, 0.5], null, "Numerator of the window space factor 8/(30+kV). Raise it if your coils pack tighter than average.");
 
   /* --- windings --- */
+  /* CALIBRATION.md item 5: read literally, kva > 630 with a custom loss
+     level fell through both conditions at exactly 630 kVA and silently
+     returned aluminium -- entering your own loss targets must not change
+     the winding metal. kva >= 630 closes the boundary gap; treating
+     "custom" the same as level2/level3 closes the other one. */
   const condSug = core.condPref !== "auto" ? core.condPref
-    : (kva > 630 || ["level2", "level3"].includes(core.effLevel)) ? "copper" : "aluminium";
+    : (kva >= 630 || ["level2", "level3", "custom"].includes(core.effLevel)) ? "copper" : "aluminium";
   const cLV = put("condLV", condSug, null, Object.entries(CONDUCTORS).map(([k, v]) => [k, v.name]), core.condPref === "auto" ? "Copper once the rating or the loss schedule makes aluminium coils too big." : "Set from your material preference.");
   const cHV = put("condHV", condSug, null, Object.entries(CONDUCTORS).map(([k, v]) => [k, v.name]), "Usually the same metal on both windings.");
   put("deltaLV", densitySuggest(kva, cLV, dry, false), rng(densitySuggest(kva, cLV, dry, false), 0.6, 1.35, 0.05), null, `Normal band for ${CONDUCTORS[cLV].short} at ${kva} kVA. Higher means less metal, more load loss and a hotter winding.`);
@@ -552,7 +625,22 @@ function designTransformer(p) {
   const iscMult = 100 / g.pctZ;
   const noise = 39 + 12.5 * Math.log10(Math.max(1, p.kva / 100)) + (B - 1.6) * 28 + grade.noise + (dry ? 4 : 0);
 
-  const sch = p.effLevel === "custom" ? { nll: p.limitNLL, ll: p.limitLL } : lossSchedule(p.kva, p.effLevel, dry);
+  /* p.limitNLL/limitLL are always the single source of truth here, not
+     just when effLevel is "custom": deriveSpec's put("limitNLL", ...) sets
+     them from lossSchedule(kva, effLevel, dry) for every level, AND lets an
+     explicit over.limitNLL/limitLL replace that suggestion regardless of
+     which level is selected -- the whole point of typing a guaranteed
+     figure into the enquiry is that it binds, not only when the level
+     dropdown happens to say "Custom". Re-deriving sch from lossSchedule()
+     fresh here, gated on effLevel, silently ignored that override: a
+     reference reproduction giving its own limitNLL/limitLL with effLevel
+     left at "level2" (the common case, since nobody re-labels a real
+     enquiry's level just to enter its own guaranteed figures) was checked
+     for compliance against the engine's own auto schedule instead of the
+     figure actually entered. searchDesigns' and fitEtkToCost's own
+     compliance.nll/ll.ok checks inherit this fix for free, since both read
+     it from here rather than re-deriving it themselves. */
+  const sch = { nll: p.limitNLL, ll: p.limitLL };
   const compliance = {
     nll: { val: noLoad, lim: sch.nll, ok: noLoad <= sch.nll },
     ll: { val: loadLoss, lim: sch.ll, ok: loadLoss <= sch.ll },
@@ -694,6 +782,23 @@ function searchDesigns(base, rates, band, opts) {
   const conds = opts.conds.length ? opts.conds : [base.condLV];
   const tanks = opts.tanks.length ? opts.tanks : [base.tankType];
   const cores = opts.cores.length ? opts.cores : [base.coreType];
+  /* CALIBRATION.md section 2: K (etK) trades core steel for winding copper
+     the same way material and core grade trade cost against loss, so it
+     belongs in this same search -- a cheaper design can be one tank over
+     with a different K, not only a different grade or metal. Defaults to
+     the single value already in the design when the caller doesn't ask for
+     a sweep, so an existing call site's candidate count and running time
+     are unchanged unless it opts in.
+     steps and tapType are wired the same way but are not defaulted on by
+     BudgetTab: steps multiplies the grid by up to 7 and tapType by up to 3,
+     and for most enquiries neither is a real cost lever -- the tap changer
+     is a functional requirement of the duty, not a knob a cost search
+     should be turning, unless the application itself already says none
+     (isolation, UPS). Left here as genuine opt-in dimensions for whatever
+     calls with a narrower grid, e.g. a single-material re-check. */
+  const etKs = opts.etKs && opts.etKs.length ? opts.etKs : [base.etK];
+  const stepsList = opts.stepsList && opts.stepsList.length ? opts.stepsList : [base.steps];
+  const tapTypes = opts.tapTypes && opts.tapTypes.length ? opts.tapTypes : [base.tapType];
   const dScales = [0.72, 0.80, 0.88, 0.95, 1.03, 1.12, 1.22, 1.32];
   const gapScales = [0.9, 1.0, 1.12];
   const riseTargets = opts.allowHotter ? [45, 50] : [base.oilRiseTarget];
@@ -713,25 +818,32 @@ function searchDesigns(base, rates, band, opts) {
             for (const tk of tanks) {
               for (const gs of gapScales) {
                 for (const rt of riseTargets) {
-                  const cand = {
-                    ...base, coreType: core, buildFactor: ctd.bf, coreGrade: g, flux: B,
-                    condLV: cond, condHV: cond,
-                    deltaLV: Math.min(anchLV * ds, CONDUCTORS[cond].dMax),
-                    deltaHV: Math.min(anchHV * ds, CONDUCTORS[cond].dMax),
-                    autoClearance: false, tankType: tk, oilRiseTarget: rt,
-                    lvHvClr: Math.round(base.lvHvClr * gs),
-                  };
-                  const d = designTransformer(cand);
-                  if (!isFinite(d.wCore) || d.wCore <= 0) continue;
-                  const bom = buildBOM(d, rates);
-                  const zOk = Math.abs(d.pctZ - base.targetZ) / base.targetZ <= opts.zTol / 100;
-                  const thermalOk = d.compliance.rise.ok && d.compliance.wRise.ok;
-                  const lossOk = !opts.enforceLimits || (d.compliance.nll.ok && d.compliance.ll.ok);
-                  results.push({
-                    inputs: cand, d, bom, price: bom.exFactory, tco: bom.tco,
-                    zOk, thermalOk, lossOk, feasible: zOk && thermalOk && lossOk,
-                    withinBudget: bom.exFactory >= (band.min || 0) && bom.exFactory <= (band.max ?? Infinity),
-                  });
+                  for (const ek of etKs) {
+                    for (const st of stepsList) {
+                      for (const tt of tapTypes) {
+                        const cand = {
+                          ...base, coreType: core, buildFactor: ctd.bf, coreGrade: g, flux: B,
+                          condLV: cond, condHV: cond,
+                          deltaLV: Math.min(anchLV * ds, CONDUCTORS[cond].dMax),
+                          deltaHV: Math.min(anchHV * ds, CONDUCTORS[cond].dMax),
+                          autoClearance: false, tankType: tk, oilRiseTarget: rt,
+                          lvHvClr: Math.round(base.lvHvClr * gs),
+                          etK: ek, steps: st, tapType: tt,
+                        };
+                        const d = designTransformer(cand);
+                        if (!isFinite(d.wCore) || d.wCore <= 0) continue;
+                        const bom = buildBOM(d, rates);
+                        const zOk = Math.abs(d.pctZ - base.targetZ) / base.targetZ <= opts.zTol / 100;
+                        const thermalOk = d.compliance.rise.ok && d.compliance.wRise.ok;
+                        const lossOk = !opts.enforceLimits || (d.compliance.nll.ok && d.compliance.ll.ok);
+                        results.push({
+                          inputs: cand, d, bom, price: bom.exFactory, tco: bom.tco,
+                          zOk, thermalOk, lossOk, feasible: zOk && thermalOk && lossOk,
+                          withinBudget: bom.exFactory >= (band.min || 0) && bom.exFactory <= (band.max ?? Infinity),
+                        });
+                      }
+                    }
+                  }
                 }
               }
             }
@@ -743,11 +855,76 @@ function searchDesigns(base, rates, band, opts) {
   const best = new Map();
   for (const x of results) {
     const k = [x.inputs.coreType, x.inputs.coreGrade, x.inputs.condLV, x.inputs.tankType,
-      x.d.B.toFixed(2), x.d.dLV.toFixed(2), x.d.dHV.toFixed(2)].join("|");
+      x.d.B.toFixed(2), x.d.dLV.toFixed(2), x.d.dHV.toFixed(2),
+      x.inputs.etK.toFixed(2), x.inputs.steps, x.inputs.tapType].join("|");
     const prev = best.get(k);
     if (!prev || x.tco < prev.tco) best.set(k, x);
   }
   return [...best.values()];
+}
+
+/* CALIBRATION.md section 2: K = Et/sqrt(kVA) trades core steel for winding
+   copper (Et = K sqrt(kVA) = 4.44 f B Ai -- a higher K needs a bigger core
+   for the same flux density, but fewer turns and so less copper for the
+   same current). There is a real cost minimum, but its position depends on
+   the copper to steel price ratio, not on the duty alone, which is why it
+   is a search rather than a constant. This sweeps K alone, holding every
+   other resolved parameter fixed (flux, current density, steps, tap type --
+   whatever fitToSchedule and the rest of deriveSpec already settled for p),
+   so the curve isolates K's own effect on ex-works price instead of
+   confounding it with a simultaneous re-optimisation of flux or density at
+   every point. That is also why it is a separate, small function rather
+   than folded into searchDesigns' own etK dimension: this curve is read by
+   fitEtkToCost on every computeDesign call and by the Fit to Budget K panel,
+   both of which want one clean line, not one point out of the big grid's
+   many thousands. */
+const ETK_RANGE = Array.from({ length: 16 }, (_, i) => Math.round((0.40 + i * 0.02) * 100) / 100);
+function etkCurve(p, rates, range = ETK_RANGE) {
+  const pts = [];
+  for (const k of range) {
+    const d = designTransformer({ ...p, etK: k });
+    if (!isFinite(d.wCore) || d.wCore <= 0) continue;
+    const bom = buildBOM(d, rates);
+    const zOk = Math.abs(d.pctZ - p.targetZ) / p.targetZ <= p.zTol / 100;
+    const thermalOk = d.compliance.rise.ok && d.compliance.wRise.ok;
+    const lossOk = d.compliance.nll.ok && d.compliance.ll.ok;
+    pts.push({ etK: k, exFactory: bom.exFactory, feasible: zOk && thermalOk && lossOk });
+  }
+  return pts;
+}
+
+/* Raises the AUTO etK from deriveSpec's fixed per-application multiplier
+   (CALIBRATION.md section 2's "not adopted as a constant") to whatever this
+   project's own rates put at the bottom of etkCurve. Mirrors fitToSchedule's
+   own lockF/lockD gate: an explicit over.etK is the designer's own figure --
+   from a customer's tender, a past design, a value entered by hand -- and is
+   never second-guessed by a cost search, same as an explicit flux or density
+   is never re-fit to the loss schedule.
+   Only ever chooses among points etkCurve has already marked feasible --
+   impedance, thermal and loss limits, the same three checks searchDesigns
+   itself gates on. It must never fall back to the cheapest point on the
+   curve regardless of compliance: an earlier version did exactly that
+   whenever nothing on the swept range was feasible, and at small ratings
+   where the 1.42 T flux floor already keeps no-load loss outside the
+   schedule at every K (not something K can fix), it picked the single
+   worst point for impedance on the entire curve purely because it was
+   cheapest -- a real transformer would have to be built to that undeclared
+   impedance, chosen by nobody. If nothing on the curve is feasible, that is
+   a fact about this design worth surfacing, not a search to relax until
+   something passes: return no override (deriveSpec's own suggestion stands,
+   exactly as it did before this search existed) and say why in
+   etkSearchNote, which computeDesign carries through to its own result. */
+function fitEtkToCost(p, over = {}, rates = DEFAULT_RATES) {
+  if (over.etK !== undefined) return {};
+  const curve = etkCurve(p, rates);
+  const pool = curve.filter((pt) => pt.feasible);
+  if (!pool.length) {
+    return curve.length
+      ? { etkSearchNote: `No K from ${ETK_RANGE[0]} to ${ETK_RANGE[ETK_RANGE.length - 1]} keeps this design within its declared impedance, thermal and loss limits at ${p.kva} kVA -- kept the auto-suggested K = ${p.etK} rather than optimising cost through a non-compliant point.` }
+      : {};
+  }
+  const best = pool.reduce((a, b) => (b.exFactory < a.exFactory ? b : a));
+  return { etK: best.etK };
 }
 
 /* ============================================================
@@ -1081,12 +1258,230 @@ function stampingSchedule(d, steps) {
 }
 
 function finLayout(d) {
-  if (d.dry || d.finAreaReq <= 0) return { n: 0, depth: 0, height: 0, perSide: 0 };
+  if (d.dry || d.finAreaReq <= 0) return { n: 0, depth: 0, height: 0, perSide: 0, lvEnd: 0, hvEnd: 0 };
   const depth = d.p.tankType === "fin" ? Math.min(400, Math.max(150, Math.round((d.tankH * 0.22) / 10) * 10)) : 320;
   const height = Math.max(200, d.tankH - 240);
   const per = (2 * height * depth) / 1e6;
   const n = Math.max(4, Math.ceil(d.finAreaReq / per));
-  return { n, depth, height, perSide: Math.ceil(n / 2), per };
+  /* MANUFACTURING.md section 7: perSide above is the CAD/drawing split
+     (front tank wall vs back tank wall, an even split for pitch and
+     placement) -- a different axis from lvEnd/hvEnd, which is how many
+     fins or radiators end up nearer the LV bushing end of the tank versus
+     the HV end, along its length. Bushings, the cable box and (on this
+     model's OLTC/OCTC) the tap changer linkage crowd the LV end and leave
+     less wall space there. The 1250 kVA sheet mounts 2 of its 6 radiators
+     on the LV side and 4 on the HV side, a 1:2 split -- fitted from that
+     one data point, so treat it as a starting allocation to check against
+     the works' own tank layout, not a fact for every rating and fitting
+     arrangement. */
+  const hvEnd = n <= 1 ? n : Math.max(1, Math.round((n * 2) / 3));
+  const lvEnd = n - hvEnd;
+  return { n, depth, height, perSide: Math.ceil(n / 2), per, lvEnd, hvEnd };
+}
+
+/* MANUFACTURING.md section 1: real practice states taps as turn numbers
+   along the winding with whole-turn steps, not the continuous percentage
+   d.turnsPerStep implies -- the 1250 kVA sheet runs exactly 7 turns per
+   step, 16 steps of 7 giving 112 turns, not turnsPerStep's raw 7.15.
+   Rounding to a whole turn per step means a tap's real voltage misses its
+   nominal percentage very slightly; etErrorPct reports that miss rather
+   than rounding it away. The regulating section is centred in the winding,
+   per the sheet's own stated reason (balances ampere-turns, limits axial
+   short-circuit force on the section either side of it) -- the engine has
+   no per-turn axial position yet (MANUFACTURING.md sections 5-6 add that),
+   so "centred" is this schedule's own placement assumption, not a measured
+   fact about a physical winding, and is reported as such. */
+function tappingSchedule(d, p) {
+  if (p.tapType === "none" || p.tapStep <= 0) {
+    return { rows: [], wholeStepTurns: 0, regulatingTurns: 0, sectionStart: 0, sectionFinish: 0, turnsBelow: 0, turnsAbove: 0 };
+  }
+  const minusSteps = Math.round(p.tapMinus / p.tapStep);
+  const plusSteps = Math.round(p.tapPlus / p.tapStep);
+  const wholeStepTurns = Math.max(1, Math.round(d.turnsPerStep));
+  const rows = [];
+  for (let i = -minusSteps; i <= plusSteps; i++) {
+    const turns = d.nHV + i * wholeStepTurns;
+    const nominalPct = i * p.tapStep;
+    const voltage = d.hvPh * (1 + nominalPct / 100);
+    const et = voltage / turns;
+    rows.push({
+      position: i, isNormal: i === 0, turns,
+      nominalPct: +nominalPct.toFixed(2), voltage,
+      et, etErrorPct: ((et - d.et) / d.et) * 100,
+    });
+  }
+  const totalTurns = d.nHVmax;
+  const minTurns = rows[0].turns;
+  const regulatingTurns = rows[rows.length - 1].turns - minTurns;
+  const sectionStart = Math.round((totalTurns - regulatingTurns) / 2) + 1;
+  const sectionFinish = sectionStart + regulatingTurns - 1;
+  return {
+    rows, wholeStepTurns, regulatingTurns, sectionStart, sectionFinish,
+    turnsBelow: sectionStart - 1, turnsAbove: totalTurns - sectionFinish,
+  };
+}
+
+/* MANUFACTURING.md section 2: LV in this engine is one continuous foil or,
+   above T_MIN thickness, a multi-layer strip -- a single conductor per
+   turn either way, never a bundle of parallel wires, so "parallel" and
+   "axial x radial" only apply to HV. HV itself is modelled as a single
+   required cross-section (aHVreq), not a chosen number of parallel
+   strands, so the split below is a heuristic, not something the engine
+   already derives elsewhere or something either reference design confirms:
+   both come out well under HV_STRAND_MAX_MM2 (single strand, the plain
+   axHV/rdHV the engine already computes), so multi-strand splitting is
+   untested against real data. MANUFACTURING.md's own "10.75 x 3.5 ) 8,
+   4A x 2R" example is given as the SHEETS' notation convention to follow,
+   not a confirmed number for either reference design's actual HV current --
+   at the 1250 kVA reference this heuristic's own required area (14.3 mm^2)
+   is nowhere near 8 strands' worth (301 mm^2 at 10.75 x 3.5), so that
+   example cannot be the 1250 kVA sheet's real HV conductor, or is a
+   different rating's. HV_STRAND_MAX_MM2 is therefore a generic practical
+   ceiling for a single rectangular strand (windability, eddy loss in the
+   strand), not a calibrated figure -- treat any split it produces as a
+   heuristic for the works to confirm, more so than the rest of this
+   section. Transposition required whenever more than two conductors sit in
+   parallel radially, the sheets' own rule ("very important on both
+   layers" for the notation example's 2-radial arrangement). */
+const HV_STRAND_MAX_MM2 = 37.6;
+function conductorSchedule(d, p) {
+  const lv = {
+    bare: { w: +d.foilW.toFixed(2), t: +d.tLV.toFixed(3) },
+    layers: d.lvTurnLayers,
+    construction: d.lvTurnLayers > 1 ? "Multi-layer strip winding" : "Single continuous foil",
+    covering: `${p.lvIns.toFixed(2)} mm interleaved paper between turns`,
+    parallel: 1, arrangement: null, transposition: false,
+  };
+
+  const aspect = 2.1;
+  let hvW, hvT, n, axCount, rdCount;
+  if (d.aHVreq <= HV_STRAND_MAX_MM2) {
+    n = 1; axCount = 1; rdCount = 1;
+    hvW = d.axHV; hvT = d.rdHV;
+  } else {
+    n = Math.ceil(d.aHVreq / HV_STRAND_MAX_MM2);
+    rdCount = Math.max(1, Math.round(Math.sqrt(n / aspect)));
+    axCount = Math.ceil(n / rdCount);
+    n = axCount * rdCount;
+    const strandArea = d.aHVreq / n;
+    hvT = Math.sqrt(strandArea / aspect);
+    hvW = aspect * hvT;
+  }
+  const hv = {
+    bare: { w: +hvW.toFixed(2), t: +hvT.toFixed(2) },
+    covered: { w: +(hvW + p.hvPaper).toFixed(2), t: +(hvT + p.hvPaper).toFixed(2) },
+    covering: `${p.hvPaper.toFixed(2)} mm paper covering, on diameter`,
+    parallel: n, arrangement: n > 1 ? `${axCount}A x ${rdCount}R` : null,
+    transposition: rdCount > 2,
+  };
+  return { lv, hv };
+}
+
+/* MANUFACTURING.md section 3: sized from geometry, never a fixed list --
+   but only the 1250 kVA sheet gives worked numbers (tie rods 18 mm dia,
+   635 mm long, 55 mm thread both ends, 8 off; core bolts 18 x 380, 8 off;
+   foot plates 100 x 15 MS flat, 3 off; neutral busbar minimum 1500 mm^2,
+   100 x 15 copper), so every scaling here is fitted from that ONE point
+   against a geometric driver chosen for a defensible physical reason, not
+   a curve fit -- ask for a second sheet at a different rating before
+   trusting these far from ~1250 kVA:
+     - rod/bolt diameter scales with sqrt(core mass), i.e. with clamping
+       force on a constant-stress assumption.
+     - tie rod length is the window height plus a 60 mm clamp allowance
+       each end (513.8 + 120 = 633.8 mm against the sheet's 635).
+     - core bolt length scales directly with window height (proportional
+       to the sheet's own 380 mm at Hw = 513.8 mm).
+     - rod/bolt quantity scales with core width, rounded to an even count
+       (rods run in symmetric pairs), floor 4.
+     - foot plate count is 3, one per limb, not scaled -- a fact about a
+       3-limb core, not a fit.
+   Material is deliberately not asserted here (stainless tie rods is one of
+   MANUFACTURING.md's own shop-notes examples, section 8): that is works
+   practice, entered once in the shop notes library, not computed per job.
+   Core clamp channel section and hole positions, and lifting/pulling lug
+   plate thickness, have no worked example in either sheet and no clean
+   geometric derivation -- printed as "to be specified" rather than
+   guessed, per CLAUDE.md's rule against inventing engineering data. */
+const HW_REF = { wCore: 1709.3, Hw: 513.8, coreWidth: 1230.9, dCore: 271.7, rodDia: 18, rodLen: 635, boltLen: 380, footW: 100 };
+function hardwareSchedule(d, p) {
+  const evenRound = (x) => Math.max(4, 2 * Math.round(x / 2));
+  const rodDia = Math.max(12, 2 * Math.round((HW_REF.rodDia * Math.sqrt(d.wCore / HW_REF.wCore)) / 2));
+  const rodQty = evenRound((8 * d.coreWidth) / HW_REF.coreWidth);
+  const tieRod = {
+    dia: rodDia, length: Math.round(d.Hw + 120), threadLength: Math.round(rodDia * 3),
+    qty: rodQty, material: "Per shop notes (stainless in both reference sheets)",
+  };
+  const coreBolt = {
+    dia: rodDia, length: Math.round((HW_REF.boltLen * d.Hw) / HW_REF.Hw),
+    qty: rodQty, material: tieRod.material,
+  };
+  const footPlate = {
+    w: Math.round((HW_REF.footW * d.dCore) / HW_REF.dCore), t: 15, qty: 3, material: "MS flat",
+  };
+  const clampChannel = {
+    length: Math.round(d.coreWidth), section: "to be specified", holePositions: "to be specified",
+  };
+  const lugs = { qty: "to be specified", plateThickness: "to be specified" };
+
+  /* Neutral busbar. MANUFACTURING.md's own instruction gives the
+     calculation (cross-section from LV current at the LV winding's own
+     current density) -- this is that calculated MINIMUM, not a claim about
+     what a works would actually fit. It gives 667 mm^2 at the 1250 kVA
+     reference against the sheet's own 1500 mm^2, more than double, and
+     that gap is not something to reproduce by fitting a fudge factor: a
+     neutral busbar is conventionally sized for fault duty and mechanical
+     robustness, not continuous-current density -- it carries a full
+     phase-to-neutral fault current well above the small unbalance and
+     triplen-harmonic current it sees in normal service, and has to survive
+     the mechanical force of that fault without a current-density
+     calculation ever entering into it. The engine has no fault-current or
+     mechanical-force model for this piece, so it cannot derive the 1500
+     mm^2 figure or anything like it -- printing the continuous-duty
+     minimum with that explanation is the honest answer, not a padded
+     number invented to match one sheet. See MANUFACTURING.md section 3. */
+  const vg = parseVectorGroup(p.vector);
+  let neutralBusbar = null;
+  if (vg.lvNeutral) {
+    const area = d.iLineLV / d.dLV;
+    const t = 15, w = Math.max(25, Math.ceil(area / t / 5) * 5);
+    neutralBusbar = { area: +area.toFixed(1), w, t, material: "Copper", note: "Calculated minimum from LV current at LV current density. Works practice commonly sizes the neutral busbar well above this, for fault duty and mechanical robustness rather than continuous current -- the 1250 kVA reference sheet's own figure (1500 mm2) is more than double this calculation." };
+  }
+
+  const deltaWire = [];
+  if (vg.hv === "D") deltaWire.push({ side: "HV", w: +d.axHV.toFixed(2), t: +d.rdHV.toFixed(2), covering: `${p.hvPaper.toFixed(2)} mm paper` });
+  if (vg.lv === "d") deltaWire.push({ side: "LV", w: +d.foilW.toFixed(2), t: +d.tLV.toFixed(3), covering: `${p.lvIns.toFixed(2)} mm interleaved paper` });
+
+  return { tieRod, coreBolt, footPlate, clampChannel, lugs, neutralBusbar, deltaWire };
+}
+
+/* MANUFACTURING.md section 4: yoke insulation, phase barrier, foot plate
+   and clamp insulation and the two cylinders (core-to-LV, LV-to-HV) are
+   derivable from core and coil geometry now. Their piece counts (6, 4, 3,
+   4) are constants for a conventional 3-limb stacked core -- both
+   reference sheets use one, so there is nothing to scale them against, but
+   a rectangular wound or amorphous core would need different counts this
+   does not yet account for. HT spacers, common blocks, CEEDEE blocks, oil
+   ducts and dovetail strips all depend on the axial disc/coil layout
+   (MANUFACTURING.md section 6) and are printed with material and
+   thickness only, quantity "to be specified", exactly as the file
+   instructs -- not estimated. */
+function insulationPieceList(d, p) {
+  const derived = [
+    { item: "Yoke insulation", material: "Pressboard", qty: 6, thickness: 3.0 },
+    { item: "Phase barrier", material: "Pressboard", qty: 4, thickness: 3.0 },
+    { item: "Foot plate insulation", material: "Pressboard", qty: 3, thickness: 3.0 },
+    { item: "Core clamp insulation", material: "Pressboard", qty: 4, thickness: 3.0 },
+    { item: "Core-to-LV cylinder", material: "Pressboard", qty: 3, thickness: p.cylThk, diameter: +(d.dCore + 2 * p.coreLvClr).toFixed(1), height: +d.hLV.toFixed(0) },
+    { item: "LV-to-HV cylinder", material: "Pressboard", qty: 3, thickness: p.cylThk, diameter: +d.lvOD.toFixed(1), height: +d.hHV.toFixed(0) },
+  ];
+  const pending = [
+    { item: "HT spacers", material: "Pressboard", qty: "to be specified", thickness: 1.5 },
+    { item: "Common blocks", material: "Pressboard", qty: "to be specified", thickness: 8.0 },
+    { item: "CEEDEE blocks", material: "Permawood", qty: "to be specified", thickness: null },
+    { item: "Oil ducts", material: null, qty: "to be specified", thickness: null },
+    { item: "Dovetail strips", material: null, qty: "to be specified", thickness: null },
+  ];
+  return { derived, pending };
 }
 
 const bushHeight = (um) => (um <= 1.1 ? 180 : um <= 12 ? 300 : um <= 24 ? 420 : um <= 36 ? 560 : um <= 52 ? 760 : 1100);
@@ -1175,15 +1570,26 @@ export {
   impacts, calcSheet, stepWidths, stampingSchedule, finLayout,
   documentRegister, routineTestSchedule, DOC_STATUS, REFS,
   inr, lakhs, bushMul, condRate, rkCond, fluxRange, bushHeight, parseVectorGroup,
+  etkCurve, fitEtkToCost, ETK_RANGE,
+  tappingSchedule, conductorSchedule, hardwareSchedule, insulationPieceList,
 };
 
 export function computeDesign(core, over = {}, rates = DEFAULT_RATES, extras = []) {
   const spec = deriveSpec(core, over);
   const fitted = fitToSchedule(spec.S, over);
-  const p = { ...spec.S, ...fitted };
+  const p0 = { ...spec.S, ...fitted };
+  // CALIBRATION.md section 2: runs after fitToSchedule so the K search sees
+  // the same flux and current density the actual build will use, and before
+  // designTransformer so an AUTO etK is never built at deriveSpec's raw
+  // fixed-multiplier guess when the project's own rates say otherwise.
+  // etkSearchNote (no compliant K found) is reporting, not a design
+  // parameter -- kept off of p/fitted so it never reaches designTransformer.
+  const { etkSearchNote, ...etkOverride } = fitEtkToCost(p0, over, rates);
+  const fittedAll = { ...fitted, ...etkOverride };
+  const p = { ...p0, ...etkOverride };
   const design = designTransformer(p);
   const bom = buildBOM(design, rates, extras);
-  return { spec, params: p, fitted, design, bom, engineVersion: ENGINE_VERSION };
+  return { spec, params: p, fitted: fittedAll, design, bom, engineVersion: ENGINE_VERSION, etkSearchNote };
 }
 
 export function fitToSchedule(S, over = {}) {

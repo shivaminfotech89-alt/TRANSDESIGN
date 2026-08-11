@@ -129,10 +129,25 @@ export interface Revision {
     budgetMin: number;
     budgetMax: number;
     searchOpts: Record<string, unknown>;
+    /** TASKS.md item 11.4: a negotiated rate for this project only, keyed by
+     *  engine rate key -- outranks every supplier and engineering-default
+     *  price for that key. Optional because revisions saved before this
+     *  field existed do not have it; read as {} when absent, never assume
+     *  every revision carries one. */
+    priceLocks?: Record<string, number>;
   };
   rateCardId: string;
   /** Frozen copy of the rates, so an old quotation reprices exactly as issued. */
   rateSnapshot: Rates;
+  /** TASKS.md item 11.4: which tier (and, for a supplier, which one and what
+   *  date) produced each key in rateSnapshot at the moment this revision was
+   *  saved. Frozen alongside rateSnapshot for the same reason: an item or
+   *  supplier record can change or be deleted later, and "defensible six
+   *  months later" means this revision must still be able to say where its
+   *  own numbers came from without depending on that record still existing.
+   *  Optional because revisions saved before this field existed do not have
+   *  it; read as {} when absent. */
+  rateSources?: Record<string, PriceResolution>;
   engineVersion: string;
   summary: DesignSummary;
   locked: boolean;
@@ -150,4 +165,123 @@ export interface GeneratedDocument {
   storagePath: string | null;
   generatedBy: string;
   generatedAt: number;
+}
+
+/**
+ * TASKS.md item 11.2. Master data, not design data: editable in place, no
+ * effective-from dating (a phone number or a lead time changing is not a
+ * priced event the way a rate is). The item master (11.3) is where an
+ * individual supplier's price against a specific item lives; this is only
+ * the supplier's own record.
+ */
+export interface Supplier {
+  name: string;
+  gstNumber: string;
+  contact: { person: string; phone: string; email: string };
+  /** Free-text categories, not a price list -- "Copper", "CRGO Steel",
+   *  "Bushings and Insulators". The item master is where a price against a
+   *  specific item code lives. */
+  materialsSupplied: string[];
+  leadTimeDays: number;
+  paymentTerms: string;
+  /** 1 to 5, no fractional half-stars -- whole numbers a rating discussion
+   *  can actually agree on. */
+  rating: number;
+  updatedBy: string;
+  updatedAt: number;
+}
+
+/**
+ * MANUFACTURING.md section 8: standing shop instructions -- works practice,
+ * not a calculation, and never generated. Edited in place like Supplier, no
+ * effective-from dating; a note being retired or reworded is not a priced
+ * event worth preserving history for. `fromReferenceSheet` marks the seven
+ * examples MANUFACTURING.md itself carries from the two reference sheets --
+ * kept distinguishable from a works' own notes so it stays visibly "review
+ * this, it came from a sample sheet" rather than blending in as if the
+ * platform generated it.
+ */
+export interface ShopNote {
+  text: string;
+  category: "winding" | "core" | "tank" | "general";
+  fromReferenceSheet: boolean;
+  updatedBy: string;
+  updatedAt: number;
+}
+
+/** Matches buildBOM's own segment lettering (packages/engine/index.js),
+ *  never a second taxonomy invented at the app layer: A core & coil, B tank/
+ *  cooling/fluid (or enclosure/finishing, dry type), C accessories and
+ *  terminations, D additional items. */
+export type ItemCategory = "A" | "B" | "C" | "D";
+
+/**
+ * TASKS.md item 11.3. One quotation received against one item from one
+ * supplier, kept even after it expires or is superseded -- "what makes a
+ * rate defensible six months later" is the full history, not just today's
+ * number. `source` here is documentary evidence (how this number was
+ * obtained), a different question from the price-source *tier* (11.4,
+ * PriceSourceTier below) that decides which record of possibly several
+ * actually prices the BOM.
+ */
+export interface ItemPrice {
+  supplierId: string;
+  unitPrice: number;
+  gstPct: number;
+  discountPct: number;
+  /** A lump sum tied to a specific order, not a per-unit figure -- kept for
+   *  audit and shown beside the price, never divided by an assumed quantity
+   *  into a per-kg addition the item master has no basis to guess. */
+  freight: number;
+  effectiveFrom: number;
+  /** null = no expiry set. */
+  expiresAt: number | null;
+  source: "quotation" | "purchase_order" | "invoice" | "rate_contract" | "verbal" | "catalogue";
+  remarks: string;
+  /** Only an approved price is eligible as the "latest approved supplier
+   *  price" fallback tier -- a submitted-but-unverified quote is not
+   *  quietly used to price a customer's transformer. */
+  approved: boolean;
+  createdBy: string;
+  createdAt: number;
+}
+
+/**
+ * TASKS.md item 11.3. `rateKey` is what connects this master record to
+ * costing: it must name one of the engine's own DEFAULT_RATES keys
+ * (packages/engine/index.js), and src/lib/pricing.ts's resolveRates() folds
+ * whichever price this item resolves to over that key's rate-card figure.
+ * An item with no rateKey (or one that names a key the engine does not
+ * have) is master data only -- reference information, not yet wired into
+ * any price.
+ */
+export interface Item {
+  code: string;
+  description: string;
+  unit: string;
+  category: ItemCategory;
+  rateKey: string;
+  /** "" = no company-designated default supplier for this item. */
+  preferredSupplierId: string;
+  prices: ItemPrice[];
+  updatedBy: string;
+  updatedAt: number;
+}
+
+/** TASKS.md item 11.4. Which of the four tiers actually produced a given
+ *  BOM rate, in priority order (checked in this order, first match wins,
+ *  falling through to engineering-default -- the rate card -- if nothing
+ *  else resolves). */
+export type PriceSourceTier =
+  | "project-locked" | "company-supplier" | "latest-approved-supplier" | "engineering-default";
+
+/** One rate key's resolved provenance -- src/lib/pricing.ts computes these,
+ *  this file only declares the shape, so a Revision (a Firestore document
+ *  shape) can reference it without lib/ ever importing from src/. */
+export interface PriceResolution {
+  tier: PriceSourceTier;
+  value: number;
+  supplierId?: string;
+  supplierName?: string;
+  date?: number;
 }

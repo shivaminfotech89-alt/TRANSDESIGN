@@ -7,6 +7,9 @@ import { DesignImpactSummary } from './components/DesignImpactSummary';
 import { ProjectBar } from './components/ProjectBar';
 import { NewProjectModal } from './components/NewProjectModal';
 import { RevisionsModal } from './components/RevisionsModal';
+import { RateCardManager } from './components/RateCardManager';
+import { SuppliersModal } from './components/SuppliersModal';
+import { ItemsModal } from './components/ItemsModal';
 import { Button } from './components/ui';
 import { useAuth } from './components/AuthContext';
 import { useOrg } from './components/OrgContext';
@@ -18,8 +21,12 @@ import {
 import { solveAllPins } from './lib/classBSolver';
 import { labelFor, fmtWithUnit } from './lib/paramLabels';
 import { diffDependents, type DependentChange } from './lib/impactSummary';
-import { createProject, renameProject, saveRevision, getRevision } from '../lib/projects';
-import type { ProjectMeta, Project, Revision } from '../lib/types';
+import { resolveRates, type PriceResolution } from './lib/pricing';
+import {
+  createProject, renameProject, saveRevision, getRevision, listRateCards, currentRateCard,
+  listItems, listSuppliers,
+} from '../lib/projects';
+import type { ProjectMeta, Project, Revision, RateCard, Item, Supplier } from '../lib/types';
 import { candidateKey } from './components/budget/BudgetTab';
 
 const CAN_EDIT_ROLES = ['owner', 'engineer', 'estimator'];
@@ -33,9 +40,16 @@ type PendingConflict =
  *  just these into `over` -- deriveSpec() re-derives everything else from
  *  `core` exactly as it already does, and locking flux/deltaLV/deltaHV here
  *  also locks autoFit, so the recompute reproduces the previewed numbers
- *  exactly rather than a fresh auto-fit landing nearby. */
+ *  exactly rather than a fresh auto-fit landing nearby.
+ *  etK, steps and tapType (CALIBRATION.md section 2): these three are on
+ *  every candidate whether or not the search actually swept them, so
+ *  copying them across is always safe -- but locking etK here also matters
+ *  when it WAS swept: without it, computeDesign's fitEtkToCost would treat
+ *  the adopted K as AUTO again and re-optimise it against the live rates,
+ *  which can land somewhere other than what was previewed. */
 const BUDGET_OVER_KEYS = [
   'coreType', 'coreGrade', 'flux', 'condLV', 'condHV', 'deltaLV', 'deltaHV', 'tankType', 'oilRiseTarget', 'lvHvClr',
+  'etK', 'steps', 'tapType',
 ] as const;
 
 type EditAction =
@@ -57,9 +71,66 @@ export default function App() {
 
   const [core, setCoreState] = useState<any>(ESSENTIALS);
   const [over, setOverState] = useState<Record<string, any>>({});
-  // Seeded from DEFAULT_RATES, but this is a real rate card once orgs/rateCards
-  // (TASKS.md item 4) exists -- never hardcode a rate value in a display component.
+  // DEFAULT_RATES is only the seed for the instant before the org's own
+  // current rate card loads (see the effect below) or a fallback if the org
+  // somehow has none -- every save uses rateCardId, the real document id,
+  // never a hardcoded literal.
   const [rates, setRates] = useState<Record<string, number>>(DEFAULT_RATES);
+  const [rateCardId, setRateCardId] = useState('default');
+  const [orgRateCards, setOrgRateCards] = useState<(RateCard & { id: string })[]>([]);
+  const [showRateCards, setShowRateCards] = useState(false);
+  // TASKS.md item 11.2: master data, not design data -- unrelated to
+  // whichever project is currently open, so it lives alongside the org-level
+  // rate cards rather than inside ProjectBar's per-project controls.
+  const [showSuppliers, setShowSuppliers] = useState(false);
+  // TASKS.md item 11.3: same reasoning as suppliers -- org-level master data.
+  const [showItems, setShowItems] = useState(false);
+  const [orgItems, setOrgItems] = useState<(Item & { id: string })[]>([]);
+  const [orgSuppliers, setOrgSuppliers] = useState<(Supplier & { id: string })[]>([]);
+
+  // TASKS.md item 11.4: a rate locked for this project only, keyed by engine
+  // rate key -- outranks every other tier. Part of what a revision saves
+  // (Revision.input.priceLocks); starts empty for a fresh project and is
+  // restored from whatever was saved when a revision is opened or copied
+  // forward.
+  const [priceLocks, setPriceLocks] = useState<Record<string, number>>({});
+  // True immediately after loading a saved revision's own frozen rates, so
+  // the live design reproduces exactly what was saved rather than
+  // re-resolving item/supplier prices that may have changed since (the same
+  // concern TASKS.md item 5's acceptance test already established for
+  // rates/over/core generally). The first edit of any kind clears it, since
+  // from that point the user is building a new candidate revision, which
+  // should price against the freshest data available -- see the handlers
+  // below that set it back to false.
+  const [ratesAreFrozen, setRatesAreFrozen] = useState(false);
+  // What handleOpenProject's revision itself saved as rateSources -- shown
+  // verbatim while ratesAreFrozen, so a locked-live revision (which never
+  // goes through the viewingRevision overlay) still shows real provenance
+  // instead of blank badges just because resolution was skipped.
+  const [frozenRateSources, setFrozenRateSources] = useState<Record<string, PriceResolution>>({});
+
+  // TASKS.md item 11.1: load the org's real rate cards once per session and
+  // seed the live design off whichever is actually in force today, instead
+  // of the raw engine defaults. Runs once -- orgId is stable for the
+  // session, and re-running this on every render would clobber a rate card
+  // the user has since selected, edited, or loaded from an opened project's
+  // own frozen rateSnapshot. Items and suppliers load alongside it for the
+  // same reason: 11.4's resolution needs both before the first price shows.
+  useEffect(() => {
+    listRateCards(orgId)
+      .then((cards) => {
+        setOrgRateCards(cards);
+        const current = currentRateCard(cards);
+        if (current) {
+          setRates(current.rates);
+          setRateCardId(current.id);
+        }
+      })
+      .catch((e) => console.error('[App] could not load the organisation\'s rate cards', e));
+    listItems(orgId).then(setOrgItems).catch((e) => console.error('[App] could not load the organisation\'s items', e));
+    listSuppliers(orgId).then(setOrgSuppliers).catch((e) => console.error('[App] could not load the organisation\'s suppliers', e));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orgId]);
   // Mirrors ProjectMeta.projectName (lib/types.ts). TASKS.md item 5: persisted
   // via lib/projects.ts against orgs/{orgId}/projects/{id}/revisions/{rev}.
   const [projectName, setProjectName] = useState('Untitled Design');
@@ -128,13 +199,20 @@ export default function App() {
   const handleNewProjectStart = (name: string, corePatch: Record<string, any>) => {
     setCoreState({ ...ESSENTIALS, ...corePatch });
     setOverState({});
-    setRates(DEFAULT_RATES);
+    // The org's own current rate card, not the bare engine defaults -- falls
+    // back to them only if the org somehow has no rate card at all yet.
+    const current = currentRateCard(orgRateCards);
+    setRates(current ? current.rates : DEFAULT_RATES);
+    setRateCardId(current ? current.id : 'default');
     setProjectName(name);
     setCurrentProjectId(null);
     setProjectCurrentRevision(-1);
     setLiveRevisionLocked(false);
     setOverrideLock(false);
     setCopiedFromRev(null);
+    setPriceLocks({});
+    setRatesAreFrozen(false);
+    setFrozenRateSources({});
     resetDesignState();
     setShowNewProjectModal(false);
   };
@@ -157,10 +235,16 @@ export default function App() {
       const newRev = await saveRevision(orgId, projectId, user.uid, {
         input: {
           core, over, meta: buildMeta(projectName), extras: [],
-          budgetMin: 0, budgetMax: 0, searchOpts: {},
+          budgetMin: 0, budgetMax: 0, searchOpts: {}, priceLocks,
         },
-        rateCardId: 'default',
-        rateSnapshot: rates,
+        rateCardId,
+        // The fully resolved figures, not the rate card's own raw values --
+        // TASKS.md item 11.4's whole point is that a supplier price can
+        // outrank the rate card, and rateSnapshot's job is to reprice
+        // exactly as issued, so it must freeze whichever numbers actually
+        // priced this quotation.
+        rateSnapshot: effectiveRates,
+        rateSources,
         engineVersion: result.engineVersion,
         summary: summarise(core, result.design, result.bom),
         note: copiedFromRev != null ? `Copied forward from rev ${copiedFromRev}` : '',
@@ -185,10 +269,11 @@ export default function App() {
       const newRev = await saveRevision(orgId, newId, user.uid, {
         input: {
           core, over, meta: buildMeta(newName), extras: [],
-          budgetMin: 0, budgetMax: 0, searchOpts: {},
+          budgetMin: 0, budgetMax: 0, searchOpts: {}, priceLocks,
         },
-        rateCardId: 'default',
-        rateSnapshot: rates,
+        rateCardId,
+        rateSnapshot: effectiveRates,
+        rateSources,
         engineVersion: result.engineVersion,
         summary: summarise(core, result.design, result.bom),
         note: `Copied from ${projectName}`,
@@ -218,6 +303,15 @@ export default function App() {
         setCoreState(rev.input.core);
         setOverState(rev.input.over);
         setRates(rev.rateSnapshot);
+        setRateCardId(rev.rateCardId);
+        setPriceLocks(rev.input.priceLocks || {});
+        // The saved rateSnapshot already reflects whatever the price
+        // hierarchy resolved at save time -- reproduce it exactly rather
+        // than re-resolving against item/supplier prices that may have
+        // moved since. Cleared the moment any edit happens (see the
+        // handlers below).
+        setRatesAreFrozen(true);
+        setFrozenRateSources(rev.rateSources || {});
         setProjectName(rev.input.meta?.projectName || project.name);
         setCurrentProjectId(project.id);
         resetDesignState();
@@ -243,6 +337,27 @@ export default function App() {
 
   const handleCloseRevisionView = () => setViewingRevision(null);
 
+  /** Switching or saving a rate card only changes what the live design
+   *  prices against -- it never touches a project's already-saved
+   *  revisions, each of which keeps the rateSnapshot it was saved with.
+   *  Guarded the same as every other edit surface: the "Manage Rate Cards"
+   *  button is already disabled while pricingLocked, this is defence in
+   *  depth against changing rates while a different design is on screen. */
+  const handleSelectRateCard = (card: RateCard & { id: string }) => {
+    if (budgetPreview || viewingRevision || readOnlyLive) return;
+    setRates(card.rates);
+    setRateCardId(card.id);
+    setRatesAreFrozen(false);
+  };
+
+  const handleRateCardSaved = (card: RateCard & { id: string }) => {
+    setOrgRateCards((cards) => [card, ...cards]);
+    if (budgetPreview || viewingRevision || readOnlyLive) return;
+    setRates(card.rates);
+    setRateCardId(card.id);
+    setRatesAreFrozen(false);
+  };
+
   /** The rules enforce a lock the moment it is written regardless of what
    *  this app's own state thinks -- this just keeps the UI from lagging
    *  behind by a full reopen when the just-locked revision is the one
@@ -262,6 +377,12 @@ export default function App() {
       setCoreState(viewingRevision.input.core);
       setOverState(viewingRevision.input.over);
       setRates(viewingRevision.rateSnapshot);
+      setRateCardId(viewingRevision.rateCardId);
+      setPriceLocks(viewingRevision.input.priceLocks || {});
+      // This is now a fresh, editable draft based on old values -- it should
+      // price against the freshest item/supplier data available, not stay
+      // pinned to whatever that old revision happened to resolve to.
+      setRatesAreFrozen(false);
       setCopiedFromRev(viewingRevision.rev);
       setLiveRevisionLocked(false);
       setOverrideLock(false);
@@ -269,15 +390,20 @@ export default function App() {
     } else if (liveRevisionLocked) {
       setCopiedFromRev(projectCurrentRevision);
       setOverrideLock(true);
+      setRatesAreFrozen(false);
     }
   };
 
   // Core-level enquiry edits (kva, hv, vector...) are direct inputs too --
-  // track them the same way as a Class A row for the impact summary.
+  // track them the same way as a Class A row for the impact summary. Also
+  // the point past which pricing should stop reproducing a frozen snapshot
+  // and start resolving live again -- any edit means this is now a new
+  // candidate revision, not just a view of the one that was opened.
   const handleCoreChange = (nextCore: Record<string, any>) => {
     const key = Object.keys(nextCore).find((k) => nextCore[k] !== core[k]);
     if (key) setLastAction({ kind: 'param', key });
     setCoreState(nextCore);
+    setRatesAreFrozen(false);
   };
 
   // A Class A row (flux, deltaLV, deltaHV, etK, oilRiseTarget) is also a lever.
@@ -297,6 +423,7 @@ export default function App() {
     const key = [...keys].find((k) => over[k] !== nextOver[k]);
     if (key) setLastAction({ kind: 'param', key });
     setOverState(nextOver);
+    setRatesAreFrozen(false);
   };
 
   const requestPin = (targetId: string, value: number) => {
@@ -307,6 +434,7 @@ export default function App() {
     }
     setLastAction({ kind: 'pin-set', targetId });
     setPins({ ...pins, [targetId]: { targetId, value } });
+    setRatesAreFrozen(false);
   };
 
   const releasePin = (targetId: string) => {
@@ -315,6 +443,7 @@ export default function App() {
     delete next[targetId];
     if (releasedValue !== undefined) setLastAction({ kind: 'pin-release', targetId, releasedValue });
     setPins(next);
+    setRatesAreFrozen(false);
   };
 
   const resolveConflict = (release: boolean) => {
@@ -334,9 +463,25 @@ export default function App() {
       }
       setPins(nextPins);
       setOverState(nextOver);
+      setRatesAreFrozen(false);
     }
     setPendingConflict(null);
   };
+
+  const suppliersById = useMemo(
+    () => new Map(orgSuppliers.map((s) => [s.id, { name: s.name }])),
+    [orgSuppliers],
+  );
+
+  // TASKS.md item 11.4: the price source hierarchy. When ratesAreFrozen (a
+  // just-opened or just-viewed revision, untouched since), skip resolution
+  // entirely and use the frozen rates verbatim -- src/lib/pricing.ts's own
+  // header explains why the engine never sees any of this directly either
+  // way, only ever a flat Record<string, number>.
+  const { rates: effectiveRates, sources: rateSources } = useMemo(() => {
+    if (ratesAreFrozen) return { rates, sources: frozenRateSources };
+    return resolveRates(rates, orgItems, suppliersById, priceLocks, Date.now());
+  }, [rates, orgItems, suppliersById, priceLocks, ratesAreFrozen, frozenRateSources]);
 
   // SOLVER.md step 3: solve every active pin against the design. Pins never
   // share a lever (conflict detection above guarantees that), but a pin can
@@ -350,13 +495,13 @@ export default function App() {
     // from its default parameter, which is stricter than the editable Record<string,
     // number> this state actually needs to be. Cast at this one boundary rather
     // than propagating that accidental strictness through the app.
-    const solved = solveAllPins(pins, core, over, rates as any);
-    const result = computeDesign(core, solved.effectiveOver, rates as any, []);
+    const solved = solveAllPins(pins, core, over, effectiveRates as any);
+    const result = computeDesign(core, solved.effectiveOver, effectiveRates as any, []);
     return {
       result, solveResults: solved.results,
       solveConverged: solved.converged, solveFighting: solved.fighting,
     };
-  }, [core, over, rates, pins]);
+  }, [core, over, effectiveRates, pins]);
 
   // Read-only overlay for a browsed revision: recomputed only from that
   // revision's own frozen input/rateSnapshot, exactly as saveRevision froze
@@ -393,9 +538,25 @@ export default function App() {
     for (const k of BUDGET_OVER_KEYS) patch[k] = budgetPreview.inputs[k];
     setOverState({ ...over, ...patch });
     resetDesignState();
+    setRatesAreFrozen(false);
   };
 
   const handleDiscardBudget = () => setBudgetPreview(null);
+
+  /** TASKS.md item 11.4, the top tier: lock this rate key's currently
+   *  resolved value for this project only, or clear the lock to fall back
+   *  through the rest of the hierarchy. Guarded the same as every other
+   *  edit surface -- not reachable while a different design is on screen. */
+  const handleTogglePriceLock = (rateKey: string) => {
+    if (budgetPreview || viewingRevision || readOnlyLive) return;
+    setPriceLocks((locks) => {
+      if (rateKey in locks) {
+        const { [rateKey]: _removed, ...rest } = locks;
+        return rest;
+      }
+      return { ...locks, [rateKey]: effectiveRates[rateKey] };
+    });
+  };
 
   // SOLVER.md step 4: Design Impact Summary, shown after every change, for
   // the one decision just made -- not a diff of the whole design. impacts()
@@ -504,12 +665,26 @@ export default function App() {
                 5's acceptance test) needs a real way to sign out. */}
             <div className="text-right font-mono text-[10px] text-ink2 leading-relaxed shrink-0">
               <div className="truncate max-w-[180px]">{user?.email}</div>
-              <button
-                onClick={logOut}
-                className="font-display uppercase text-[9px] tracking-[0.14em] text-steel underline underline-offset-2"
-              >
-                Sign Out
-              </button>
+              <div className="flex gap-2 justify-end">
+                <button
+                  onClick={() => setShowItems(true)}
+                  className="font-display uppercase text-[9px] tracking-[0.14em] text-steel underline underline-offset-2"
+                >
+                  Items
+                </button>
+                <button
+                  onClick={() => setShowSuppliers(true)}
+                  className="font-display uppercase text-[9px] tracking-[0.14em] text-steel underline underline-offset-2"
+                >
+                  Suppliers
+                </button>
+                <button
+                  onClick={logOut}
+                  className="font-display uppercase text-[9px] tracking-[0.14em] text-steel underline underline-offset-2"
+                >
+                  Sign Out
+                </button>
+              </div>
             </div>
           </div>
         </header>
@@ -629,7 +804,18 @@ export default function App() {
               core={core} design={activeDesign} bom={activeBom} params={activeParams}
               liveDesign={result.design} liveBom={result.bom} liveParams={result.params}
               project={buildMeta(projectName)}
-              rates={rates} onRatesChange={setRates}
+              rates={rates} onRatesChange={setRates} effectiveRates={effectiveRates}
+              rateCard={orgRateCards.find((c) => c.id === rateCardId) || null}
+              onManageRateCards={() => setShowRateCards(true)}
+              pricingLocked={!!budgetPreview || !!viewingRevision || readOnlyLive}
+              // TASKS.md item 11.4: a viewed revision shows the provenance it
+              // was actually saved with, frozen alongside its rateSnapshot --
+              // never re-resolved against current item/supplier data. A
+              // budget preview is an engine-generated alternative, not a
+              // priced BOM, so it carries no sources at all.
+              rateSources={viewingRevision ? (viewingRevision.rateSources || {}) : budgetPreview ? {} : rateSources}
+              priceLocks={viewingRevision ? (viewingRevision.input.priceLocks || {}) : priceLocks}
+              onTogglePriceLock={handleTogglePriceLock}
               activePreviewKey={activePreviewKey}
               onSelectPreview={(candidate) => { setViewingRevision(null); setBudgetPreview(candidate); }}
             />
@@ -647,6 +833,41 @@ export default function App() {
           currentRevision={projectCurrentRevision} canEdit={canEdit}
           onClose={() => setShowRevisions(false)} onView={handleViewRevision}
           onLocked={handleRevisionLocked}
+        />
+      )}
+
+      {showRateCards && (
+        <RateCardManager
+          orgId={orgId} uid={user?.uid || ''} liveRates={rates} currentRateCardId={rateCardId}
+          onClose={() => setShowRateCards(false)}
+          onSelect={(card) => { handleSelectRateCard(card); setShowRateCards(false); }}
+          onSaved={(card) => { handleRateCardSaved(card); setShowRateCards(false); }}
+        />
+      )}
+
+      {showSuppliers && (
+        <SuppliersModal
+          orgId={orgId} uid={user?.uid || ''} canEdit={canEdit}
+          onClose={() => {
+            setShowSuppliers(false);
+            // Refreshes the org-wide supplier list this session already
+            // loaded, so a name/rating edit inside the modal is reflected
+            // the next time a price resolves against that supplier.
+            listSuppliers(orgId).then(setOrgSuppliers).catch(() => {});
+          }}
+        />
+      )}
+
+      {showItems && (
+        <ItemsModal
+          orgId={orgId} uid={user?.uid || ''} canEdit={canEdit}
+          onClose={() => {
+            setShowItems(false);
+            // Same reasoning as suppliers above -- an item or price record
+            // added inside the modal should feed the next live resolution
+            // without waiting for a full page reload.
+            listItems(orgId).then(setOrgItems).catch(() => {});
+          }}
         />
       )}
     </div>
