@@ -8,7 +8,7 @@
  * without bumping it, or old quotations stop reproducing.
  */
 
-export const ENGINE_VERSION = "1.4.2";
+export const ENGINE_VERSION = "1.5.0";
 
 const CONDUCTORS = {
   copper: { name: "Copper, EC grade", rho20: 0.017241, alpha: 0.00393, dens: 8890, dMax: 3.6, short: "Cu", proof: 1.0 },
@@ -340,6 +340,39 @@ function deriveSpec(core, over = {}) {
   put("tapMinus", tt === "none" ? 0 : isO ? 15 : 5, [0, 20, 0.5], null, "Range below the normal tap.");
   put("tapStep", isO ? 1.25 : 2.5, null, [[0.625, "0.625 %"], [1.25, "1.25 %"], [1.5, "1.5 %"], [2.5, "2.5 %"], [3.0, "3.0 %"], [5.0, "5.0 %"]], "Step size between tap positions.");
 
+  /* --- HV winding construction, MANUFACTURING.md section 5 --- */
+  /* Layer below hvLayerMaxKva; disc once an OLTC is fitted or the rating
+     reaches hvDiscMinKva; crossover in between. Practice, not physics --
+     both thresholds are editable, and the two reference sheets pin only
+     two points on this curve: 630 kVA dry, no tap changer forced (this
+     application's own "octc" default) lands on crossover; 1250 kVA OLTC
+     lands on disc regardless of hvDiscMinKva, since the OLTC rule alone
+     already selects disc there. Nothing pins where a NON-OLTC design
+     would cross from crossover to disc -- hvDiscMinKva's default is a
+     placed-above-both-references guess, not a confirmed figure. */
+  put("hvLayerMaxKva", 500, [100, 2000, 50], null, "Below this rating, HV is a single continuous layer winding. Practice, not physics -- confirmed only as \"roughly here\" by the reference sheets, not pinned exactly.");
+  const hvDiscMinKva = put("hvDiscMinKva", 2000, [500, 5000, 100], null, "Above this rating, or whenever an on-load tap changer is fitted, HV moves to disc construction. The OLTC rule is confirmed by the 1250 kVA reference; this kVA threshold on its own is not.");
+  const hvConstructionSug = kva < S.hvLayerMaxKva ? "layer" : (tt === "oltc" || kva >= hvDiscMinKva) ? "disc" : "crossover";
+  put("hvConstruction", hvConstructionSug, null,
+    [["layer", "Single continuous layer"], ["crossover", "Crossover coils"], ["disc", "Disc wound"]],
+    `${kva} kVA${tt === "oltc" ? " with an on-load tap changer" : ""} normally uses ${hvConstructionSug} construction.`);
+  put("hvCrossoverTurnsPerLayer", 10, [4, 20, 1], null, "Turns per axial layer within one crossover coil, kept small so each coil stays easy to wind and handle. Fitted from the 630 kVA dry reference.");
+  /* 20 mm reproduces the 630 kVA dry reference's 6 coils of 13 layers of 10
+     turns almost exactly (6/13/10 against a target of 6/13/10). Confirmed
+     dry-type only -- an oil-immersed crossover winding would plausibly need
+     less gap, the same way every other dry clearance in this engine is
+     multiplied up for air insulation (clearancesFrom's dryType multiplier),
+     but there is no oil-immersed crossover reference to fit that against,
+     so the same figure is used for both media rather than guessing a split. */
+  put("hvCoilGap", 20, [1, 30, 0.5], null, "Axial gap between adjacent crossover coils, for insulation, cooling and the crossover lead. Fitted from the 630 kVA dry reference; likely conservative for oil.");
+  /* 4.5 mm reproduces the 1250 kVA reference's 44 discs almost exactly
+     (44 against a target of 44, HV OD within 0.4%, tank length within
+     0.4%) -- fitted directly against that outcome, not against the sheet's
+     own stated 97.5 mm over 43 gaps (2.3 mm average), which assumes this
+     engine's own axHV/rdHV conductor sizing matches the sheet's, and it
+     does not exactly. */
+  put("hvDiscGap", 4.5, [1, 10, 0.1], null, "Axial gap between adjacent discs. Fitted from the 1250 kVA reference.");
+
   /* --- clearances from the impulse level --- */
   const cl = clearancesFrom(S.bilHV, S.bilLV, core.medium, S.dryType);
   const clNote = `Scaled from the ${S.bilHV} kVp impulse level${dry ? " and multiplied for air insulation" : ""}.`;
@@ -474,12 +507,58 @@ function designTransformer(p) {
     let lvRadial = lvTurnLayers * (tLV + p.lvIns);
     lvRadial += (lvRadial > 22 ? 2 : 1) * 6;
 
-    /* HV: layer winding */
+    /* HV: layer, crossover or disc winding, selected by p.hvConstruction
+       (MANUFACTURING.md section 5). Conductor size (axHV, rdHV) does not
+       depend on construction, only how it is arranged does.
+
+       Unified model: nHVmax turns fill "groups" stacked axially (a layer
+       winding's whole coil is one group; a crossover winding is several
+       coils, each its own group; a disc winding is many discs, each its
+       own group). Within a group, groupTurns turns stack axially per
+       radial layer, and layers stack radially exactly as a plain layer
+       winding already did -- layer construction is the special case
+       numGroups = 1, groupTurns solved from the window height, which
+       reduces these formulas to exactly what they were before this
+       section existed. Groups themselves stack axially with groupGap
+       between them, so numGroups responds to the window-height bisection
+       the same way turnsPerLayer always has for a plain layer winding.
+
+       - Crossover: groupTurns is a practical, fixed axial turn count per
+         coil (p.hvCrossoverTurnsPerLayer, default 10) -- kept small so
+         each coil stays easy to wind and handle. Together with
+         p.hvCoilGap (default 20 mm), this reproduces the 630 kVA dry
+         reference's 6 coils of 13 layers of 10 turns almost exactly.
+       - Disc: groupTurns = 1 (a disc's turns stack radially, not axially,
+         so each "layer" here is one turn and the disc's own axial extent
+         is one conductor deep). numGroups (disc count) and groupGap
+         (p.hvDiscGap, default 4.5 mm) are what determine how many discs
+         the window height holds; turns per disc then falls out of that,
+         rather than being fixed independently -- there is no clean
+         first-principles driver for it at this BIL class (dielectric
+         grading would allow a far higher figure). p.hvDiscGap reproduces
+         the 1250 kVA reference's 44 discs almost exactly; see its own
+         put() note for why it isn't simply the sheet's stated 97.5 mm
+         over 43 gaps. */
     let axHV, rdHV;
     if (aHVreq > 6) { rdHV = Math.sqrt(aHVreq / 2.1); axHV = 2.1 * rdHV; }
     else { const dia = Math.sqrt((4 * aHVreq) / Math.PI); axHV = dia; rdHV = dia; }
-    const turnsPerLayer = Math.max(1, Math.floor(hHV / (axHV + p.hvPaper)));
-    const layers = Math.max(1, Math.ceil(nHVmax / turnsPerLayer));
+
+    let groupTurns, groupGap, numGroups;
+    if (p.hvConstruction === "crossover") {
+      groupTurns = Math.max(1, Math.round(p.hvCrossoverTurnsPerLayer));
+      groupGap = p.hvCoilGap;
+      numGroups = Math.max(1, Math.floor((hHV + groupGap) / (groupTurns * (axHV + p.hvPaper) + groupGap)));
+    } else if (p.hvConstruction === "disc") {
+      groupTurns = 1;
+      groupGap = p.hvDiscGap;
+      numGroups = Math.max(2, Math.floor((hHV + groupGap) / ((axHV + p.hvPaper) + groupGap)));
+    } else {
+      groupTurns = Math.max(1, Math.floor(hHV / (axHV + p.hvPaper)));
+      groupGap = 0;
+      numGroups = 1;
+    }
+    const turnsPerLayer = groupTurns;
+    const layers = Math.max(1, Math.ceil(nHVmax / (numGroups * groupTurns)));
     const hvDucts = Math.min(2, Math.floor(layers / 6));
     const hvRadial = layers * (rdHV + p.hvPaper) + (layers - 1) * p.hvInterlayer + hvDucts * 6;
 
@@ -509,6 +588,7 @@ function designTransformer(p) {
       lvID, lvOD, hvID, hvOD, cc, Ww, lmtLV, lmtHV, rLV, rHV, i2rLV, i2rHV, loadLoss,
       pctX, pctR, pctZ: Math.sqrt(pctX * pctX + pctR * pctR),
       voltsPerLayer: et * turnsPerLayer,
+      numGroups, groupGap,
     };
   };
 
@@ -660,6 +740,7 @@ function designTransformer(p) {
     aNet: aNet * 1e4, aGross: aGross * 1e4, dCore, coreW, coreD, Hw, Ww: g.Ww, cc: g.cc,
     aLVreq, aHVreq, tLV: g.tLV, foilW: g.foilW, lvRadial: g.lvRadial, hvRadial: g.hvRadial,
     layers: g.layers, turnsPerLayer: g.turnsPerLayer, axHV: g.axHV, rdHV: g.rdHV, voltsPerLayer: g.voltsPerLayer,
+    numGroups: g.numGroups, groupGap: g.groupGap, hvConstruction: p.hvConstruction,
     lvID: g.lvID, lvOD: g.lvOD, hvID: g.hvID, hvOD: g.hvOD, lmtLV: g.lmtLV, lmtHV: g.lmtHV, hLV: g.hLV, hHV: g.hHV,
     wLV, wHV, wCore, wIns, wFrame, wTank, wFin, wEnclosure, fluidLitres, coilArea,
     coreHeight, coreWidth, yokeDepth, tankL, tankW, tankH, tankArea, finAreaReq,
@@ -692,7 +773,7 @@ function buildBOM(d, r, extras = []) {
   const A = [
     { code: "CR-01", desc: `Core lamination \u2013 ${d.grade.name}, ${d.ct.name}`, qty: d.wCore, unit: "kg", rate: coreRate, rk: "core" },
     { code: "WD-01", desc: `LV winding \u2013 ${d.cLV.name}`, qty: d.wLV, unit: "kg", rate: condRate(p.condLV, r), rk: rkCond(p.condLV) },
-    { code: "WD-02", desc: `HV winding \u2013 ${d.cHV.name}, ${d.layers} layers`, qty: d.wHV, unit: "kg", rate: condRate(p.condHV, r), rk: rkCond(p.condHV) },
+    { code: "WD-02", desc: `HV winding \u2013 ${d.cHV.name}, ${d.hvConstruction === "layer" ? `${d.layers} layers` : d.hvConstruction === "crossover" ? `${d.numGroups} crossover coils, ${d.layers} layers each` : `${d.numGroups} discs, ${d.layers} turns each`}`, qty: d.wHV, unit: "kg", rate: condRate(p.condHV, r), rk: rkCond(p.condHV) },
     { code: "IN-01", desc: `Insulation for ${p.bilHV} kVp LI / ${p.acHV} kV AC, class ${p.insClass}`, qty: d.wIns, unit: "kg", rate: r.insulation, rk: "insulation" },
     { code: "FR-01", desc: "Core clamping frame, tie rods, MS fabricated", qty: d.wFrame, unit: "kg", rate: r.frameMS, rk: "frameMS" },
   ];
@@ -1127,8 +1208,17 @@ function calcSheet(d, bom) {
     row("LV radial build", "b\u2082", "b\u2082 = layers \u00D7 (t\u2082 + insulation) + ducts", `= ${d.lvTurnLayers} \u00D7 (${n(d.tLV)} + ${n(p.lvIns)}) + ducts`, `${n(d.lvRadial, 1)} mm`, REFS.B, "turns, foil thickness, insulation"),
     row("HV conductor area", "a\u2081", "a\u2081 = I\u2081\u209A\u2095 / \u03B4\u2081", `= ${n(d.iHV, 2)} / ${n(d.dHV)}`, `${n(d.aHVreq)} mm\u00B2`, REFS.S, "HV current, HV current density"),
     row("HV conductor section", "ax \u00D7 rd", "rectangular 2.1:1, or round of equal area", "n/a", `${n(d.axHV)} \u00D7 ${n(d.rdHV)} mm`, REFS.B, "HV conductor area"),
-    row("Turns per layer", "n\u2097", "n\u2097 = floor(h\u2081 / (ax + paper))", `= floor(${n(d.hHV, 0)} / (${n(d.axHV)} + ${n(p.hvPaper)}))`, `${d.turnsPerLayer}`, REFS.B, "coil height, conductor size"),
-    row("Number of layers", "L", "L = ceil(N\u2081\u2098\u2090\u2093 / n\u2097)", `= ceil(${d.nHVmax} / ${d.turnsPerLayer})`, `${d.layers}`, REFS.B, "HV turns, turns per layer"),
+    row("HV construction", "\u2014", "layer below hvLayerMaxKva; disc if OLTC or above hvDiscMinKva; crossover between \u2014 MANUFACTURING.md section 5", "n/a",
+      d.hvConstruction === "layer" ? "Single continuous layer"
+        : d.hvConstruction === "crossover" ? `Crossover, ${d.numGroups} coils`
+          : `Disc wound, ${d.numGroups} discs`,
+      REFS.K + " \u00B7 practice, not a physical law", "rating, tap changer type"),
+    d.hvConstruction === "layer"
+      ? row("Turns per layer", "n\u2097", "n\u2097 = floor(h\u2081 / (ax + paper))", `= floor(${n(d.hHV, 0)} / (${n(d.axHV)} + ${n(p.hvPaper)}))`, `${d.turnsPerLayer}`, REFS.B, "coil height, conductor size")
+      : row("Turns per axial layer", "n\u2097", d.hvConstruction === "crossover" ? "n\u2097 = hvCrossoverTurnsPerLayer (fixed)" : "n\u2097 = 1 (a disc's turns stack radially, not axially)", "n/a", `${d.turnsPerLayer}`, REFS.B, "practice"),
+    d.hvConstruction === "layer"
+      ? row("Number of layers", "L", "L = ceil(N\u2081\u2098\u2090\u2093 / n\u2097)", `= ceil(${d.nHVmax} / ${d.turnsPerLayer})`, `${d.layers}`, REFS.B, "HV turns, turns per layer")
+      : row(d.hvConstruction === "crossover" ? "Layers per coil" : "Turns per disc", "L", "L = ceil(N\u2081\u2098\u2090\u2093 / (groups \u00D7 n\u2097))", `= ceil(${d.nHVmax} / (${d.numGroups} \u00D7 ${d.turnsPerLayer}))`, `${d.layers}`, REFS.B, "HV turns, group count, turns per layer"),
     row("Volts per layer", "V\u2097", "V\u2097 = E\u209C \u00D7 n\u2097", `= ${n(d.et, 3)} \u00D7 ${d.turnsPerLayer}`, `${n(d.voltsPerLayer, 0)} V`, REFS.IEC3 + " \u00B7 interlayer stress", "E\u209C, turns per layer"),
     row("HV radial build", "b\u2081", "b\u2081 = L(rd + paper) + (L\u22121)\u00B7interlayer + ducts", `= ${d.layers}(${n(d.rdHV)}+${n(p.hvPaper)}) + ${d.layers - 1}\u00D7${n(p.hvInterlayer)} + ${d.hvDucts}\u00D76`, `${n(d.hvRadial, 1)} mm`, REFS.B, "layers, conductor, insulation"),
     row("LV inner / outer diameter", "D\u2082\u1D62 / D\u2082\u2092", "D\u2082\u1D62 = d + 2\u00B7(core\u2013LV);  D\u2082\u2092 = D\u2082\u1D62 + 2b\u2082", `= ${n(d.dCore, 0)} + 2\u00D7${n(p.coreLvClr, 0)}`, `${n(d.lvID, 0)} / ${n(d.lvOD, 0)} mm`, REFS.IEC3, "core diameter, clearance, LV build"),

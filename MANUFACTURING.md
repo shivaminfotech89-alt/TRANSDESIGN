@@ -102,25 +102,40 @@ counts depend on the axial design in section 6 and must wait for it.
 Where a count is not yet derivable, print the row with the material and
 thickness and mark the quantity "to be specified". Do not estimate it.
 
-## 5. Winding schedule — needs engine capability first
+## 5. Winding schedule — engine capability added, ENGINE_VERSION 1.5.0
 
-Both designs use multi-coil HV windings, which the engine does not model.
+Both reference designs use multi-coil HV windings, which the engine now
+models: `p.hvConstruction` (layer, crossover or disc) is selected from
+rating and tap changer type alone -- below `hvLayerMaxKva` (suggested 500)
+it is layer; at or above `hvDiscMinKva` (suggested 2000), or whenever an
+on-load tap changer is fitted, it is disc; crossover in between. Both
+thresholds are ordinary AUTO/SET parameters, not hardcoded constants,
+since the practice they encode is confirmed at only the two rating/tap
+combinations the reference sheets happen to give (see `deriveSpec`'s own
+note on `hvLayerMaxKva`/`hvDiscMinKva` for exactly what is and is not
+pinned by data).
 
-- 1250 kVA: disc wound, 6 discs at 13 turns, 12 at 15, 8 at 14 in the
-  transposition zone, 12 at 15, 6 at 13, totalling 628.
-- 630 kVA: 6 crossover coils of 123 turns each, 13 layers of 10 turns.
+Reproduced against the reference sheets, auto-selected without being told
+which construction to use:
 
-The engine currently models HV as one continuous layer winding over the full
-window height. That is right for small ratings and wrong above roughly 500 kVA,
-and it changes both the radial build and the axial height.
+- 1250 kVA, OLTC: **disc**, 44 discs (target 44), HV OD within 0.4% of 494,
+  tank length within 0.4% of 1660 -- both promoted from known gaps to hard
+  assertions in `reference-designs.test.mjs`. The sheet's own five-group
+  turn distribution (6 at 13, 12 at 15, 8 at 14 in the transposition zone,
+  12 at 15, 6 at 13) is not reproduced group-by-group -- the engine gives a
+  single, uniform turns-per-disc (15, within the sheet's own 13-15 range)
+  rather than the graded distribution a real design uses to sit the tap
+  changer's regulating section in the middle of the winding. Grading that
+  distribution would need the tap section's own placement (`tappingSchedule`,
+  section 1) to drive the disc-by-disc split, not just an overall count --
+  a further refinement, not attempted here.
+- 630 kVA, dry: **crossover**, 6 coils of 13 layers of 10 turns per layer --
+  all three match the sheet's own structure exactly.
 
-**Add multi-coil HV winding to the engine before building this section.**
-Support layer, crossover and disc construction, selected by rating and voltage
-class, with the number of coils or discs and the turns in each as engine
-outputs. Then the winding schedule is a direct print of those outputs.
-
-Until it exists, show the section with a plain statement that it requires
-multi-coil winding support, not a fabricated distribution.
+`d.hvConstruction`, `d.numGroups` and `d.layers` (packages/engine/index.js)
+carry these outputs already. The winding schedule itself -- a direct print
+of them, per this section's own original instruction -- is the next piece
+of work, not yet built.
 
 ## 6. Axial spacer and gap schedule — needs engine capability first
 

@@ -87,15 +87,32 @@ const r = E.computeDesign(E.ESSENTIALS, {}, E.DEFAULT_RATES, []);
 // none of which were acceptable. Fixed: fitEtkToCost now only ever selects
 // a feasible point, and returns no override at all when none exists, so
 // etK correctly falls back to deriveSpec's own suggestion instead.
-eq("ex-works", Math.round(r.bom.exFactory), 1548160, 500);
-eq("delivered", Math.round(r.bom.withGst), 1826829, 600);
-eq("tank length mm", Math.round(r.design.tankL), 1405, 2);
-eq("no-load loss W", Math.round(r.design.noLoad), 1095, 5);
-eq("load loss W", Math.round(r.design.loadLoss), 10303, 30);
+//
+// ENGINE_VERSION 1.5.0: MANUFACTURING.md section 5, its own phase. HV was a
+// single continuous layer winding regardless of rating -- right below about
+// 500 kVA, wrong above it. HV now selects layer, crossover or disc
+// construction from kva and tapType alone (p.hvConstruction, AUTO by
+// default -- see deriveSpec's own note on hvLayerMaxKva/hvDiscMinKva), and
+// this 1000 kVA default case crosses the layer threshold: it now builds
+// crossover, 6 coils. A crossover (or disc) winding has a genuinely
+// different radial build and axial height than a layer winding at the same
+// turns, which is why every number below moved, not just the winding
+// dimensions -- window height feeds the impedance solve, which feeds core
+// size, which feeds cost, which is what fitEtkToCost searches: etK moved
+// from 0.48 to 0.52 because the cost curve crossover construction produces
+// is a different curve, not because anything about the K search itself
+// changed. See reference-designs.test.mjs for what this did to the three
+// Group 2 known gaps -- two of them closed to hard-assertion tolerance.
+eq("ex-works", Math.round(r.bom.exFactory), 1771108, 600);
+eq("delivered", Math.round(r.bom.withGst), 2089907, 700);
+eq("tank length mm", Math.round(r.design.tankL), 1539, 2);
+eq("no-load loss W", Math.round(r.design.noLoad), 1148, 5);
+eq("load loss W", Math.round(r.design.loadLoss), 9925, 30);
 eq("impedance %", +r.design.pctZ.toFixed(2), 5.00, 0.02);
-eq("efficiency %", +r.design.eff100.toFixed(2), 98.87, 0.02);
-eq("core mass kg", Math.round(r.design.wCore), 1270, 15);
+eq("efficiency %", +r.design.eff100.toFixed(2), 98.90, 0.02);
+eq("core mass kg", Math.round(r.design.wCore), 1626, 15);
 eq("compliant", r.design.compliant, true);
+eq("HV construction", r.design.hvConstruction, "crossover");
 
 console.log("\nstepped core utilisation matches the classical table");
 [[3, 0.851], [5, 0.9079], [9, 0.9483], [13, 0.9642]].forEach(([n, u]) =>
