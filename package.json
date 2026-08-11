@@ -9,7 +9,7 @@
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
-    "test:engine": "node packages/engine/engine.test.mjs && node packages/engine/reference-designs.test.mjs"
+    "test:engine": "node packages/engine/engine.test.mjs && node packages/engine/reference-designs.test.mjs && node packages/engine/card-cost.test.mjs"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

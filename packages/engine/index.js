@@ -448,6 +448,14 @@ function deriveSpec(core, over = {}) {
   put("loadFactor", 0.60, [0.2, 1.0, 0.05], null, "Average loading. Load loss scales with the square of this.");
   put("pf", 1.0, [0.7, 1.0, 0.05], null, "Power factor used for efficiency and regulation.");
 
+  /* CALIBRATION.md section 9: the second costing model's own Extra line
+     (insulation & fitting, bushing & metal parts, labour and everything
+     else that has no per-kg driver). Never derived -- AUTO is 0, not a
+     formula, and stays 0 until the estimator enters their own figure, the
+     same way the sheet this model reproduces treats it as one judged
+     number, not a calculation. */
+  put("cardExtra", 0, [0, 500000, 5000], null, "Insulation & fitting, bushing & metal parts and labour, as one figure -- not derived. Enter what the works would actually charge here.");
+
   return { S, SUG, RNG, OPT, NOTE };
 }
 
@@ -696,6 +704,22 @@ function designTransformer(p) {
   /* weights */
   const wLV = 3 * nLV * g.lmtLV * aLVreq * 1e-6 * cLV.dens;
   const wHV = 3 * nHVmax * g.lmtHV * aHVreq * 1e-6 * cHV.dens;
+  /* Covered conductor weight, additive alongside the bare figures above --
+     the detailed BOM still prices bare copper/aluminium and is unchanged.
+     LV: p.lvIns sits once per (turn-layer x radCount) radial position, the
+     same geometry lvRadial already builds from (line ~584), so the extra
+     area per elementary conductor is foilW x lvIns, not lvIns added to the
+     axial dimension -- there is no covering on that edge. HV: p.hvPaper is
+     already documented as the full "on diameter" addition and is what the
+     build() geometry itself adds to axHV/rdHV for group and layer spacing
+     (lines ~627, 633, 640), so covered area is (axHV+hvPaper)(rdHV+hvPaper)
+     against the single full-section aHVreq -- not conductorSchedule's later
+     per-strand split, which is its own unconfirmed heuristic
+     (HV_STRAND_MAX_MM2) and is not fed back into this geometry either.
+     Paper/pressboard density 1150 kg/m^3 is the same figure wIns already
+     uses for cylinder insulation, not a new constant. */
+  const wLVCovered = wLV + 3 * nLV * g.lmtLV * (g.lvAxCount * g.lvRadCount * g.foilW * p.lvIns) * 1e-6 * 1150;
+  const wHVCovered = wHV + 3 * nHVmax * g.lmtHV * ((g.axHV + p.hvPaper) * (g.rdHV + p.hvPaper) - aHVreq) * 1e-6 * 1150;
   const yokeDepth = shape === "circ" ? 0.86 * dCore : coreD;
   const wCore = aGross * (3 * (Hw / 1000) + 2 * ((2 * g.cc + (shape === "circ" ? dCore : coreD)) / 1000)) * 7650;
   const coreHeight = Hw + 2 * yokeDepth;
@@ -820,7 +844,7 @@ function designTransformer(p) {
     layers: g.layers, turnsPerLayer: g.turnsPerLayer, axHV: g.axHV, rdHV: g.rdHV, voltsPerLayer: g.voltsPerLayer,
     numGroups: g.numGroups, groupGap: g.groupGap, hvConstruction: p.hvConstruction,
     lvID: g.lvID, lvOD: g.lvOD, hvID: g.hvID, hvOD: g.hvOD, lmtLV: g.lmtLV, lmtHV: g.lmtHV, hLV: g.hLV, hHV: g.hHV,
-    wLV, wHV, wCore, wIns, wFrame, wTank, wFin, wEnclosure, fluidLitres, coilArea,
+    wLV, wHV, wLVCovered, wHVCovered, wCore, wIns, wFrame, wTank, wFin, wEnclosure, fluidLitres, coilArea,
     coreHeight, coreWidth, yokeDepth, tankL, tankW, tankH, tankArea, finAreaReq,
     wPerKg, noLoad, loadLoss, totalLoss, i0pct, i2rLV: g.i2rLV, i2rHV: g.i2rHV, rLV: g.rLV, rHV: g.rHV,
     pctX: g.pctX, pctR: g.pctR, pctZ: g.pctZ, regFull, oilRise, windRise, grad, hotspot, hotspotAvg, lifeFactor,
@@ -926,6 +950,64 @@ function ownershipCost(d, p) {
   const kwhNoLoad = (d.noLoad * hrs) / 1000;
   const kwhLoad = (d.loadLoss * p.loadFactor * p.loadFactor * hrs) / 1000;
   return { kwhNoLoad, kwhLoad, noLoad: kwhNoLoad * p.tariff, load: kwhLoad * p.tariff, total: (kwhNoLoad + kwhLoad) * p.tariff };
+}
+
+/* Second costing model: a working designer's own per-kg card, reproduced
+   line for line against a real one -- CALIBRATION.md section 9 ("630 KVA
+   CU LEVEL 1 Costing & Data", verified to the rupee: 1127191.26). This is
+   additive alongside buildBOM, not a replacement -- the two are on
+   different bases and are not meant to reconcile:
+     - Core, frame steel, tank steel and fluid share buildBOM's own rate
+       keys (rates.core/frameMS/tankMS/fluid) so both models move together
+       if a project's rate card changes them; nothing here duplicates or
+       forks those figures.
+     - LT/HT weight are priced on COVERED conductor mass (wLVCovered/
+       wHVCovered), not the bare mass buildBOM's WD-01/WD-02 lines use --
+       the sheet is pricing what is actually wound and goes in the tank,
+       paper included. This is the one place the two models genuinely
+       disagree on quantity, not just on markup structure, and that is
+       deliberate: asked directly, this is the more physically honest
+       basis for a coil that already has its covering on.
+     - The panel row (PSR/radiator/fin, "No's" not kg) has no equivalent
+       in buildBOM at all, which prices cooling surface by mass
+       (TK-02, r.fin/r.radiator per kg). Panel count comes from finLayout,
+       the same derivation the drawings already use -- not invented here.
+     - Extra (the sheet's own rows 8 and 9, "Insulation & Fitting" and
+       "Bushing & Metal Parts") is never computed. There is no single
+       physical driver for that combination the way there is a mass for
+       everything else -- it is the estimator's own figure, entered once
+       per job, exactly as the sheet itself treats it as one number with
+       no quantity or rate columns. Defaults to 0, never guessed.
+     - No overhead, scrap, margin or GST layer. The sheet has none --
+       labour and miscellaneous are folded into Extra, which is the whole
+       point of a card this short. Do not add buildBOM's markup chain on
+       top of this total; it would double-count what Extra already covers
+       and this model would no longer be the card it was asked to match.
+   Dry designs have no oil or fin/radiator rows (mirroring buildBOM's own
+   dry/oil branch) -- not confirmed against any real dry cost card, since
+   the one sheet this model was built against is oil-cooled. */
+const DEFAULT_CARD_RATES = { finPanel: 600 };
+function cardCostModel(d, rates, cardRates = DEFAULT_CARD_RATES, extra = 0) {
+  const panels = d.dry ? 0 : (d.cardPanels ?? finLayout(d).n);
+  const rows = [
+    { no: 1, desc: "Core", qty: d.wCore, unit: "Kg", rate: rates.core },
+    { no: 2, desc: "L.T Weight", qty: d.wLVCovered, unit: "Kg", rate: rates.condCu },
+    { no: 3, desc: "H.T Weight", qty: d.wHVCovered, unit: "Kg", rate: rates.condCu },
+    { no: 4, desc: "M.S Channel", qty: d.wFrame, unit: "Kg", rate: rates.frameMS },
+    { no: 5, desc: "M.S Sheet", qty: d.dry ? d.wEnclosure : d.wTank, unit: "Kg", rate: rates.tankMS },
+  ];
+  if (!d.dry) {
+    rows.push({ no: 6, desc: "Oil", qty: d.fluidLitres, unit: "Ltrs", rate: rates.fluid });
+    rows.push({
+      no: 7,
+      desc: d.p.tankType === "fin" ? "Corrugated fin" : "PSR (pressed-steel radiator)",
+      qty: panels, unit: "No's", rate: cardRates.finPanel,
+    });
+  }
+  const withAmount = rows.map((r) => ({ ...r, amount: r.qty * r.rate }));
+  const subtotal = withAmount.reduce((s, r) => s + r.amount, 0);
+  const extraLabel = "Insulation & Fitting, Bushing & Metal Parts (Extra)";
+  return { rows: withAmount, extra, extraLabel, subtotal, total: subtotal + extra };
 }
 
 /* ============================================================
@@ -1346,7 +1428,8 @@ function calcSheet(d, bom) {
     row("No-load loss", "P\u2080", "P\u2080 = w \u00D7 W\u1da0\u2091", `= ${n(d.wPerKg, 3)} \u00D7 ${n(d.wCore, 1)}`, `${n(d.noLoad, 0)} W`, REFS.IS1180, "specific loss, core weight"),
     row("Exciting volt-amperes", "VA/kg", "VA/kg = va\u1D63\u2091\u1da0 (B/B\u1D63\u2091\u1da0)\u2074 \u00D7 joint factor", `joint factor = ${n(d.ct.exc, 2)} for ${d.ct.name.split(",")[0]}`, `${n(d.vaPerKg, 2)} VA/kg`, REFS.K, "grade, flux density, joint type"),
     row("No-load current", "I\u2080", "I\u2080% = VA/kg \u00D7 W\u1da0\u2091 / (S\u00D710\u00B3) \u00D7 100", `= ${n(d.vaPerKg, 2)} \u00D7 ${n(d.wCore, 1)} / ${p.kva}000 \u00D7 100`, `${n(d.i0pct)} %`, REFS.K, "exciting VA, core weight"),
-    row("Conductor weight", "W\u1D04\u1d64", "W = 3 N L\u2098\u209C a \u03C1\u2098", `LV: 3\u00D7${d.nLV}\u00D7${n(d.lmtLV, 3)}\u00D7${n(d.aLVreq)}\u00D710\u207B\u2076\u00D7${d.cLV.dens}`, `${n(d.wLV, 1)} + ${n(d.wHV, 1)} kg`, REFS.S, "turns, mean turn, area, density"),
+    row("Conductor weight, bare", "W\u1D04\u1d64", "W = 3 N L\u2098\u209C a \u03C1\u2098", `LV: 3\u00D7${d.nLV}\u00D7${n(d.lmtLV, 3)}\u00D7${n(d.aLVreq)}\u00D710\u207B\u2076\u00D7${d.cLV.dens}`, `${n(d.wLV, 1)} + ${n(d.wHV, 1)} kg`, REFS.S, "turns, mean turn, area, density"),
+    row("Conductor weight, covered", "W\u1D04\u1d64\u1D9C", "as bare, plus the paper/insulation covering's own volume at 1150 kg/m\u00B3", `LV +${n(p.lvIns, 2)} mm radial, HV +${n(p.hvPaper, 2)} mm on diameter`, `${n(d.wLVCovered, 1)} + ${n(d.wHVCovered, 1)} kg`, REFS.B, "bare weight, covering thickness"),
   ]);
 
   sec("7. Impedance, regulation and short-circuit current", REFS.S + " \u00B7 " + REFS.K, [
@@ -1556,12 +1639,14 @@ function conductorSchedule(d, p) {
   const lvParallel = d.lvAxCount * d.lvRadCount;
   const lv = {
     bare: { w: +d.foilW.toFixed(2), t: +d.tLV.toFixed(3) },
+    covered: { w: +d.foilW.toFixed(2), t: +(d.tLV + p.lvIns).toFixed(3) },
     layers: d.lvTurnLayers,
     construction: d.lvConstruction === "strip" ? "Multi-layer strip winding" : (d.lvTurnLayers > 1 ? "Multi-layer strip winding" : "Single continuous foil"),
     covering: `${p.lvIns.toFixed(2)} mm interleaved paper between turns`,
     parallel: lvParallel,
     arrangement: lvParallel > 1 ? `${d.lvAxCount}A x ${d.lvRadCount}R` : null,
     transposition: d.lvRadCount > 2,
+    weight: { bare: +d.wLV.toFixed(1), covered: +d.wLVCovered.toFixed(1) },
   };
 
   const aspect = 2.1;
@@ -1584,6 +1669,7 @@ function conductorSchedule(d, p) {
     covering: `${p.hvPaper.toFixed(2)} mm paper covering, on diameter`,
     parallel: n, arrangement: n > 1 ? `${axCount}A x ${rdCount}R` : null,
     transposition: rdCount > 2,
+    weight: { bare: +d.wHV.toFixed(1), covered: +d.wHVCovered.toFixed(1) },
   };
   return { lv, hv };
 }
@@ -1838,6 +1924,7 @@ export {
   inr, lakhs, bushMul, condRate, rkCond, fluxRange, bushHeight, parseVectorGroup,
   etkCurve, fitEtkToCost, ETK_RANGE,
   tappingSchedule, conductorSchedule, hardwareSchedule, insulationPieceList, windingSchedule,
+  cardCostModel, DEFAULT_CARD_RATES,
 };
 
 export function computeDesign(core, over = {}, rates = DEFAULT_RATES, extras = []) {

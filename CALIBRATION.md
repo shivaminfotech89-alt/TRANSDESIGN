@@ -406,6 +406,66 @@ carried forward silently as if they were confirmed.
 
 ---
 
+## 8. Covered conductor weight, additive alongside bare
+
+`designTransformer` now returns `wLVCovered`/`wHVCovered` next to the existing
+`wLV`/`wHV` (packages/engine/index.js). Bare is the copper/aluminium alone;
+covered adds the paper covering's own volume at 1150 kg/m³, the same density
+`wIns` already uses for cylinder insulation, not a new constant. LV's covering
+(`p.lvIns`) sits once per radial position (the same geometry `lvRadial`
+already builds from) -- extra area per elementary conductor is `foilW x lvIns`,
+nothing added on the axial edge. HV's covering (`p.hvPaper`) is already
+documented as the full "on diameter" addition and is what the winding geometry
+itself adds to `axHV`/`rdHV` for group and layer spacing, so covered area is
+`(axHV+hvPaper)(rdHV+hvPaper)` against the single full-section `aHVreq` --
+not `conductorSchedule`'s later per-strand split, which is its own unconfirmed
+heuristic (`HV_STRAND_MAX_MM2`, see its own note above) and was never fed back
+into this geometry either.
+
+This is purely additive: the detailed BOM still prices bare mass (`d.wLV`,
+`d.wHV`), unchanged, and no golden number in `engine.test.mjs` or
+`reference-designs.test.mjs` moved. **Not an `ENGINE_VERSION` bump**, same
+reasoning as DEFAULT_RATES above -- nothing about how an existing priced value
+is computed changed; this only adds a new one.
+
+Both figures are now shown wherever mass is reported: the calc sheet's
+Conductor Weight row (now split bare/covered) and `conductorSchedule`'s `lv`/
+`hv` entries (`weight: {bare, covered}`, alongside the existing bare/covered
+dimension fields it already carried for HV and now carries for LV too).
+
+### What it does to the reference comparisons
+
+Checked directly against both sheets before touching anything (`_tmp` script,
+not kept):
+
+| | Bare | Covered | Sheet | Bare dev. | Covered dev. |
+|---|---|---|---|---|---|
+| 630 kVA | 288.6 kg | 299.0 kg | 292 kg | -1.15% | +2.38% |
+| 1250 kVA | 573.5 kg | 588.0 kg | 982 kg | -41.60% | -40.12% |
+
+**630 kVA** (the only hard assertion, `reference-designs.test.mjs`'s "copper
+mass kg" against 292 kg ±5%/±14.60 kg): covered mass moves the deviation from
+1.15% under to 2.38% over -- the sign flips, roughly the 4-5% shift expected,
+but both sides sit well inside the ±5% tolerance, so the assertion does not
+fail either way. Not changed yet, pending instruction on whether the
+assertion should compare against covered mass instead of bare -- the sheet's
+292 kg is far more likely to be the covered figure a designer would actually
+write down, which would make covered the more honest comparison, but that is
+a decision about what the test asserts, not something this check settles by
+itself.
+
+**1250 kVA** (982 kg, not asserted -- CALIBRATION.md's own reference-design
+summary only): bare is already 41.6% under the sheet figure, and covered
+barely moves it, to 40.1% under. The paper covering cannot be the explanation
+here -- a covering allowance large enough to close a 41% gap would not be a
+covering allowance, it would be most of the conductor's own mass again. This
+gap predates this check, is not new, and is not explained by it. Either the
+982 kg figure is not a like-for-like comparison to the engine's own
+LV+HV conductor total (it may include material this design's `wLV`/`wHV`
+were never meant to cover -- tap leads, connections, bracing), or there is a
+real, separate discrepancy in the 1250 kVA winding build that covered weight
+does not touch. Flagging this rather than guessing which.
+
 ## Not adopted
 
 Their 7600 W load loss at 1250 kVA is a premium low-loss design, not a schedule
@@ -421,3 +481,68 @@ ordinary Level 2 figure, not a premium one. The instruction not to design
 enquiry's own guarantee should always win over the schedule estimate, whichever
 it is), but the characterisation of this particular number as exceptionally low
 was wrong and should not be repeated.
+
+---
+
+## 9. Second costing model: the designer's own per-kg card
+
+`cardCostModel(d, rates, cardRates, extra)` (packages/engine/index.js) is a
+second, independent way to price a design, additive alongside `buildBOM` --
+neither replaces the other and they are not meant to reconcile to the same
+total. It exists because a working designer does not price a transformer the
+way the detailed BOM does; they fill in a short card by hand, and this
+reproduces that card, not a summary of the detailed one.
+
+Reproduced against a real one and checked to the rupee
+(`card-cost.test.mjs`): **"630 KVA CU LEVEL 1 Costing & Data,"** a Mehir
+Transformers sheet, oil-cooled with pressed-steel radiators.
+
+| # | Line | Qty | Unit | Rate | Amount |
+|---|---|---|---|---|---|
+| 1 | Core | 966.769 | Kg | 240 | 232024.56 |
+| 2 | L.T Weight | 170.96 | Kg | 1415 | 241908.40 |
+| 3 | H.T Weight | 323.64 | Kg | 1415 | 457950.60 |
+| 4 | M.S Channel | 83.91 | Kg | 70 | 5873.70 |
+| 5 | M.S Sheet | 349 | Kg | 86 | 30014.00 |
+| 6 | Oil | 588 | Ltrs | 115 | 67620.00 |
+| 7 | PSR 300x800 | 28 | No's | 600 | 16800.00 |
+| 8+9 | Insulation & Fitting, Bushing & Metal Parts | -- | -- | -- | 75000 (Extra, one line) |
+| | **Total** | | | | **1127191.26** |
+
+Design decisions, each because the sheet itself demanded it, not by default:
+
+- **Core, frame steel, tank steel and fluid share `rates.core`/`frameMS`/
+  `tankMS`/`fluid`** with `buildBOM` -- the same rate card, so both models
+  move together when a project's rate card changes them. Nothing here forks them.
+- **LT/HT weight are priced on covered conductor mass**
+  (`wLVCovered`/`wHVCovered`, section 8 above), not the bare mass
+  `buildBOM`'s WD-01/WD-02 lines use. This is the one place the two models
+  genuinely disagree on quantity, not just on markup structure -- a
+  designer's card is pricing what is actually wound, paper included.
+- **The panel row has no `buildBOM` equivalent.** `buildBOM` prices cooling
+  surface by mass (`TK-02`, kg x `r.fin`/`r.radiator`); this model prices it
+  by panel count x `cardRates.finPanel` (a new rate, 600/panel from the
+  sheet, kept in its own small `DEFAULT_CARD_RATES` rather than added to
+  `DEFAULT_RATES` -- the existing rate card and its UI are unchanged, per
+  instruction). Panel count comes from `finLayout(d).n`, the same derivation
+  the drawings already use, not invented here.
+- **Extra (rows 8 and 9) is never computed, and never will be.** There is no
+  single physical driver for "insulation, fittings, bushings and metal
+  parts" the way there is a mass for everything else on the card --
+  reproducing it as a formula would be inventing engineering data the sheet
+  itself does not provide either; the designer who filled in 75000 did not
+  derive it from a formula, they judged it. It is a manual entry, defaults
+  to 0, and stays that way.
+- **No overhead, scrap, margin or GST layer.** The sheet has none -- labour
+  and miscellaneous are already inside Extra. Applying `buildBOM`'s markup
+  chain on top of this total would double-count what Extra already covers,
+  and the result would stop being the card this was built to match.
+- **Dry designs** drop the oil and panel rows, mirroring `buildBOM`'s own
+  dry/oil branch (enclosure mass in the M.S Sheet row instead of tank mass).
+  Not confirmed against any real dry cost card -- the one sheet this model
+  was built against is oil-cooled with radiators.
+
+**Not an `ENGINE_VERSION` bump**, same reasoning as `DEFAULT_RATES` and
+section 8 above: nothing about how `buildBOM`'s own priced values are
+computed changed, and no golden number moved. This adds a second, separate
+way to price a design; it does not alter the first.
