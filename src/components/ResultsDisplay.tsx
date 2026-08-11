@@ -8,6 +8,7 @@ import { CadViewerTab } from './cad/CadViewerTab';
 import { DocumentsTab } from './documents/DocumentsTab';
 import { ManufacturingTab } from './manufacturing/ManufacturingTab';
 import { BudgetTab } from './budget/BudgetTab';
+import { CostCardTab } from './costcard/CostCardTab';
 import { CompareQuoteTab } from './compare/CompareQuoteTab';
 import { PRICE_SOURCE_LABELS, type PriceResolution } from '../lib/pricing';
 
@@ -62,14 +63,20 @@ interface ResultsDisplayProps {
   itemsByRateKey: Map<string, { code: string; partNumber: string }>;
   activePreviewKey: string | null;
   onSelectPreview: (candidate: any | null) => void;
+  /** CALIBRATION.md section 9: writes cardExtra into the live over object
+   *  the same way any other override edit does (App.tsx's handleOverChange)
+   *  -- not a separate persistence path. Disabled by the same pricingLocked
+   *  condition as every other edit surface below. */
+  onCardExtraChange: (value: number) => void;
 }
 
-type Tab = 'overview' | 'calculations' | 'bom' | 'winding' | 'core' | 'drawings' | 'reports' | 'manufacturing' | '3d-model' | 'budget' | 'compare';
+type Tab = 'overview' | 'calculations' | 'bom' | 'card' | 'winding' | 'core' | 'drawings' | 'reports' | 'manufacturing' | '3d-model' | 'budget' | 'compare';
 
 const TABS: { id: Tab; label: string; pending?: boolean }[] = [
   { id: 'overview', label: 'Overview' },
   { id: 'calculations', label: 'Calculations' },
   { id: 'bom', label: 'BOM & Cost' },
+  { id: 'card', label: 'Cost Card' },
   { id: 'budget', label: 'Fit to Budget' },
   { id: 'compare', label: 'Compare & Quote' },
   { id: 'winding', label: 'Winding Design' },
@@ -134,7 +141,7 @@ function PriceSourceBadge({ source }: { source: PriceResolution | undefined }) {
 export function ResultsDisplay({
   core, design, bom, params, liveDesign, liveBom, liveParams, project, rates, onRatesChange, effectiveRates,
   rateCard, onManageRateCards, pricingLocked, rateSources, priceLocks, onTogglePriceLock, itemsByRateKey,
-  activePreviewKey, onSelectPreview,
+  activePreviewKey, onSelectPreview, onCardExtraChange,
 }: ResultsDisplayProps) {
   const [activeTab, setActiveTab] = useState<Tab>('overview');
   const [isSaving, setIsSaving] = useState(false);
@@ -397,6 +404,15 @@ export function ResultsDisplay({
                 </p>
               </Card>
             </div>
+          )}
+
+          {/* COST CARD -- CALIBRATION.md section 9, additive alongside BOM &
+              Cost above, not a replacement. Follows design/params/rates the
+              same as every other tab (whatever is on screen, including a
+              previewed budget option or a viewed revision), unlike Fit to
+              Budget below which deliberately always uses the live ones. */}
+          {activeTab === 'card' && (
+            <CostCardTab design={design} params={params} rates={effectiveRates} onCardExtraChange={onCardExtraChange} readOnly={pricingLocked} />
           )}
 
           {/* FIT TO BUDGET -- searches and previews against the live design,

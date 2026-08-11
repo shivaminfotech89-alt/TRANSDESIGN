@@ -848,6 +848,7 @@ export default function App() {
               itemsByRateKey={itemsByRateKey}
               activePreviewKey={activePreviewKey}
               onSelectPreview={(candidate) => { setViewingRevision(null); setBudgetPreview(candidate); }}
+              onCardExtraChange={(value) => handleOverChange({ ...over, cardExtra: value })}
             />
           </section>
         </main>
