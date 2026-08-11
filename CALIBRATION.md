@@ -240,6 +240,99 @@ Change the factor to approximately 1.10 and record why.
 aluminium. Entering your own loss targets must not change the winding metal.
 Make custom behave as level 2, and use `kva >= 630`.
 
+## 6. Load loss coefficient, ENGINE_VERSION 1.7.0
+
+`lossSchedule`'s load loss formula, `coefficient * kva^0.766 * levelMultiplier`,
+used coefficient 52. The 630 kVA Level 1 costing sheet gives 4400 W load loss;
+at Level 2 (m = 1.00, the level neither reference design's own guarantee needed
+a multiplier to match) coefficient 52 estimates 7249 W there -- 65% over.
+
+Recalibrated to 32. Two independent oil designs confirm it at Level 2:
+
+| Rating | Formula at 32 | Real guarantee |
+|---|---|---|
+| 630 kVA | 4461 W | 4400 W |
+| 1250 kVA (the OLTC reference) | 7540 W | 7600 W |
+
+Both within 1.4%. The 0.766 exponent and the no-load formula
+(`4.6 * kva^0.805 * m * kn`) are untouched -- neither sheet gave evidence
+against either, and CALIBRATION.md item 2's own lesson (don't move more than
+the data confirms) applies here the same way it did to the LV-HV clearance
+slope in item 1.
+
+**This moved current density substantially**, and with it the LV and HV
+builds, since autoFit re-optimises flux and current density against the new,
+lower load-loss ceiling. `reference-designs.test.mjs`'s two scenarios are
+unaffected (both override `limitNLL`/`limitLL` explicitly with `autoFit: false`,
+so neither ever calls `lossSchedule` for its own target) -- but every AUTO,
+no-override enquiry does, including `engine.test.mjs`'s own default case,
+whose golden numbers moved again and are recorded there with the reason.
+See ENGINE_VERSION 1.7.0's own note in that file for what changed and why
+`compliant` is now `false` there (a pre-existing 1.42 T flux-floor property,
+not something this recalibration caused, just made visible at a rating where
+it previously wasn't).
+
+Also corrected the "Not adopted" section below: the old coefficient's
+12,253 W Level 2 estimate for 1250 kVA was the evidence the coefficient was
+wrong, not evidence their own 7600 W was an unusually premium figure. At 32,
+the schedule estimate is 7540 W -- 7600 W is an ordinary Level 2 number.
+
+**No-load coefficient, not touched, and why.** Investigating the residual mass
+gap after items 3 and 4 (packages/engine/index.js `_tmp` scripts, not kept)
+found that a 630 kVA enquiry at Level 2, no override, cannot meet its own
+no-load ceiling at any K in the swept range, including the fully joint case
+(flux and current density re-fit at each K, not just the frozen-density
+`etkCurve` sweep) -- flux sits at the 1.42 T floor throughout and no-load
+loss still exceeds its limit by 3-20% depending on K. That is the load-loss
+recalibration above changing the *split* between the two loss ceilings
+without a matching correction to the no-load side, which this session did
+not touch.
+
+The no-load coefficient (4.6, `lossSchedule`'s `nll` term) is therefore the
+strongest remaining candidate for its own recalibration. It is **not**
+changed here: the load loss coefficient was moved on two independent
+confirming points (630 kVA and 1250 kVA, both within 1.4%), and there is no
+equivalent no-load figure from either sheet to anchor a change against.
+Inferring a new coefficient from the post-item-3 imbalance alone would be
+exactly the curve-fitting this whole document has avoided -- evidence that
+something is *probably* wrong is not the same as evidence for what the
+right number *is*.
+
+What would settle it: guaranteed no-load loss figures from two or three more
+real designs, at ratings away from the two already available (630 kVA and
+1250 kVA both sit in the middle of the range 100 kVA to several MVA covers).
+Most useful: one design at 100-300 kVA and one at 2000 kVA or above, since a
+coefficient fitted to two adjacent mid-range points has no evidence either
+way about whether the same exponent (0.805, also untouched, also unconfirmed
+independently) holds at the ends of the range it is applied across.
+
+## 7. DEFAULT_RATES
+
+**Source: the 630 kVA Level 1 costing sheet, 2026-08-11.** Five of
+`DEFAULT_RATES`'s figures (packages/engine/index.js) taken directly from that
+sheet's own material rates:
+
+| Rate key | Old | New |
+|---|---|---|
+| `core` (CRGO, ₹/kg) | 305 | 240 |
+| `condCu` (copper, ₹/kg) | 1050 | 1415 |
+| `frameMS` (frame steel, ₹/kg) | 98 | 70 |
+| `tankMS` (tank steel, ₹/kg) | 118 | 86 |
+| `fluid` (oil, ₹/L) | 135 | 115 |
+
+Every other figure in `DEFAULT_RATES` is unchanged -- not confirmed against
+this sheet, not moved on the strength of five numbers from one document. This
+is the engineering-default tier only, the bottom of the price-source
+hierarchy TASKS.md item 11.4 built (`src/lib/pricing.ts`): a project with its
+own rate card, or item-master prices resolving over it, never reads
+`DEFAULT_RATES` at all. Changing it moves `engine.test.mjs`'s own golden
+numbers (which build against `DEFAULT_RATES` explicitly) but reprices no
+saved revision, each of which carries its own frozen `rateSnapshot`.
+
+Not an `ENGINE_VERSION` bump: this is a rate, not a formula (CLAUDE.md
+invariant 4 is about formulas specifically), and nothing about how a price is
+*computed* from a rate changed.
+
 ---
 
 ## Verification after the changes
@@ -278,8 +371,53 @@ through the 1.4.1 bugfix, recorded there.
 
 ---
 
+## Fitted parameters awaiting a proper derivation
+
+Two parameters in the ENGINE_VERSION 1.5.0/1.6.0 winding construction work
+are curve-fit constants, not derived from any physical model, and should be
+named as such rather than left looking like ordinary design inputs:
+
+- **`hvDiscGap`** (packages/engine/index.js, `deriveSpec`): the axial gap
+  between adjacent HV discs. Fitted jointly against both reference sheets'
+  overall dimensions (HV OD, tank length, LV OD) at 3.5 mm -- not derived
+  from the discs' own dielectric or cooling requirements, and not the
+  sheet's own stated average gap (97.5 mm over 43 gaps at 1250 kVA, 2.3 mm)
+  either, since this engine's own axHV/rdHV conductor sizing does not match
+  the sheet's exactly. It is a single number standing in for what a real
+  disc winding varies gap by gap for dielectric grading and cooling.
+- **`lvStripAspect`** (same location): the width-to-thickness ratio of one
+  LV strip conductor. Fitted at 3.5 against both sheets' overall LV OD at
+  once. The 630 kVA reference's own conductor arrangement (4 axial x 2
+  radial) matches its sheet exactly at this fit; the 1250 kVA reference's
+  does not (9 axial x 2 radial over 4 layers against the sheet's 5 axial by
+  6 radial over two layers) -- the most direct evidence that a real design
+  does not use one aspect ratio at both ratings, and that fitting one to
+  both here is a compromise, not a confirmed figure.
+
+Both should come out of a real axial design instead of being tuned:
+`hvDiscGap` from MANUFACTURING.md section 6's own axial spacer and gap
+schedule, once the engine has an actual dielectric/cooling-driven gap model
+to replace the single averaged constant with; `lvStripAspect` from whatever
+capability eventually gives the LV winding the same kind of real internal
+layout HV's disc grading (also deferred, see reference-designs.test.mjs's
+own known-gap note on the 1250 kVA conductor arrangement) is waiting on.
+Flagging both here so they are re-examined when that lands, rather than
+carried forward silently as if they were confirmed.
+
+---
+
 ## Not adopted
 
 Their 7600 W load loss at 1250 kVA is a premium low-loss design, not a schedule
 figure. The engine's Level 2 estimate for that rating is 12,253 W. Do not adopt
 their losses as defaults.
+
+**Correction, load loss coefficient section, below.** The 12,253 W figure above
+was itself the evidence that the old coefficient (52) was wrong, not evidence
+that 7600 W was unusually premium. At the corrected coefficient (32), the
+engine's own Level 2 estimate for 1250 kVA is 7540 W -- 7600 W is a completely
+ordinary Level 2 figure, not a premium one. The instruction not to design
+*toward* a specific transformer's own guaranteed number still stands (a real
+enquiry's own guarantee should always win over the schedule estimate, whichever
+it is), but the characterisation of this particular number as exceptionally low
+was wrong and should not be repeated.

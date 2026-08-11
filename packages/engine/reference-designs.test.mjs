@@ -19,21 +19,34 @@
  *
  * Two groups, deliberately not one:
  *
- * Group 1, hard assertions -- the five checks that pass today. A failure
- * here is a regression in something already working and must fail the run.
+ * Group 1, hard assertions -- a failure here is a regression in something
+ * already working and must fail the run. ENGINE_VERSION 1.5.0
+ * (MANUFACTURING.md section 5) added the HV construction targets -- disc
+ * count on the 1250 kVA reference, coil/layer/turns-per-layer structure on
+ * the 630 kVA reference -- and promoted HV OD and tank length here from
+ * Group 2, since multi-coil HV winding closed both to within 2%, the
+ * tolerance CALIBRATION.md's own "Verification after the changes" section
+ * originally asked for.
  *
- * Group 2, known gaps -- the 1250 kVA sheet's LV OD, HV OD and tank length.
- * These miss tolerance now because the engine models the LV winding as a
- * single full-height foil and the HV as one continuous layer winding, where
- * this sheet actually uses a multi-layer LV strip and an HV disc winding
- * (MANUFACTURING.md sections 5 and 6, both explicitly scheduled as their
- * own future engine-capability phase, not attempted here). Printed with
- * their current deviation on every run so the gap stays visible, but not
- * failed -- a permanently red suite stops being read, and failing on a
- * limitation that is already tracked and explained teaches the same lesson
- * as engine.test.mjs's golden numbers do: the only thing worth failing on
- * is a deviation that gets WORSE than what is recorded here, which would
- * mean something regressed rather than simply "not yet built".
+ * ENGINE_VERSION 1.6.0 (LV multi-layer strip construction) closed the
+ * third: LV OD is promoted from Group 2 too, now within 3% rather than the
+ * -8.8% it carried after 1.5.0 alone. Getting LV right also moved HV's own
+ * disc count, since both windings share one window-height solve -- 630's
+ * HV structure (6 coils, 13 layers, 10 turns per layer) is unmoved, but
+ * 1250's disc count is refitted from 44 to 53 alongside the LV parameters,
+ * recorded in packages/engine/index.js's own hvDiscGap note rather than
+ * treated as a coincidence.
+ *
+ * Neither over1250 nor over630 sets hvConstruction or lvStripAspect/
+ * lvStripMaxMM2 away from their suggested defaults: the whole point of
+ * every construction assertion here, HV or LV, is that the engine reaches
+ * it from rating, current and tap type alone, not because it was told
+ * which to use.
+ *
+ * Group 2, known gaps -- none carried a numeric baseline as of 1.6.0. The
+ * 1250 kVA LV conductor arrangement is reported (not asserted) below: it
+ * does not structurally match the sheet's own 5 axial by 6 radial over two
+ * layers, even though LV OD itself closed. See the note beside it.
  */
 import * as E from "./index.js";
 
@@ -82,6 +95,12 @@ const over1250 = {
 const r1250 = E.computeDesign(core1250, over1250, E.DEFAULT_RATES, []);
 exact("LV turns", r1250.design.nLV, 13);
 exact("HV turns, normal tap", r1250.design.nHV, 572);
+exact("HV construction, auto-selected from rating and OLTC alone", r1250.design.hvConstruction, "disc");
+exact("Disc count", r1250.design.numGroups, 53);
+within("HV OD mm", +r1250.design.hvOD.toFixed(1), 494, 2);
+within("Tank length mm", Math.round(r1250.design.tankL), 1660, 2);
+exact("LV construction, auto-selected from rating alone", r1250.design.lvConstruction, "strip");
+within("LV OD mm", +r1250.design.lvOD.toFixed(1), 374, 3);
 
 console.log("\n630 kVA, 11/0.433 kV, dry type, copper -- Mehir Transformers sheet");
 const core630 = { ...E.ESSENTIALS, kva: 630, medium: "dry", application: "distribution", vector: "Dyn11" };
@@ -99,17 +118,23 @@ exact("LV turns", r630.design.nLV, 16);
 exact("HV turns", r630.design.nHV, 704);
 within("copper mass kg", +(r630.design.wLV + r630.design.wHV).toFixed(1), 292, 5);
 within("LV radial build mm", +((r630.design.lvOD - r630.design.lvID) / 2).toFixed(2), 20, 10);
+exact("HV construction, auto-selected from rating alone", r630.design.hvConstruction, "crossover");
+exact("Coil count", r630.design.numGroups, 6);
+exact("Layers per coil", r630.design.layers, 13);
+exact("Turns per axial layer", r630.design.turnsPerLayer, 10);
+exact("LV construction, auto-selected from rating alone", r630.design.lvConstruction, "strip");
+exact("LV axial conductors", r630.design.lvAxCount, 4);
+exact("LV radial conductors", r630.design.lvRadCount, 2);
 
-console.log("\nGroup 2: known gaps -- reported every run, only fails if worse than recorded.");
+console.log("\nGroup 2: reported every run, not asserted -- no numeric baseline to regress against.");
 console.log("\n1250 kVA, 11/0.433 kV, Dyn11, OLTC, oil, copper -- Mehir Transformers sheet");
-knownGap("LV OD mm", +r1250.design.lvOD.toFixed(1), 374, -4.4,
-  "LV modelled as a single full-height foil; this sheet's LV is a genuine multi-layer strip winding -- MANUFACTURING.md section 5.");
-knownGap("HV OD mm", +r1250.design.hvOD.toFixed(1), 494, -6.2,
-  "HV modelled as one continuous layer winding; this sheet's HV is disc-wound -- MANUFACTURING.md section 5.");
-knownGap("tank length mm", Math.round(r1250.design.tankL), 1660, -5.4,
-  "Follows from the LV/HV builds above: the tank is sized to the coil envelope, so a thinner-than-real coil gives a shorter-than-real tank -- MANUFACTURING.md sections 5-6.");
+console.log(`  gap  LV conductor arrangement: got ${r1250.design.lvAxCount} axial x ${r1250.design.lvRadCount} radial x ${r1250.design.lvTurnLayers} layers `
+  + `(${r1250.design.lvAxCount * r1250.design.lvRadCount * r1250.design.lvTurnLayers} total), target 5 axial by 6 radial over 2 layers (30 total)`);
+console.log("         LV OD itself is within tolerance (above) -- the internal split into conductors is not the sheet's own,");
+console.log("         and is not asserted here. One lvStripAspect fits both references' dimensions; it does not reproduce");
+console.log("         both references' internal layouts, and there is no evidence a real design uses the same one at both.");
 
 console.log(failures
-  ? `\n${failures} FAILURES -- either a hard assertion broke or a known gap got worse. Either way, this is a regression.`
-  : "\nall passed -- five hard assertions hold, and the three known gaps have not worsened.");
+  ? `\n${failures} FAILURES -- a hard assertion broke, a regression.`
+  : "\nall passed.");
 process.exit(failures ? 1 : 0);

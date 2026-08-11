@@ -45,6 +45,18 @@ Break any of these and the product is wrong, not just untidy.
    published table. Any UI that shows a limit must say so and offer the manual
    entry.
 
+7. **`documentRegister` must be reviewed whenever a phase lands.** Its whole
+   job is to say, per document, whether it is generated, partial or needs
+   input the platform does not hold — that is only true the day it is
+   written. Landing a phase (an item master, persisted revisions, a new
+   engine capability) can make an entry's `missing` text false without
+   touching a line near it. A stale "need" for data that now exists, or a
+   stale "not persisted" for something that now is, is worse than an honest
+   gap: it tells a user the platform can't do something it already can, or
+   hides that a document still isn't actually generated. Check every row
+   `documentRegister` returns against what the phase you just finished
+   actually built, not just the rows the phase obviously touches.
+
 ---
 
 ## Commands

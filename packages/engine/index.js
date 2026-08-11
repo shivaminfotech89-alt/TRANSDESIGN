@@ -8,7 +8,7 @@
  * without bumping it, or old quotations stop reproducing.
  */
 
-export const ENGINE_VERSION = "1.4.2";
+export const ENGINE_VERSION = "1.7.1";
 
 const CONDUCTORS = {
   copper: { name: "Copper, EC grade", rho20: 0.017241, alpha: 0.00393, dens: 8890, dMax: 3.6, short: "Cu", proof: 1.0 },
@@ -122,10 +122,21 @@ const EFF_LEVELS = {
   level3: { name: "Level 3", mul: 0.82 },
   custom: { name: "Enter my own limits", mul: 1.00 },
 };
+/* Load loss coefficient recalibrated from 52 to 32, CALIBRATION.md, the
+   630 kVA Level 1 costing sheet. Two independent oil designs confirm it at
+   Level 2 (m = 1.00), the level neither reference design's own guaranteed
+   figure needed a multiplier to match: 630 kVA gives 4461 W against the
+   sheet's own 4400 W, 1250 kVA gives 7540 W against the existing OLTC
+   reference's own 7600 W -- the same 7600 W CALIBRATION.md's "Not adopted"
+   section previously called a premium figure well above the (old,
+   coefficient-52) schedule estimate of 12,253 W. It was not premium; the
+   coefficient was wrong. See "Not adopted" for the correction. The 0.766
+   exponent and the no-load formula are both untouched -- neither reference
+   sheet gave evidence against either. */
 function lossSchedule(kva, level, dry) {
   const m = (EFF_LEVELS[level] || EFF_LEVELS.level2).mul;
   const kn = dry ? 1.45 : 1, kl = dry ? 1.20 : 1;
-  return { nll: 4.6 * Math.pow(kva, 0.805) * m * kn, ll: 52 * Math.pow(kva, 0.766) * m * kl };
+  return { nll: 4.6 * Math.pow(kva, 0.805) * m * kn, ll: 32 * Math.pow(kva, 0.766) * m * kl };
 }
 
 /* ---------------- Clearances from withstand levels ---------------- */
@@ -340,6 +351,45 @@ function deriveSpec(core, over = {}) {
   put("tapMinus", tt === "none" ? 0 : isO ? 15 : 5, [0, 20, 0.5], null, "Range below the normal tap.");
   put("tapStep", isO ? 1.25 : 2.5, null, [[0.625, "0.625 %"], [1.25, "1.25 %"], [1.5, "1.5 %"], [2.5, "2.5 %"], [3.0, "3.0 %"], [5.0, "5.0 %"]], "Step size between tap positions.");
 
+  /* --- HV winding construction, MANUFACTURING.md section 5 --- */
+  /* Layer below hvLayerMaxKva; disc once an OLTC is fitted or the rating
+     reaches hvDiscMinKva; crossover in between. Practice, not physics --
+     both thresholds are editable, and the two reference sheets pin only
+     two points on this curve: 630 kVA dry, no tap changer forced (this
+     application's own "octc" default) lands on crossover; 1250 kVA OLTC
+     lands on disc regardless of hvDiscMinKva, since the OLTC rule alone
+     already selects disc there. Nothing pins where a NON-OLTC design
+     would cross from crossover to disc -- hvDiscMinKva's default is a
+     placed-above-both-references guess, not a confirmed figure. */
+  put("hvLayerMaxKva", 500, [100, 2000, 50], null, "Below this rating, HV is a single continuous layer winding. Practice, not physics -- confirmed only as \"roughly here\" by the reference sheets, not pinned exactly.");
+  const hvDiscMinKva = put("hvDiscMinKva", 2000, [500, 5000, 100], null, "Above this rating, or whenever an on-load tap changer is fitted, HV moves to disc construction. The OLTC rule is confirmed by the 1250 kVA reference; this kVA threshold on its own is not.");
+  const hvConstructionSug = kva < S.hvLayerMaxKva ? "layer" : (tt === "oltc" || kva >= hvDiscMinKva) ? "disc" : "crossover";
+  put("hvConstruction", hvConstructionSug, null,
+    [["layer", "Single continuous layer"], ["crossover", "Crossover coils"], ["disc", "Disc wound"]],
+    `${kva} kVA${tt === "oltc" ? " with an on-load tap changer" : ""} normally uses ${hvConstructionSug} construction.`);
+  put("hvCrossoverTurnsPerLayer", 10, [4, 20, 1], null, "Turns per axial layer within one crossover coil, kept small so each coil stays easy to wind and handle. Fitted from the 630 kVA dry reference.");
+  /* 20 mm reproduces the 630 kVA dry reference's 6 coils of 13 layers of 10
+     turns almost exactly (6/13/10 against a target of 6/13/10). Confirmed
+     dry-type only -- an oil-immersed crossover winding would plausibly need
+     less gap, the same way every other dry clearance in this engine is
+     multiplied up for air insulation (clearancesFrom's dryType multiplier),
+     but there is no oil-immersed crossover reference to fit that against,
+     so the same figure is used for both media rather than guessing a split. */
+  put("hvCoilGap", 20, [1, 30, 0.5], null, "Axial gap between adjacent crossover coils, for insulation, cooling and the crossover lead. Fitted from the 630 kVA dry reference; likely conservative for oil.");
+  /* 3.5 mm, not the 4.5 mm ENGINE_VERSION 1.5.0 first fitted. LV multi-layer
+     strip construction (below) shares the same window-height bisection --
+     a correctly-built LV radial build changes how tall the window needs to
+     be to hit the declared impedance, which changes how many discs the
+     window holds, so getting LV right moved the disc count that best fits
+     HV OD and tank length too. Refitted jointly with the LV parameters
+     below rather than held fixed while only LV was tuned -- 4.5 mm on its
+     own, with LV now correct, overshoots HV OD by several per cent. 44
+     discs (the sheet's own count) no longer falls out of this fit; 53
+     does, at HV OD within 1.5% and tank length within 1.4%, still real
+     accuracy, just against a different disc count than the earlier,
+     LV-still-wrong fit landed on. */
+  put("hvDiscGap", 3.5, [1, 10, 0.1], null, "Axial gap between adjacent discs. Fitted jointly with the LV strip parameters against both reference sheets.");
+
   /* --- clearances from the impulse level --- */
   const cl = clearancesFrom(S.bilHV, S.bilLV, core.medium, S.dryType);
   const clNote = `Scaled from the ${S.bilHV} kVp impulse level${dry ? " and multiplied for air insulation" : ""}.`;
@@ -351,6 +401,35 @@ function deriveSpec(core, over = {}) {
   put("hvTankClr", cl.hvTankClr, rng(cl.hvTankClr, 0.6, 2.2, 1), null, clNote);
   put("endTankClr", cl.endTankClr, rng(cl.endTankClr, 0.6, 2.2, 1), null, clNote);
   put("cylThk", Math.round(cl.cylThk * 10) / 10, rng(cl.cylThk, 0.6, 2.2, 0.1), null, "Insulating cylinder thickness.");
+
+  /* --- LV winding construction --- */
+  /* Strip above lvFoilMaxKva, same approach as HV construction
+     (MANUFACTURING.md): the turn's own required cross-section splits into
+     axCount x radCount parallel conductors above the threshold, a single
+     conductor (full-height foil, or a thin T_MIN strip sharing an axial
+     pass with others) below it, unchanged from before this section
+     existed. Confirmed at both reference ratings, which both sit above
+     the threshold -- nothing here is confirmed at a rating small enough
+     to still be foil, so treat lvFoilMaxKva as a placed-below-both-
+     references guess for where the crossover actually is, the same
+     caveat hvLayerMaxKva/hvDiscMinKva carry for HV.
+
+     lvStripMaxMM2 and lvStripAspect are fitted jointly against both
+     sheets (together with hvDiscGap above, since the two windings share
+     one window-height solve): 630 kVA dry reaches 4 axial x 2 radial,
+     an exact match to the sheet's own "8 conductors in 4 axial by 2
+     radial," at LV radial build within 1.5% of 20 mm. 1250 kVA oil
+     reaches 9 axial x 2 radial x 4 layers (36 conductors) against the
+     sheet's 30 in 5 axial by 6 radial over two layers -- LV OD closes to
+     within 1.5% of 374 mm, but the breakdown itself does not structurally
+     match the sheet's, unlike 630's. One aspect ratio was fitted to both
+     ratings at once; a real design likely does not use the same one at
+     both, which is the most direct explanation for why 630's structure
+     matches and 1250's doesn't. */
+  put("lvFoilMaxKva", 300, [50, 1000, 50], null, "Below this rating, LV is a single conductor -- full-height foil, or a thin strip if several turns share an axial pass. Above it, LV splits into parallel conductors.");
+  put("lvStripMaxMM2", 40, [10, 150, 5], null, "Practical area for one LV strip conductor before it splits into more than one, arranged axial x radial.");
+  put("lvStripAspect", 3.5, [1.2, 6.0, 0.1], null, "Width to thickness ratio of one LV strip conductor.");
+  put("lvStripGap", 2, [0.5, 6, 0.5], null, "Gap between LV strip conductors placed side by side axially within one turn.");
 
   /* --- construction constants --- */
   put("lvIns", 0.30, [0.10, 1.20, 0.05], null, "Interturn insulation on the LV foil or strip.");
@@ -372,9 +451,16 @@ function deriveSpec(core, over = {}) {
   return { S, SUG, RNG, OPT, NOTE };
 }
 
+/* core, condCu, frameMS, tankMS and fluid taken from the 630 kVA Level 1
+   costing sheet (CALIBRATION.md, "DEFAULT_RATES" section), 2026-08-11.
+   Everything else in this object is unchanged -- not confirmed against
+   that sheet, and not touched on the strength of five figures from one
+   document. This is the engineering-default rate card only, the lowest
+   tier of the price-source hierarchy (src/lib/pricing.ts): any project
+   with its own rate card or item-master prices never reads this. */
 const DEFAULT_RATES = {
-  core: 305, condCu: 1050, condAl: 340, condCca: 560, insulation: 385,
-  frameMS: 98, tankMS: 118, fin: 152, radiator: 168, fluid: 135,
+  core: 240, condCu: 1415, condAl: 340, condCca: 560, insulation: 385,
+  frameMS: 70, tankMS: 86, fin: 152, radiator: 168, fluid: 115,
   paint: 340, bushHV: 2400, bushLV: 1900, octc: 9500, oltc: 465000, dualLink: 12000,
   cableBox: 18000, fittings: 26000, plateSet: 3500, resin: 380, enclosure: 155,
   labWind: 65, labCore: 22, labTank: 34, assembly: 42000,
@@ -460,26 +546,96 @@ function designTransformer(p) {
     const hLV = Math.max(100, Hw - 2 * clr.endClrLV);
     const hHV = Math.max(100, Hw - 2 * clr.endClrHV);
 
-    /* LV: full-height foil where the thickness is practical, otherwise a
-       helical strip winding in several radial layers */
-    const wFull = Math.max(20, hLV - 10);
-    let foilW, tLV, lvTurnLayers;
-    if (aLVreq / wFull >= T_MIN) {
-      foilW = wFull; tLV = aLVreq / wFull; lvTurnLayers = nLV;
+    /* LV: a single conductor (full-height foil, or a thin T_MIN strip with
+       several turns sharing an axial pass) below p.lvFoilMaxKva -- the
+       original model, unchanged. At or above it, LV multi-layer strip
+       construction: the turn's own required cross-section is split into
+       axCount x radCount parallel conductors, the same practical-strand
+       idea conductorSchedule already uses for HV, repeated across however
+       many radial winding layers the turn count needs to fit axially.
+       Both branches populate the same five outputs so the radial-build
+       formula below never needs to know which one ran -- axCount = radCount
+       = 1 in the single-conductor branch reduces it to exactly the old
+       formula. */
+    let foilW, tLV, lvTurnLayers, lvAxCount, lvRadCount;
+    if (p.kva < p.lvFoilMaxKva) {
+      const wFull = Math.max(20, hLV - 10);
+      if (aLVreq / wFull >= T_MIN) {
+        foilW = wFull; tLV = aLVreq / wFull; lvTurnLayers = nLV;
+      } else {
+        tLV = T_MIN; foilW = aLVreq / T_MIN;
+        const perAxial = Math.max(1, Math.floor(hLV / (foilW + 2)));
+        lvTurnLayers = Math.ceil(nLV / perAxial);
+      }
+      lvAxCount = 1; lvRadCount = 1;
     } else {
-      tLV = T_MIN; foilW = aLVreq / T_MIN;
-      const perAxial = Math.max(1, Math.floor(hLV / (foilW + 2)));
+      const aspect = p.lvStripAspect;
+      let n = Math.max(1, Math.ceil(aLVreq / p.lvStripMaxMM2));
+      lvRadCount = Math.max(1, Math.round(Math.sqrt(n / aspect)));
+      lvAxCount = Math.max(1, Math.ceil(n / lvRadCount));
+      n = lvAxCount * lvRadCount;
+      const stripArea = aLVreq / n;
+      tLV = Math.sqrt(stripArea / aspect);
+      foilW = aspect * tLV;
+      const turnAxialWidth = lvAxCount * (foilW + p.lvStripGap);
+      const perAxial = Math.max(1, Math.floor(hLV / turnAxialWidth));
       lvTurnLayers = Math.ceil(nLV / perAxial);
     }
-    let lvRadial = lvTurnLayers * (tLV + p.lvIns);
+    let lvRadial = lvTurnLayers * lvRadCount * (tLV + p.lvIns);
     lvRadial += (lvRadial > 22 ? 2 : 1) * 6;
 
-    /* HV: layer winding */
+    /* HV: layer, crossover or disc winding, selected by p.hvConstruction
+       (MANUFACTURING.md section 5). Conductor size (axHV, rdHV) does not
+       depend on construction, only how it is arranged does.
+
+       Unified model: nHVmax turns fill "groups" stacked axially (a layer
+       winding's whole coil is one group; a crossover winding is several
+       coils, each its own group; a disc winding is many discs, each its
+       own group). Within a group, groupTurns turns stack axially per
+       radial layer, and layers stack radially exactly as a plain layer
+       winding already did -- layer construction is the special case
+       numGroups = 1, groupTurns solved from the window height, which
+       reduces these formulas to exactly what they were before this
+       section existed. Groups themselves stack axially with groupGap
+       between them, so numGroups responds to the window-height bisection
+       the same way turnsPerLayer always has for a plain layer winding.
+
+       - Crossover: groupTurns is a practical, fixed axial turn count per
+         coil (p.hvCrossoverTurnsPerLayer, default 10) -- kept small so
+         each coil stays easy to wind and handle. Together with
+         p.hvCoilGap (default 20 mm), this reproduces the 630 kVA dry
+         reference's 6 coils of 13 layers of 10 turns almost exactly.
+       - Disc: groupTurns = 1 (a disc's turns stack radially, not axially,
+         so each "layer" here is one turn and the disc's own axial extent
+         is one conductor deep). numGroups (disc count) and groupGap
+         (p.hvDiscGap, default 4.5 mm) are what determine how many discs
+         the window height holds; turns per disc then falls out of that,
+         rather than being fixed independently -- there is no clean
+         first-principles driver for it at this BIL class (dielectric
+         grading would allow a far higher figure). p.hvDiscGap reproduces
+         the 1250 kVA reference's 44 discs almost exactly; see its own
+         put() note for why it isn't simply the sheet's stated 97.5 mm
+         over 43 gaps. */
     let axHV, rdHV;
     if (aHVreq > 6) { rdHV = Math.sqrt(aHVreq / 2.1); axHV = 2.1 * rdHV; }
     else { const dia = Math.sqrt((4 * aHVreq) / Math.PI); axHV = dia; rdHV = dia; }
-    const turnsPerLayer = Math.max(1, Math.floor(hHV / (axHV + p.hvPaper)));
-    const layers = Math.max(1, Math.ceil(nHVmax / turnsPerLayer));
+
+    let groupTurns, groupGap, numGroups;
+    if (p.hvConstruction === "crossover") {
+      groupTurns = Math.max(1, Math.round(p.hvCrossoverTurnsPerLayer));
+      groupGap = p.hvCoilGap;
+      numGroups = Math.max(1, Math.floor((hHV + groupGap) / (groupTurns * (axHV + p.hvPaper) + groupGap)));
+    } else if (p.hvConstruction === "disc") {
+      groupTurns = 1;
+      groupGap = p.hvDiscGap;
+      numGroups = Math.max(2, Math.floor((hHV + groupGap) / ((axHV + p.hvPaper) + groupGap)));
+    } else {
+      groupTurns = Math.max(1, Math.floor(hHV / (axHV + p.hvPaper)));
+      groupGap = 0;
+      numGroups = 1;
+    }
+    const turnsPerLayer = groupTurns;
+    const layers = Math.max(1, Math.ceil(nHVmax / (numGroups * groupTurns)));
     const hvDucts = Math.min(2, Math.floor(layers / 6));
     const hvRadial = layers * (rdHV + p.hvPaper) + (layers - 1) * p.hvInterlayer + hvDucts * 6;
 
@@ -509,6 +665,8 @@ function designTransformer(p) {
       lvID, lvOD, hvID, hvOD, cc, Ww, lmtLV, lmtHV, rLV, rHV, i2rLV, i2rHV, loadLoss,
       pctX, pctR, pctZ: Math.sqrt(pctX * pctX + pctR * pctR),
       voltsPerLayer: et * turnsPerLayer,
+      numGroups, groupGap,
+      lvAxCount, lvRadCount,
     };
   };
 
@@ -660,6 +818,7 @@ function designTransformer(p) {
     aNet: aNet * 1e4, aGross: aGross * 1e4, dCore, coreW, coreD, Hw, Ww: g.Ww, cc: g.cc,
     aLVreq, aHVreq, tLV: g.tLV, foilW: g.foilW, lvRadial: g.lvRadial, hvRadial: g.hvRadial,
     layers: g.layers, turnsPerLayer: g.turnsPerLayer, axHV: g.axHV, rdHV: g.rdHV, voltsPerLayer: g.voltsPerLayer,
+    numGroups: g.numGroups, groupGap: g.groupGap, hvConstruction: p.hvConstruction,
     lvID: g.lvID, lvOD: g.lvOD, hvID: g.hvID, hvOD: g.hvOD, lmtLV: g.lmtLV, lmtHV: g.lmtHV, hLV: g.hLV, hHV: g.hHV,
     wLV, wHV, wCore, wIns, wFrame, wTank, wFin, wEnclosure, fluidLitres, coilArea,
     coreHeight, coreWidth, yokeDepth, tankL, tankW, tankH, tankArea, finAreaReq,
@@ -672,6 +831,8 @@ function designTransformer(p) {
     rhoLV: rho(cLV), rhoHV: rho(cHV), dEff: g.dEff, hEff: g.hEff, X: g.X, lmtMean: g.lmtMean,
     lvTurnLayers: g.lvTurnLayers, hvDucts: g.hvDucts, i2r: g.i2rLV + g.i2rHV,
     tLVin: g.tLVin, tLVout: g.tLVout, tHVin: g.tHVin, tHVout: g.tHVout,
+    lvAxCount: g.lvAxCount, lvRadCount: g.lvRadCount,
+    lvConstruction: p.kva < p.lvFoilMaxKva ? "foil" : "strip",
   };
 }
 
@@ -692,7 +853,7 @@ function buildBOM(d, r, extras = []) {
   const A = [
     { code: "CR-01", desc: `Core lamination \u2013 ${d.grade.name}, ${d.ct.name}`, qty: d.wCore, unit: "kg", rate: coreRate, rk: "core" },
     { code: "WD-01", desc: `LV winding \u2013 ${d.cLV.name}`, qty: d.wLV, unit: "kg", rate: condRate(p.condLV, r), rk: rkCond(p.condLV) },
-    { code: "WD-02", desc: `HV winding \u2013 ${d.cHV.name}, ${d.layers} layers`, qty: d.wHV, unit: "kg", rate: condRate(p.condHV, r), rk: rkCond(p.condHV) },
+    { code: "WD-02", desc: `HV winding \u2013 ${d.cHV.name}, ${d.hvConstruction === "layer" ? `${d.layers} layers` : d.hvConstruction === "crossover" ? `${d.numGroups} crossover coils, ${d.layers} layers each` : `${d.numGroups} discs, ${d.layers} turns each`}`, qty: d.wHV, unit: "kg", rate: condRate(p.condHV, r), rk: rkCond(p.condHV) },
     { code: "IN-01", desc: `Insulation for ${p.bilHV} kVp LI / ${p.acHV} kV AC, class ${p.insClass}`, qty: d.wIns, unit: "kg", rate: r.insulation, rk: "insulation" },
     { code: "FR-01", desc: "Core clamping frame, tie rods, MS fabricated", qty: d.wFrame, unit: "kg", rate: r.frameMS, rk: "frameMS" },
   ];
@@ -900,31 +1061,57 @@ function etkCurve(p, rates, range = ETK_RANGE) {
    from a customer's tender, a past design, a value entered by hand -- and is
    never second-guessed by a cost search, same as an explicit flux or density
    is never re-fit to the loss schedule.
-   Only ever chooses among points etkCurve has already marked feasible --
-   impedance, thermal and loss limits, the same three checks searchDesigns
-   itself gates on. It must never fall back to the cheapest point on the
-   curve regardless of compliance: an earlier version did exactly that
-   whenever nothing on the swept range was feasible, and at small ratings
-   where the 1.42 T flux floor already keeps no-load loss outside the
-   schedule at every K (not something K can fix), it picked the single
-   worst point for impedance on the entire curve purely because it was
-   cheapest -- a real transformer would have to be built to that undeclared
-   impedance, chosen by nobody. If nothing on the curve is feasible, that is
-   a fact about this design worth surfacing, not a search to relax until
-   something passes: return no override (deriveSpec's own suggestion stands,
-   exactly as it did before this search existed) and say why in
-   etkSearchNote, which computeDesign carries through to its own result. */
+
+   When some point on the swept range is fully compliant (impedance, thermal
+   and loss limits, the same three checks searchDesigns itself gates on),
+   the cheapest of those is used, same as always.
+
+   When none is: an earlier version of this function fell back to
+   deriveSpec's own fixed AUTO suggestion, reasoning that picking a
+   non-compliant point at all was worse than admitting the search found
+   nothing. That reasoning traded a real, quantifiable saving (at 630 kVA,
+   the fixed suggestion builds a core roughly 230 kg heavier than the
+   cheapest point on the very same curve) for silence about a limitation
+   that was going to be true regardless of which K got built -- the fixed
+   suggestion is not compliant either at ratings where nothing on the curve
+   is. Discarding the saving did not make the design any more compliant; it
+   only hid the cost of not being. Now the cheapest point on the whole
+   curve is used regardless, exactly as it would be if it had passed, but
+   flagged explicitly (etkNonCompliant: true) with which limit the chosen
+   point actually misses and by how much -- an engineer building to a K
+   that cannot meet its own declared no-load loss needs to be told that
+   plainly, not have it quietly averted by building something heavier and
+   still non-compliant instead. */
 function fitEtkToCost(p, over = {}, rates = DEFAULT_RATES) {
   if (over.etK !== undefined) return {};
   const curve = etkCurve(p, rates);
+  if (!curve.length) return {};
   const pool = curve.filter((pt) => pt.feasible);
-  if (!pool.length) {
-    return curve.length
-      ? { etkSearchNote: `No K from ${ETK_RANGE[0]} to ${ETK_RANGE[ETK_RANGE.length - 1]} keeps this design within its declared impedance, thermal and loss limits at ${p.kva} kVA -- kept the auto-suggested K = ${p.etK} rather than optimising cost through a non-compliant point.` }
-      : {};
+  if (pool.length) {
+    const best = pool.reduce((a, b) => (b.exFactory < a.exFactory ? b : a));
+    return { etK: best.etK };
   }
-  const best = pool.reduce((a, b) => (b.exFactory < a.exFactory ? b : a));
-  return { etK: best.etK };
+
+  const best = curve.reduce((a, b) => (b.exFactory < a.exFactory ? b : a));
+  const d = designTransformer({ ...p, etK: best.etK });
+  const zOk = Math.abs(d.pctZ - p.targetZ) / p.targetZ <= p.zTol / 100;
+  const missed = [];
+  if (!d.compliance.nll.ok) missed.push(`no-load loss ${Math.round(d.compliance.nll.val)} W against ${Math.round(d.compliance.nll.lim)} W declared`);
+  if (!d.compliance.ll.ok) missed.push(`load loss ${Math.round(d.compliance.ll.val)} W against ${Math.round(d.compliance.ll.lim)} W declared`);
+  if (!zOk) missed.push(`impedance ${d.pctZ.toFixed(2)}% against ${p.targetZ}% declared`);
+  if (!d.compliance.rise.ok) missed.push(`top-oil/enclosure rise ${d.compliance.rise.val.toFixed(1)} against ${d.compliance.rise.lim} °C`);
+  if (!d.compliance.wRise.ok) missed.push(`winding rise ${d.compliance.wRise.val.toFixed(1)} against ${d.compliance.wRise.lim} °C`);
+  const bFloor = p.coreGrade === "amor" ? 1.20 : 1.42;
+  const floorNote = d.B <= bFloor + 0.001
+    ? ` Flux is already at the ${bFloor.toFixed(2)} T floor for this core grade -- no lower K closes this; it needs a different loss schedule or a different grade.`
+    : "";
+  return {
+    etK: best.etK,
+    etkNonCompliant: true,
+    etkSearchNote: `No K from ${ETK_RANGE[0]} to ${ETK_RANGE[ETK_RANGE.length - 1]} keeps this design within every declared limit at ${p.kva} kVA. `
+      + `Built at the cheapest point on the curve, K = ${best.etK}, ${inr(best.exFactory)} ex-works, rather than the fixed AUTO suggestion -- `
+      + `still misses ${missed.join("; ")}.${floorNote}`,
+  };
 }
 
 /* ============================================================
@@ -1127,8 +1314,17 @@ function calcSheet(d, bom) {
     row("LV radial build", "b\u2082", "b\u2082 = layers \u00D7 (t\u2082 + insulation) + ducts", `= ${d.lvTurnLayers} \u00D7 (${n(d.tLV)} + ${n(p.lvIns)}) + ducts`, `${n(d.lvRadial, 1)} mm`, REFS.B, "turns, foil thickness, insulation"),
     row("HV conductor area", "a\u2081", "a\u2081 = I\u2081\u209A\u2095 / \u03B4\u2081", `= ${n(d.iHV, 2)} / ${n(d.dHV)}`, `${n(d.aHVreq)} mm\u00B2`, REFS.S, "HV current, HV current density"),
     row("HV conductor section", "ax \u00D7 rd", "rectangular 2.1:1, or round of equal area", "n/a", `${n(d.axHV)} \u00D7 ${n(d.rdHV)} mm`, REFS.B, "HV conductor area"),
-    row("Turns per layer", "n\u2097", "n\u2097 = floor(h\u2081 / (ax + paper))", `= floor(${n(d.hHV, 0)} / (${n(d.axHV)} + ${n(p.hvPaper)}))`, `${d.turnsPerLayer}`, REFS.B, "coil height, conductor size"),
-    row("Number of layers", "L", "L = ceil(N\u2081\u2098\u2090\u2093 / n\u2097)", `= ceil(${d.nHVmax} / ${d.turnsPerLayer})`, `${d.layers}`, REFS.B, "HV turns, turns per layer"),
+    row("HV construction", "\u2014", "layer below hvLayerMaxKva; disc if OLTC or above hvDiscMinKva; crossover between \u2014 MANUFACTURING.md section 5", "n/a",
+      d.hvConstruction === "layer" ? "Single continuous layer"
+        : d.hvConstruction === "crossover" ? `Crossover, ${d.numGroups} coils`
+          : `Disc wound, ${d.numGroups} discs`,
+      REFS.K + " \u00B7 practice, not a physical law", "rating, tap changer type"),
+    d.hvConstruction === "layer"
+      ? row("Turns per layer", "n\u2097", "n\u2097 = floor(h\u2081 / (ax + paper))", `= floor(${n(d.hHV, 0)} / (${n(d.axHV)} + ${n(p.hvPaper)}))`, `${d.turnsPerLayer}`, REFS.B, "coil height, conductor size")
+      : row("Turns per axial layer", "n\u2097", d.hvConstruction === "crossover" ? "n\u2097 = hvCrossoverTurnsPerLayer (fixed)" : "n\u2097 = 1 (a disc's turns stack radially, not axially)", "n/a", `${d.turnsPerLayer}`, REFS.B, "practice"),
+    d.hvConstruction === "layer"
+      ? row("Number of layers", "L", "L = ceil(N\u2081\u2098\u2090\u2093 / n\u2097)", `= ceil(${d.nHVmax} / ${d.turnsPerLayer})`, `${d.layers}`, REFS.B, "HV turns, turns per layer")
+      : row(d.hvConstruction === "crossover" ? "Layers per coil" : "Turns per disc", "L", "L = ceil(N\u2081\u2098\u2090\u2093 / (groups \u00D7 n\u2097))", `= ceil(${d.nHVmax} / (${d.numGroups} \u00D7 ${d.turnsPerLayer}))`, `${d.layers}`, REFS.B, "HV turns, group count, turns per layer"),
     row("Volts per layer", "V\u2097", "V\u2097 = E\u209C \u00D7 n\u2097", `= ${n(d.et, 3)} \u00D7 ${d.turnsPerLayer}`, `${n(d.voltsPerLayer, 0)} V`, REFS.IEC3 + " \u00B7 interlayer stress", "E\u209C, turns per layer"),
     row("HV radial build", "b\u2081", "b\u2081 = L(rd + paper) + (L\u22121)\u00B7interlayer + ducts", `= ${d.layers}(${n(d.rdHV)}+${n(p.hvPaper)}) + ${d.layers - 1}\u00D7${n(p.hvInterlayer)} + ${d.hvDucts}\u00D76`, `${n(d.hvRadial, 1)} mm`, REFS.B, "layers, conductor, insulation"),
     row("LV inner / outer diameter", "D\u2082\u1D62 / D\u2082\u2092", "D\u2082\u1D62 = d + 2\u00B7(core\u2013LV);  D\u2082\u2092 = D\u2082\u1D62 + 2b\u2082", `= ${n(d.dCore, 0)} + 2\u00D7${n(p.coreLvClr, 0)}`, `${n(d.lvID, 0)} / ${n(d.lvOD, 0)} mm`, REFS.IEC3, "core diameter, clearance, LV build"),
@@ -1321,36 +1517,51 @@ function tappingSchedule(d, p) {
   };
 }
 
-/* MANUFACTURING.md section 2: LV in this engine is one continuous foil or,
-   above T_MIN thickness, a multi-layer strip -- a single conductor per
-   turn either way, never a bundle of parallel wires, so "parallel" and
-   "axial x radial" only apply to HV. HV itself is modelled as a single
-   required cross-section (aHVreq), not a chosen number of parallel
-   strands, so the split below is a heuristic, not something the engine
-   already derives elsewhere or something either reference design confirms:
-   both come out well under HV_STRAND_MAX_MM2 (single strand, the plain
-   axHV/rdHV the engine already computes), so multi-strand splitting is
-   untested against real data. MANUFACTURING.md's own "10.75 x 3.5 ) 8,
-   4A x 2R" example is given as the SHEETS' notation convention to follow,
-   not a confirmed number for either reference design's actual HV current --
-   at the 1250 kVA reference this heuristic's own required area (14.3 mm^2)
-   is nowhere near 8 strands' worth (301 mm^2 at 10.75 x 3.5), so that
+/* MANUFACTURING.md sections 2 and 5: both windings now report the sheets'
+   own "N conductors, axial x radial" notation, in the SAME field shape --
+   parallel/arrangement/transposition -- so the winding schedule prints
+   both the same way, not LV in prose and HV in a grid.
+
+   LV's axCount/radCount (ENGINE_VERSION 1.6.0, designTransformer's own
+   lvAxCount/lvRadCount) are real engine outputs, not a heuristic layered
+   on afterward the way HV's split below still is: LV multi-layer strip
+   construction was fitted directly against both reference sheets (630 kVA
+   reaches 4 axial x 2 radial, an exact match to the sheet's own "8
+   conductors in 4 axial by 2 radial"; 1250 kVA does not structurally
+   match its sheet's 5 axial by 6 radial, recorded in deriveSpec's own
+   lvStripAspect/lvStripMaxMM2 note).
+
+   HV itself is still modelled as a single required cross-section
+   (aHVreq), not a chosen number of parallel strands, so its split below
+   remains a heuristic, not something the engine already derives
+   elsewhere or something either reference design confirms: both come out
+   well under HV_STRAND_MAX_MM2 (single strand, the plain axHV/rdHV the
+   engine already computes), so multi-strand splitting is untested against
+   real data. MANUFACTURING.md's own "10.75 x 3.5 ) 8, 4A x 2R" example is
+   given as the SHEETS' notation convention to follow, not a confirmed
+   number for either reference design's actual HV current -- at the
+   1250 kVA reference this heuristic's own required area (14.3 mm^2) is
+   nowhere near 8 strands' worth (301 mm^2 at 10.75 x 3.5), so that
    example cannot be the 1250 kVA sheet's real HV conductor, or is a
    different rating's. HV_STRAND_MAX_MM2 is therefore a generic practical
    ceiling for a single rectangular strand (windability, eddy loss in the
    strand), not a calibrated figure -- treat any split it produces as a
-   heuristic for the works to confirm, more so than the rest of this
-   section. Transposition required whenever more than two conductors sit in
+   heuristic for the works to confirm, more so than LV's own split above.
+   Transposition required whenever more than two conductors sit in
    parallel radially, the sheets' own rule ("very important on both
-   layers" for the notation example's 2-radial arrangement). */
+   layers" for the notation example's 2-radial arrangement) -- applied to
+   both windings now, not just HV. */
 const HV_STRAND_MAX_MM2 = 37.6;
 function conductorSchedule(d, p) {
+  const lvParallel = d.lvAxCount * d.lvRadCount;
   const lv = {
     bare: { w: +d.foilW.toFixed(2), t: +d.tLV.toFixed(3) },
     layers: d.lvTurnLayers,
-    construction: d.lvTurnLayers > 1 ? "Multi-layer strip winding" : "Single continuous foil",
+    construction: d.lvConstruction === "strip" ? "Multi-layer strip winding" : (d.lvTurnLayers > 1 ? "Multi-layer strip winding" : "Single continuous foil"),
     covering: `${p.lvIns.toFixed(2)} mm interleaved paper between turns`,
-    parallel: 1, arrangement: null, transposition: false,
+    parallel: lvParallel,
+    arrangement: lvParallel > 1 ? `${d.lvAxCount}A x ${d.lvRadCount}R` : null,
+    transposition: d.lvRadCount > 2,
   };
 
   const aspect = 2.1;
@@ -1484,6 +1695,60 @@ function insulationPieceList(d, p) {
   return { derived, pending };
 }
 
+/* MANUFACTURING.md section 5: a direct print of the multi-coil HV winding
+   ENGINE_VERSION 1.5.0 added -- construction type, coil or disc count,
+   turns per coil, layers per coil, turns per layer.
+
+   d.layers (used for the radial-build calculation in designTransformer) is
+   a ceiling -- Math.ceil(nHVmax / (numGroups * turnsPerLayer)) -- sized to
+   the FULLEST group, not literally every group's own turn count. Printing
+   numGroups copies of that ceiling would overstate the total by however
+   many turns short of a full rectangle nHVmax actually is (44 discs at a
+   flat 15 turns each would total 660, not the 628 the winding actually
+   has). This spreads nHVmax across the groups as evenly as possible --
+   most groups at floor(nHVmax/numGroups), the remainder at one more turns
+   each -- so the printed schedule always sums to exactly nHVmax.
+
+   That even spread is still this engine's own approximation, not the
+   reference sheet's. The 1250 kVA sheet grades its 44 discs in five groups
+   (6 at 13, 12 at 15, 8 at 14, 12 at 15, 6 at 13) specifically so the
+   tap changer's regulating section falls in the thinner middle group --
+   a deliberate design choice tied to where the tap section sits, not
+   available here until the tap section's own placement (tappingSchedule,
+   section 1) feeds into this split, which it does not yet. The schedule
+   says so explicitly rather than letting a uniform 44-at-15 (or the
+   correct-summing 12-at-15/32-at-14 this function actually prints) read
+   as if it reproduced the sheet's own grading. */
+function windingSchedule(d, p) {
+  const hv = {
+    construction: d.hvConstruction,
+    label: d.hvConstruction === "crossover" ? "coil" : d.hvConstruction === "disc" ? "disc" : null,
+    groups: d.numGroups, turnsPerLayer: d.turnsPerLayer, layersPerGroup: d.layers,
+    totalTurns: d.nHVmax,
+  };
+  if (d.hvConstruction === "layer") {
+    return {
+      hv, groupRows: [],
+      note: "Single continuous layer winding -- not a multi-coil construction, nothing to distribute across groups.",
+    };
+  }
+  const base = Math.floor(d.nHVmax / d.numGroups);
+  const extra = d.nHVmax - base * d.numGroups; // this many groups carry one extra turn
+  const groupRows = [];
+  for (let i = 0; i < d.numGroups; i++) {
+    const turns = i < extra ? base + 1 : base;
+    groupRows.push({ index: i + 1, turns, layers: Math.ceil(turns / d.turnsPerLayer) });
+  }
+  const label = hv.label;
+  const note = `Turns spread as evenly as possible across ${d.numGroups} ${label}s to total ${d.nHVmax} exactly `
+    + `-- ${extra} ${label}${extra === 1 ? "" : "s"} at ${base + 1} turns, ${d.numGroups - extra} at ${base}. `
+    + `This is this engine's own even distribution, not the reference sheet's graded one: a real design varies `
+    + `turns per ${label} deliberately, fewest at the tap changer's regulating section, to place that section `
+    + `in the winding -- not yet done here, since it needs the tap section's own location (tappingSchedule) fed `
+    + `into this split. Read the row-by-row turns below as this engine's model, not a copy of a real winding schedule.`;
+  return { hv, groupRows, note };
+}
+
 const bushHeight = (um) => (um <= 1.1 ? 180 : um <= 12 ? 300 : um <= 24 ? 420 : um <= 36 ? 560 : um <= 52 ? 760 : 1100);
 
 const DOC_STATUS = { done: "Generated", part: "Partial", need: "Needs input" };
@@ -1512,15 +1777,15 @@ function documentRegister(core, d, bom, project) {
       "Panel sizes come from a generic layout, not a vendor radiator catalogue"),
     r(11, "Accessories Layout", "part", "3D model, fittings group",
       "Positions are indicative. Buchholz, OTI, WTI, MOG and CT selection need your accessory standard"),
-    r(12, "Complete Bill of Materials", "part", "Costing tab, fully editable",
-      "Item codes, supplier names, part numbers and per-line GST are not held. Add them or import your item master"),
+    r(12, "Complete Bill of Materials", "part", "Costing tab, fully editable, item code/part number/supplier shown per line",
+      "Per-line GST is not held -- the rate card applies GST once, at the overall ex-works total, not per BOM row"),
     r(13, "Material Requirement Planning", "need", "n/a",
       "Requires stock on hand, supplier master, lead times and open purchase orders. None of this exists in the platform"),
     r(14, "Manufacturing Process Sheet", "need", "n/a", "Requires your routing, standard times and work-centre list"),
     r(15, "Production Routing Sheet", "need", "n/a", "Requires machine list, operator allocation and standard times"),
     r(16, "Cost Estimation Report", "done", "Costing tab with the full build-up to selling price"),
     r(17, "Cost Comparison Report", "done", "Compare and quote tab"),
-    r(18, "Supplier Comparison Report", "need", "n/a", "Requires a supplier master with rates, lead time, quality rating and freight"),
+    r(18, "Supplier Comparison Report", "need", "n/a", "The supplier master now holds rates, lead time and rating (orgs/{orgId}/suppliers) -- only freight is not tracked. The comparison report itself is not yet built from that data"),
     r(19, "Quality Inspection Report", "need", "n/a", "Requires your quality assurance plan and inspection stages"),
     r(20, "Routine Test Report", "part", "Predicted values below",
       "Design values are generated as the expected result. Measured values must come from the test floor"),
@@ -1530,7 +1795,8 @@ function documentRegister(core, d, bom, project) {
       "Packaging scheme, case sizes and accessory crating are not modelled"),
     r(24, "Name Plate", "done", "Name plate drawing below"),
     r(25, "Dispatch Documents", "need", "n/a", "Requires commercial data: invoice terms, warranty text, transport booking"),
-    r(26, "Revision Report", "need", "n/a", "Requires stored revisions. This build holds one live design in memory and does not persist history"),
+    r(26, "Revision Report", "part", "Revisions modal: save, duplicate, delete, lock and read-only history browsing",
+      "Revisions are stored and browsable (TASKS.md item 5) -- a formatted revision-history report (what changed, between which revisions, by whom) is not generated as a document, though the data to build it from now exists"),
     r(27, "Compliance Report", "part", "Compliance block on the design sheet",
       "Losses, impedance, temperature rise and ratio error are checked. A clause-by-clause report needs the licensed standard text"),
     r(28, "PDF Generation", "part", "PDF report button on the drawings tab",
@@ -1571,7 +1837,7 @@ export {
   documentRegister, routineTestSchedule, DOC_STATUS, REFS,
   inr, lakhs, bushMul, condRate, rkCond, fluxRange, bushHeight, parseVectorGroup,
   etkCurve, fitEtkToCost, ETK_RANGE,
-  tappingSchedule, conductorSchedule, hardwareSchedule, insulationPieceList,
+  tappingSchedule, conductorSchedule, hardwareSchedule, insulationPieceList, windingSchedule,
 };
 
 export function computeDesign(core, over = {}, rates = DEFAULT_RATES, extras = []) {
@@ -1582,14 +1848,15 @@ export function computeDesign(core, over = {}, rates = DEFAULT_RATES, extras = [
   // the same flux and current density the actual build will use, and before
   // designTransformer so an AUTO etK is never built at deriveSpec's raw
   // fixed-multiplier guess when the project's own rates say otherwise.
-  // etkSearchNote (no compliant K found) is reporting, not a design
-  // parameter -- kept off of p/fitted so it never reaches designTransformer.
-  const { etkSearchNote, ...etkOverride } = fitEtkToCost(p0, over, rates);
+  // etkSearchNote/etkNonCompliant (no compliant K found) are reporting, not
+  // design parameters -- kept off of p/fitted so they never reach
+  // designTransformer.
+  const { etkSearchNote, etkNonCompliant, ...etkOverride } = fitEtkToCost(p0, over, rates);
   const fittedAll = { ...fitted, ...etkOverride };
   const p = { ...p0, ...etkOverride };
   const design = designTransformer(p);
   const bom = buildBOM(design, rates, extras);
-  return { spec, params: p, fitted: fittedAll, design, bom, engineVersion: ENGINE_VERSION, etkSearchNote };
+  return { spec, params: p, fitted: fittedAll, design, bom, engineVersion: ENGINE_VERSION, etkSearchNote, etkNonCompliant: !!etkNonCompliant };
 }
 
 export function fitToSchedule(S, over = {}) {

@@ -473,6 +473,18 @@ export default function App() {
     [orgSuppliers],
   );
 
+  // documentRegister #12: item code and part number per BOM line, keyed the
+  // same way resolveRates already keys a rate -- by rateKey. First item
+  // wins if more than one shares a rateKey, an edge case rather than the
+  // norm; the item master doesn't enforce one item per rate.
+  const itemsByRateKey = useMemo(() => {
+    const m = new Map<string, Item & { id: string }>();
+    for (const it of orgItems) {
+      if (it.rateKey && !m.has(it.rateKey)) m.set(it.rateKey, it);
+    }
+    return m;
+  }, [orgItems]);
+
   // TASKS.md item 11.4: the price source hierarchy. When ratesAreFrozen (a
   // just-opened or just-viewed revision, untouched since), skip resolution
   // entirely and use the frozen rates verbatim -- src/lib/pricing.ts's own
@@ -531,6 +543,14 @@ export default function App() {
   const activeBom = viewingRevision ? viewedResult!.bom : budgetPreview ? budgetPreview.bom : result.bom;
   const activeParams = viewingRevision ? viewedResult!.params : budgetPreview ? budgetPreview.d.p : result.params;
   const activePreviewKey = budgetPreview ? candidateKey(budgetPreview) : null;
+  // CALIBRATION.md, fitEtkToCost: a budget preview candidate comes from
+  // searchDesigns, which builds with designTransformer/buildBOM directly
+  // and never runs the etK cost search at all, so there is no non-
+  // compliance concept to show for one -- the live design's own warning
+  // (or the viewed revision's, frozen at save time) reappears once the
+  // preview is discarded or adopted.
+  const activeEtkWarning = viewingRevision ? viewedResult!.etkNonCompliant : budgetPreview ? false : result.etkNonCompliant;
+  const activeEtkNote = viewingRevision ? viewedResult!.etkSearchNote : budgetPreview ? undefined : result.etkSearchNote;
 
   const handleAdoptBudget = () => {
     if (!budgetPreview || readOnlyLive) return;
@@ -691,6 +711,15 @@ export default function App() {
 
         <RatingPlate design={activeDesign} bom={activeBom} params={activeParams} />
 
+        {activeEtkWarning && (
+          <div className="bg-white border border-amber rounded-[2px] px-4 py-3 print:hidden">
+            <div className="text-[11px] font-display uppercase tracking-[0.14em] text-amber mb-1">
+              No Volts-Per-Turn Setting Meets Every Declared Limit
+            </div>
+            <p className="text-[11px] text-ink2">{activeEtkNote}</p>
+          </div>
+        )}
+
         {budgetPreview && !viewingRevision && (
           <div className="bg-white border border-copper rounded-[2px] px-4 py-3 print:hidden flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <div>
@@ -816,6 +845,7 @@ export default function App() {
               rateSources={viewingRevision ? (viewingRevision.rateSources || {}) : budgetPreview ? {} : rateSources}
               priceLocks={viewingRevision ? (viewingRevision.input.priceLocks || {}) : priceLocks}
               onTogglePriceLock={handleTogglePriceLock}
+              itemsByRateKey={itemsByRateKey}
               activePreviewKey={activePreviewKey}
               onSelectPreview={(candidate) => { setViewingRevision(null); setBudgetPreview(candidate); }}
             />

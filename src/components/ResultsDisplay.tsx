@@ -54,6 +54,12 @@ interface ResultsDisplayProps {
    *  badge and the toggle's label. */
   priceLocks: Record<string, number>;
   onTogglePriceLock: (rateKey: string) => void;
+  /** documentRegister #12: item master lookup by rateKey, same keying as
+   *  rateSources -- a BOM row with an `rk` looks itself up here for the item
+   *  master's own code and part number, distinct from the row's own BOM
+   *  line code (e.g. "AC-01"). Empty Map for a row with no matching item;
+   *  the row shows nothing extra rather than inventing one. */
+  itemsByRateKey: Map<string, { code: string; partNumber: string }>;
   activePreviewKey: string | null;
   onSelectPreview: (candidate: any | null) => void;
 }
@@ -127,7 +133,7 @@ function PriceSourceBadge({ source }: { source: PriceResolution | undefined }) {
 
 export function ResultsDisplay({
   core, design, bom, params, liveDesign, liveBom, liveParams, project, rates, onRatesChange, effectiveRates,
-  rateCard, onManageRateCards, pricingLocked, rateSources, priceLocks, onTogglePriceLock,
+  rateCard, onManageRateCards, pricingLocked, rateSources, priceLocks, onTogglePriceLock, itemsByRateKey,
   activePreviewKey, onSelectPreview,
 }: ResultsDisplayProps) {
   const [activeTab, setActiveTab] = useState<Tab>('overview');
@@ -328,10 +334,21 @@ export function ResultsDisplay({
                       </tr>
                     </thead>
                     <tbody>
-                      {seg.rows.map((r: any) => (
+                      {seg.rows.map((r: any) => {
+                        const item = r.rk ? itemsByRateKey.get(r.rk) : undefined;
+                        return (
                         <tr key={r.code}>
                           <td className={`${tdCls} font-mono text-[10px] text-steel`}>{r.code}</td>
-                          <td className={`${tdCls} text-[11px] text-ink2`}>{r.desc}</td>
+                          <td className={`${tdCls} text-[11px] text-ink2`}>
+                            {r.desc}
+                            {item && (item.code || item.partNumber) && (
+                              <div className="font-mono text-[9px] text-steel mt-0.5">
+                                {item.code && <>item {item.code}</>}
+                                {item.code && item.partNumber && ' · '}
+                                {item.partNumber && <>part# {item.partNumber}</>}
+                              </div>
+                            )}
+                          </td>
                           <td className={`${tdCls} text-right font-mono text-[11px]`}>{r.qty.toLocaleString('en-IN', { maximumFractionDigits: 1 })}</td>
                           <td className={`${tdCls} text-[10px] text-steel`}>{r.unit}</td>
                           <td className={`${tdCls} text-right font-mono text-[11px]`}>{Math.round(r.rate).toLocaleString('en-IN')}</td>
@@ -353,7 +370,8 @@ export function ResultsDisplay({
                           </td>
                           <td className={`${tdCls} text-right font-mono text-[11px] font-semibold text-ink`}>{Math.round(r.qty * r.rate).toLocaleString('en-IN')}</td>
                         </tr>
-                      ))}
+                        );
+                      })}
                     </tbody>
                   </table>
                 </Card>
