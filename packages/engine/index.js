@@ -8,7 +8,7 @@
  * without bumping it, or old quotations stop reproducing.
  */
 
-export const ENGINE_VERSION = "1.6.0";
+export const ENGINE_VERSION = "1.7.0";
 
 const CONDUCTORS = {
   copper: { name: "Copper, EC grade", rho20: 0.017241, alpha: 0.00393, dens: 8890, dMax: 3.6, short: "Cu", proof: 1.0 },
@@ -122,10 +122,21 @@ const EFF_LEVELS = {
   level3: { name: "Level 3", mul: 0.82 },
   custom: { name: "Enter my own limits", mul: 1.00 },
 };
+/* Load loss coefficient recalibrated from 52 to 32, CALIBRATION.md, the
+   630 kVA Level 1 costing sheet. Two independent oil designs confirm it at
+   Level 2 (m = 1.00), the level neither reference design's own guaranteed
+   figure needed a multiplier to match: 630 kVA gives 4461 W against the
+   sheet's own 4400 W, 1250 kVA gives 7540 W against the existing OLTC
+   reference's own 7600 W -- the same 7600 W CALIBRATION.md's "Not adopted"
+   section previously called a premium figure well above the (old,
+   coefficient-52) schedule estimate of 12,253 W. It was not premium; the
+   coefficient was wrong. See "Not adopted" for the correction. The 0.766
+   exponent and the no-load formula are both untouched -- neither reference
+   sheet gave evidence against either. */
 function lossSchedule(kva, level, dry) {
   const m = (EFF_LEVELS[level] || EFF_LEVELS.level2).mul;
   const kn = dry ? 1.45 : 1, kl = dry ? 1.20 : 1;
-  return { nll: 4.6 * Math.pow(kva, 0.805) * m * kn, ll: 52 * Math.pow(kva, 0.766) * m * kl };
+  return { nll: 4.6 * Math.pow(kva, 0.805) * m * kn, ll: 32 * Math.pow(kva, 0.766) * m * kl };
 }
 
 /* ---------------- Clearances from withstand levels ---------------- */

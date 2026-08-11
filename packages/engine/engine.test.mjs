@@ -118,15 +118,30 @@ const r = E.computeDesign(E.ESSENTIALS, {}, E.DEFAULT_RATES, []);
 // did -- every number below moved again, not just LV's own dimensions.
 // See reference-designs.test.mjs for what this closed: the third and
 // last Group 2 known gap (1250 kVA LV OD), promoted to a hard assertion.
-eq("ex-works", Math.round(r.bom.exFactory), 1821335, 700);
-eq("delivered", Math.round(r.bom.withGst), 2149176, 800);
-eq("tank length mm", Math.round(r.design.tankL), 1561, 2);
-eq("no-load loss W", Math.round(r.design.noLoad), 1157, 5);
-eq("load loss W", Math.round(r.design.loadLoss), 9921, 30);
+//
+// ENGINE_VERSION 1.7.0: load loss coefficient recalibrated 52 -> 32,
+// CALIBRATION.md, the 630 kVA Level 1 costing sheet -- see lossSchedule's
+// own comment for the two confirming figures. This default case (Level 2,
+// no override) has a much lower load-loss ceiling as a direct result, so
+// autoFit lands on lower current density and more copper for the same
+// rating, and everything downstream of that (window height, core size,
+// price) moves again. compliant is now false: no-load loss (1303 W)
+// exceeds its own component limit (1196 W) at every etK, the same
+// pre-existing 1.42 T flux-floor property recorded against 1.4.1 (there
+// documented at small kVA; the lower load-loss ceiling here means the
+// no-load side now has less room to be over even at 1000 kVA). Not
+// something this change caused -- something it made visible here for the
+// first time in this particular golden case. etK falls back to the AUTO
+// suggestion (0.545) as a result, same fitEtkToCost path.
+eq("ex-works", Math.round(r.bom.exFactory), 2422079, 800);
+eq("delivered", Math.round(r.bom.withGst), 2858053, 900);
+eq("tank length mm", Math.round(r.design.tankL), 1691, 2);
+eq("no-load loss W", Math.round(r.design.noLoad), 1303, 5);
+eq("load loss W", Math.round(r.design.loadLoss), 6105, 30);
 eq("impedance %", +r.design.pctZ.toFixed(2), 5.00, 0.02);
-eq("efficiency %", +r.design.eff100.toFixed(2), 98.90, 0.02);
-eq("core mass kg", Math.round(r.design.wCore), 1682, 15);
-eq("compliant", r.design.compliant, true);
+eq("efficiency %", +r.design.eff100.toFixed(2), 99.26, 0.02);
+eq("core mass kg", Math.round(r.design.wCore), 1894, 15);
+eq("compliant", r.design.compliant, false);
 eq("HV construction", r.design.hvConstruction, "crossover");
 eq("LV construction", r.design.lvConstruction, "strip");
 
@@ -180,10 +195,14 @@ const impedanceDev = (kva, baselinePct) => {
   if (regressed) { failures++; console.log(`  FAIL ${kva} kVA: ${msg} -- WORSE than recorded, a regression`); }
   else console.log(`  ok   ${kva} kVA: ${msg}`);
 };
-impedanceDev(100, -1.41);
-impedanceDev(630, 0.32);
-impedanceDev(2000, 12.38);
-impedanceDev(2500, -3.39);
+// ENGINE_VERSION 1.7.0's load loss recalibration changed the flux/density
+// landscape autoFit searches, moving every one of these baselines again --
+// 2000 and 2500 kVA both now converge exactly, 100 and 630 kVA shifted by
+// a couple of points. Recorded as found, not tuned toward a round number.
+impedanceDev(100, 1.46);
+impedanceDev(630, 3.96);
+impedanceDev(2000, 0.00);
+impedanceDev(2500, 0.00);
 
 console.log(failures ? `\n${failures} FAILURES` : "\nall passed");
 process.exit(failures ? 1 : 0);

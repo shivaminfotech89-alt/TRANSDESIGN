@@ -240,6 +240,43 @@ Change the factor to approximately 1.10 and record why.
 aluminium. Entering your own loss targets must not change the winding metal.
 Make custom behave as level 2, and use `kva >= 630`.
 
+## 6. Load loss coefficient, ENGINE_VERSION 1.7.0
+
+`lossSchedule`'s load loss formula, `coefficient * kva^0.766 * levelMultiplier`,
+used coefficient 52. The 630 kVA Level 1 costing sheet gives 4400 W load loss;
+at Level 2 (m = 1.00, the level neither reference design's own guarantee needed
+a multiplier to match) coefficient 52 estimates 7249 W there -- 65% over.
+
+Recalibrated to 32. Two independent oil designs confirm it at Level 2:
+
+| Rating | Formula at 32 | Real guarantee |
+|---|---|---|
+| 630 kVA | 4461 W | 4400 W |
+| 1250 kVA (the OLTC reference) | 7540 W | 7600 W |
+
+Both within 1.4%. The 0.766 exponent and the no-load formula
+(`4.6 * kva^0.805 * m * kn`) are untouched -- neither sheet gave evidence
+against either, and CALIBRATION.md item 2's own lesson (don't move more than
+the data confirms) applies here the same way it did to the LV-HV clearance
+slope in item 1.
+
+**This moved current density substantially**, and with it the LV and HV
+builds, since autoFit re-optimises flux and current density against the new,
+lower load-loss ceiling. `reference-designs.test.mjs`'s two scenarios are
+unaffected (both override `limitNLL`/`limitLL` explicitly with `autoFit: false`,
+so neither ever calls `lossSchedule` for its own target) -- but every AUTO,
+no-override enquiry does, including `engine.test.mjs`'s own default case,
+whose golden numbers moved again and are recorded there with the reason.
+See ENGINE_VERSION 1.7.0's own note in that file for what changed and why
+`compliant` is now `false` there (a pre-existing 1.42 T flux-floor property,
+not something this recalibration caused, just made visible at a rating where
+it previously wasn't).
+
+Also corrected the "Not adopted" section below: the old coefficient's
+12,253 W Level 2 estimate for 1250 kVA was the evidence the coefficient was
+wrong, not evidence their own 7600 W was an unusually premium figure. At 32,
+the schedule estimate is 7540 W -- 7600 W is an ordinary Level 2 number.
+
 ---
 
 ## Verification after the changes
@@ -318,3 +355,13 @@ carried forward silently as if they were confirmed.
 Their 7600 W load loss at 1250 kVA is a premium low-loss design, not a schedule
 figure. The engine's Level 2 estimate for that rating is 12,253 W. Do not adopt
 their losses as defaults.
+
+**Correction, load loss coefficient section, below.** The 12,253 W figure above
+was itself the evidence that the old coefficient (52) was wrong, not evidence
+that 7600 W was unusually premium. At the corrected coefficient (32), the
+engine's own Level 2 estimate for 1250 kVA is 7540 W -- 7600 W is a completely
+ordinary Level 2 figure, not a premium one. The instruction not to design
+*toward* a specific transformer's own guaranteed number still stands (a real
+enquiry's own guarantee should always win over the schedule estimate, whichever
+it is), but the characterisation of this particular number as exceptionally low
+was wrong and should not be repeated.
