@@ -278,6 +278,41 @@ through the 1.4.1 bugfix, recorded there.
 
 ---
 
+## Fitted parameters awaiting a proper derivation
+
+Two parameters in the ENGINE_VERSION 1.5.0/1.6.0 winding construction work
+are curve-fit constants, not derived from any physical model, and should be
+named as such rather than left looking like ordinary design inputs:
+
+- **`hvDiscGap`** (packages/engine/index.js, `deriveSpec`): the axial gap
+  between adjacent HV discs. Fitted jointly against both reference sheets'
+  overall dimensions (HV OD, tank length, LV OD) at 3.5 mm -- not derived
+  from the discs' own dielectric or cooling requirements, and not the
+  sheet's own stated average gap (97.5 mm over 43 gaps at 1250 kVA, 2.3 mm)
+  either, since this engine's own axHV/rdHV conductor sizing does not match
+  the sheet's exactly. It is a single number standing in for what a real
+  disc winding varies gap by gap for dielectric grading and cooling.
+- **`lvStripAspect`** (same location): the width-to-thickness ratio of one
+  LV strip conductor. Fitted at 3.5 against both sheets' overall LV OD at
+  once. The 630 kVA reference's own conductor arrangement (4 axial x 2
+  radial) matches its sheet exactly at this fit; the 1250 kVA reference's
+  does not (9 axial x 2 radial over 4 layers against the sheet's 5 axial by
+  6 radial over two layers) -- the most direct evidence that a real design
+  does not use one aspect ratio at both ratings, and that fitting one to
+  both here is a compromise, not a confirmed figure.
+
+Both should come out of a real axial design instead of being tuned:
+`hvDiscGap` from MANUFACTURING.md section 6's own axial spacer and gap
+schedule, once the engine has an actual dielectric/cooling-driven gap model
+to replace the single averaged constant with; `lvStripAspect` from whatever
+capability eventually gives the LV winding the same kind of real internal
+layout HV's disc grading (also deferred, see reference-designs.test.mjs's
+own known-gap note on the 1250 kVA conductor arrangement) is waiting on.
+Flagging both here so they are re-examined when that lands, rather than
+carried forward silently as if they were confirmed.
+
+---
+
 ## Not adopted
 
 Their 7600 W load loss at 1250 kVA is a premium low-loss design, not a schedule
