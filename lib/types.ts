@@ -191,6 +191,24 @@ export interface Supplier {
   updatedAt: number;
 }
 
+/**
+ * MANUFACTURING.md section 8: standing shop instructions -- works practice,
+ * not a calculation, and never generated. Edited in place like Supplier, no
+ * effective-from dating; a note being retired or reworded is not a priced
+ * event worth preserving history for. `fromReferenceSheet` marks the seven
+ * examples MANUFACTURING.md itself carries from the two reference sheets --
+ * kept distinguishable from a works' own notes so it stays visibly "review
+ * this, it came from a sample sheet" rather than blending in as if the
+ * platform generated it.
+ */
+export interface ShopNote {
+  text: string;
+  category: "winding" | "core" | "tank" | "general";
+  fromReferenceSheet: boolean;
+  updatedBy: string;
+  updatedAt: number;
+}
+
 /** Matches buildBOM's own segment lettering (packages/engine/index.js),
  *  never a second taxonomy invented at the app layer: A core & coil, B tank/
  *  cooling/fluid (or enclosure/finishing, dry type), C accessories and

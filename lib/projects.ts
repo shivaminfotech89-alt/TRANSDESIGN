@@ -8,6 +8,7 @@
  *   orgs/{orgId}/rateCards/{rateCardId}
  *   orgs/{orgId}/suppliers/{supplierId}
  *   orgs/{orgId}/items/{itemId}
+ *   orgs/{orgId}/shopNotes/{noteId}
  *   orgs/{orgId}/projects/{projectId}
  *   orgs/{orgId}/projects/{projectId}/revisions/{revId}
  *   orgs/{orgId}/projects/{projectId}/documents/{docId}
@@ -20,7 +21,7 @@ import { db } from "./firebase";
 import { DEFAULT_RATES } from "@/packages/engine";
 import type {
   Project, ProjectMeta, Revision, RateCard, Rates, DesignSummary,
-  EnquiryInput, ProjectStatus, GeneratedDocument, Org, Member, Supplier, Item,
+  EnquiryInput, ProjectStatus, GeneratedDocument, Org, Member, Supplier, Item, ShopNote,
 } from "./types";
 
 const orgRef = (orgId: string) => doc(db, "orgs", orgId);
@@ -31,6 +32,7 @@ const revisionsRef = (orgId: string, id: string) =>
 const rateCardsRef = (orgId: string) => collection(db, "orgs", orgId, "rateCards");
 const suppliersRef = (orgId: string) => collection(db, "orgs", orgId, "suppliers");
 const itemsRef = (orgId: string) => collection(db, "orgs", orgId, "items");
+const shopNotesRef = (orgId: string) => collection(db, "orgs", orgId, "shopNotes");
 
 const pad = (n: number) => String(n).padStart(3, "0");
 
@@ -358,6 +360,61 @@ export async function saveItem(
 
 export async function deleteItem(orgId: string, id: string): Promise<void> {
   await deleteDoc(doc(itemsRef(orgId), id));
+}
+
+/* ---------------- shop notes (MANUFACTURING.md section 8) ---------------- */
+
+export async function listShopNotes(orgId: string): Promise<Array<ShopNote & { id: string }>> {
+  const snap = await getDocs(query(shopNotesRef(orgId), orderBy("category")));
+  return snap.docs.map((d) => ({ id: d.id, ...(d.data() as ShopNote) }));
+}
+
+/**
+ * Standing instructions, edited in place -- see lib/types.ts ShopNote. Pass
+ * an id to update that note, or null to create a new one. Never called by
+ * the engine or by document generation: MANUFACTURING.md is explicit that
+ * these are entered, not generated.
+ */
+export async function saveShopNote(
+  orgId: string, uid: string, id: string | null, note: Omit<ShopNote, "updatedAt" | "updatedBy">
+): Promise<string> {
+  const record = { ...note, updatedBy: uid, updatedAt: Date.now() };
+  if (id) {
+    await setDoc(doc(shopNotesRef(orgId), id), record);
+    return id;
+  }
+  const ref = await addDoc(shopNotesRef(orgId), record);
+  return ref.id;
+}
+
+export async function deleteShopNote(orgId: string, id: string): Promise<void> {
+  await deleteDoc(doc(shopNotesRef(orgId), id));
+}
+
+/**
+ * MANUFACTURING.md section 8's own seven examples, "which show the
+ * character of what is wanted" -- not a default library, an illustration
+ * to review and prune. Called only from an explicit "Load example notes"
+ * action, never automatically on org creation: seeding data an org didn't
+ * ask for is not this function's call to make. fromReferenceSheet stays
+ * true on every one of these so they stay visibly "came from a sample
+ * sheet, not works practice" even after a user edits the wording.
+ */
+export async function seedShopNotes(orgId: string, uid: string): Promise<void> {
+  const examples: Array<Omit<ShopNote, "updatedAt" | "updatedBy">> = [
+    { text: "Use only EC grade copper. Very important.", category: "winding", fromReferenceSheet: true },
+    { text: "LT covering should not be less than 0.44 to 0.45 mm imported paper.", category: "winding", fromReferenceSheet: true },
+    { text: "HT covering should be 0.34 to 0.35 mm TPC imported.", category: "winding", fromReferenceSheet: true },
+    { text: "Pie shape phanti should not be less than 75 x 8 mm thick.", category: "core", fromReferenceSheet: true },
+    { text: "The core shall be earthed through a tinned copper earthing plate bolted on the core frame channels.", category: "core", fromReferenceSheet: true },
+    { text: "MS steel plate on all LV cuts, very important.", category: "winding", fromReferenceSheet: true },
+    { text: "Complete stainless steel tie rods to be used.", category: "core", fromReferenceSheet: true },
+  ];
+  const batch = writeBatch(db);
+  for (const note of examples) {
+    batch.set(doc(shopNotesRef(orgId)), { ...note, updatedBy: uid, updatedAt: Date.now() });
+  }
+  await batch.commit();
 }
 
 /* ---------------- generated documents ---------------- */

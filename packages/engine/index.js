@@ -1243,12 +1243,223 @@ function stampingSchedule(d, steps) {
 }
 
 function finLayout(d) {
-  if (d.dry || d.finAreaReq <= 0) return { n: 0, depth: 0, height: 0, perSide: 0 };
+  if (d.dry || d.finAreaReq <= 0) return { n: 0, depth: 0, height: 0, perSide: 0, lvEnd: 0, hvEnd: 0 };
   const depth = d.p.tankType === "fin" ? Math.min(400, Math.max(150, Math.round((d.tankH * 0.22) / 10) * 10)) : 320;
   const height = Math.max(200, d.tankH - 240);
   const per = (2 * height * depth) / 1e6;
   const n = Math.max(4, Math.ceil(d.finAreaReq / per));
-  return { n, depth, height, perSide: Math.ceil(n / 2), per };
+  /* MANUFACTURING.md section 7: perSide above is the CAD/drawing split
+     (front tank wall vs back tank wall, an even split for pitch and
+     placement) -- a different axis from lvEnd/hvEnd, which is how many
+     fins or radiators end up nearer the LV bushing end of the tank versus
+     the HV end, along its length. Bushings, the cable box and (on this
+     model's OLTC/OCTC) the tap changer linkage crowd the LV end and leave
+     less wall space there. The 1250 kVA sheet mounts 2 of its 6 radiators
+     on the LV side and 4 on the HV side, a 1:2 split -- fitted from that
+     one data point, so treat it as a starting allocation to check against
+     the works' own tank layout, not a fact for every rating and fitting
+     arrangement. */
+  const hvEnd = n <= 1 ? n : Math.max(1, Math.round((n * 2) / 3));
+  const lvEnd = n - hvEnd;
+  return { n, depth, height, perSide: Math.ceil(n / 2), per, lvEnd, hvEnd };
+}
+
+/* MANUFACTURING.md section 1: real practice states taps as turn numbers
+   along the winding with whole-turn steps, not the continuous percentage
+   d.turnsPerStep implies -- the 1250 kVA sheet runs exactly 7 turns per
+   step, 16 steps of 7 giving 112 turns, not turnsPerStep's raw 7.15.
+   Rounding to a whole turn per step means a tap's real voltage misses its
+   nominal percentage very slightly; etErrorPct reports that miss rather
+   than rounding it away. The regulating section is centred in the winding,
+   per the sheet's own stated reason (balances ampere-turns, limits axial
+   short-circuit force on the section either side of it) -- the engine has
+   no per-turn axial position yet (MANUFACTURING.md sections 5-6 add that),
+   so "centred" is this schedule's own placement assumption, not a measured
+   fact about a physical winding, and is reported as such. */
+function tappingSchedule(d, p) {
+  if (p.tapType === "none" || p.tapStep <= 0) {
+    return { rows: [], wholeStepTurns: 0, regulatingTurns: 0, sectionStart: 0, sectionFinish: 0, turnsBelow: 0, turnsAbove: 0 };
+  }
+  const minusSteps = Math.round(p.tapMinus / p.tapStep);
+  const plusSteps = Math.round(p.tapPlus / p.tapStep);
+  const wholeStepTurns = Math.max(1, Math.round(d.turnsPerStep));
+  const rows = [];
+  for (let i = -minusSteps; i <= plusSteps; i++) {
+    const turns = d.nHV + i * wholeStepTurns;
+    const nominalPct = i * p.tapStep;
+    const voltage = d.hvPh * (1 + nominalPct / 100);
+    const et = voltage / turns;
+    rows.push({
+      position: i, isNormal: i === 0, turns,
+      nominalPct: +nominalPct.toFixed(2), voltage,
+      et, etErrorPct: ((et - d.et) / d.et) * 100,
+    });
+  }
+  const totalTurns = d.nHVmax;
+  const minTurns = rows[0].turns;
+  const regulatingTurns = rows[rows.length - 1].turns - minTurns;
+  const sectionStart = Math.round((totalTurns - regulatingTurns) / 2) + 1;
+  const sectionFinish = sectionStart + regulatingTurns - 1;
+  return {
+    rows, wholeStepTurns, regulatingTurns, sectionStart, sectionFinish,
+    turnsBelow: sectionStart - 1, turnsAbove: totalTurns - sectionFinish,
+  };
+}
+
+/* MANUFACTURING.md section 2: LV in this engine is one continuous foil or,
+   above T_MIN thickness, a multi-layer strip -- a single conductor per
+   turn either way, never a bundle of parallel wires, so "parallel" and
+   "axial x radial" only apply to HV. HV itself is modelled as a single
+   required cross-section (aHVreq), not a chosen number of parallel
+   strands, so the split below is a heuristic, not something the engine
+   already derives elsewhere or something either reference design confirms:
+   both come out well under HV_STRAND_MAX_MM2 (single strand, the plain
+   axHV/rdHV the engine already computes), so multi-strand splitting is
+   untested against real data. MANUFACTURING.md's own "10.75 x 3.5 ) 8,
+   4A x 2R" example is given as the SHEETS' notation convention to follow,
+   not a confirmed number for either reference design's actual HV current --
+   at the 1250 kVA reference this heuristic's own required area (14.3 mm^2)
+   is nowhere near 8 strands' worth (301 mm^2 at 10.75 x 3.5), so that
+   example cannot be the 1250 kVA sheet's real HV conductor, or is a
+   different rating's. HV_STRAND_MAX_MM2 is therefore a generic practical
+   ceiling for a single rectangular strand (windability, eddy loss in the
+   strand), not a calibrated figure -- treat any split it produces as a
+   heuristic for the works to confirm, more so than the rest of this
+   section. Transposition required whenever more than two conductors sit in
+   parallel radially, the sheets' own rule ("very important on both
+   layers" for the notation example's 2-radial arrangement). */
+const HV_STRAND_MAX_MM2 = 37.6;
+function conductorSchedule(d, p) {
+  const lv = {
+    bare: { w: +d.foilW.toFixed(2), t: +d.tLV.toFixed(3) },
+    layers: d.lvTurnLayers,
+    construction: d.lvTurnLayers > 1 ? "Multi-layer strip winding" : "Single continuous foil",
+    covering: `${p.lvIns.toFixed(2)} mm interleaved paper between turns`,
+    parallel: 1, arrangement: null, transposition: false,
+  };
+
+  const aspect = 2.1;
+  let hvW, hvT, n, axCount, rdCount;
+  if (d.aHVreq <= HV_STRAND_MAX_MM2) {
+    n = 1; axCount = 1; rdCount = 1;
+    hvW = d.axHV; hvT = d.rdHV;
+  } else {
+    n = Math.ceil(d.aHVreq / HV_STRAND_MAX_MM2);
+    rdCount = Math.max(1, Math.round(Math.sqrt(n / aspect)));
+    axCount = Math.ceil(n / rdCount);
+    n = axCount * rdCount;
+    const strandArea = d.aHVreq / n;
+    hvT = Math.sqrt(strandArea / aspect);
+    hvW = aspect * hvT;
+  }
+  const hv = {
+    bare: { w: +hvW.toFixed(2), t: +hvT.toFixed(2) },
+    covered: { w: +(hvW + p.hvPaper).toFixed(2), t: +(hvT + p.hvPaper).toFixed(2) },
+    covering: `${p.hvPaper.toFixed(2)} mm paper covering, on diameter`,
+    parallel: n, arrangement: n > 1 ? `${axCount}A x ${rdCount}R` : null,
+    transposition: rdCount > 2,
+  };
+  return { lv, hv };
+}
+
+/* MANUFACTURING.md section 3: sized from geometry, never a fixed list --
+   but only the 1250 kVA sheet gives worked numbers (tie rods 18 mm dia,
+   635 mm long, 55 mm thread both ends, 8 off; core bolts 18 x 380, 8 off;
+   foot plates 100 x 15 MS flat, 3 off; neutral busbar minimum 1500 mm^2,
+   100 x 15 copper), so every scaling here is fitted from that ONE point
+   against a geometric driver chosen for a defensible physical reason, not
+   a curve fit -- ask for a second sheet at a different rating before
+   trusting these far from ~1250 kVA:
+     - rod/bolt diameter scales with sqrt(core mass), i.e. with clamping
+       force on a constant-stress assumption.
+     - tie rod length is the window height plus a 60 mm clamp allowance
+       each end (513.8 + 120 = 633.8 mm against the sheet's 635).
+     - core bolt length scales directly with window height (proportional
+       to the sheet's own 380 mm at Hw = 513.8 mm).
+     - rod/bolt quantity scales with core width, rounded to an even count
+       (rods run in symmetric pairs), floor 4.
+     - foot plate count is 3, one per limb, not scaled -- a fact about a
+       3-limb core, not a fit.
+   Material is deliberately not asserted here (stainless tie rods is one of
+   MANUFACTURING.md's own shop-notes examples, section 8): that is works
+   practice, entered once in the shop notes library, not computed per job.
+   Core clamp channel section and hole positions, and lifting/pulling lug
+   plate thickness, have no worked example in either sheet and no clean
+   geometric derivation -- printed as "to be specified" rather than
+   guessed, per CLAUDE.md's rule against inventing engineering data. */
+const HW_REF = { wCore: 1709.3, Hw: 513.8, coreWidth: 1230.9, dCore: 271.7, rodDia: 18, rodLen: 635, boltLen: 380, footW: 100 };
+function hardwareSchedule(d, p) {
+  const evenRound = (x) => Math.max(4, 2 * Math.round(x / 2));
+  const rodDia = Math.max(12, 2 * Math.round((HW_REF.rodDia * Math.sqrt(d.wCore / HW_REF.wCore)) / 2));
+  const rodQty = evenRound((8 * d.coreWidth) / HW_REF.coreWidth);
+  const tieRod = {
+    dia: rodDia, length: Math.round(d.Hw + 120), threadLength: Math.round(rodDia * 3),
+    qty: rodQty, material: "Per shop notes (stainless in both reference sheets)",
+  };
+  const coreBolt = {
+    dia: rodDia, length: Math.round((HW_REF.boltLen * d.Hw) / HW_REF.Hw),
+    qty: rodQty, material: tieRod.material,
+  };
+  const footPlate = {
+    w: Math.round((HW_REF.footW * d.dCore) / HW_REF.dCore), t: 15, qty: 3, material: "MS flat",
+  };
+  const clampChannel = {
+    length: Math.round(d.coreWidth), section: "to be specified", holePositions: "to be specified",
+  };
+  const lugs = { qty: "to be specified", plateThickness: "to be specified" };
+
+  /* Neutral busbar, MANUFACTURING.md's own instruction: cross-section from
+     LV current at the LV winding's own current density. This gives 667
+     mm^2 at the 1250 kVA reference against the sheet's stated 1500 mm^2
+     minimum -- a real, unexplained gap, not a rounding difference: a
+     neutral conductor is conventionally not sized at full phase current
+     density for continuous rated current in the first place (it carries
+     unbalance and triplen-harmonic current, not the full line current, in
+     normal service). Reported as the instruction gives it, flagged rather
+     than silently padded to match one example. */
+  const vg = parseVectorGroup(p.vector);
+  let neutralBusbar = null;
+  if (vg.lvNeutral) {
+    const area = d.iLineLV / d.dLV;
+    const t = 15, w = Math.max(25, Math.ceil(area / t / 5) * 5);
+    neutralBusbar = { area: +area.toFixed(1), w, t, material: "Copper", note: "From LV current at LV current density -- check against the works' own neutral-sizing standard; the 1250 kVA sheet's own 1500 mm2 is well above this figure." };
+  }
+
+  const deltaWire = [];
+  if (vg.hv === "D") deltaWire.push({ side: "HV", w: +d.axHV.toFixed(2), t: +d.rdHV.toFixed(2), covering: `${p.hvPaper.toFixed(2)} mm paper` });
+  if (vg.lv === "d") deltaWire.push({ side: "LV", w: +d.foilW.toFixed(2), t: +d.tLV.toFixed(3), covering: `${p.lvIns.toFixed(2)} mm interleaved paper` });
+
+  return { tieRod, coreBolt, footPlate, clampChannel, lugs, neutralBusbar, deltaWire };
+}
+
+/* MANUFACTURING.md section 4: yoke insulation, phase barrier, foot plate
+   and clamp insulation and the two cylinders (core-to-LV, LV-to-HV) are
+   derivable from core and coil geometry now. Their piece counts (6, 4, 3,
+   4) are constants for a conventional 3-limb stacked core -- both
+   reference sheets use one, so there is nothing to scale them against, but
+   a rectangular wound or amorphous core would need different counts this
+   does not yet account for. HT spacers, common blocks, CEEDEE blocks, oil
+   ducts and dovetail strips all depend on the axial disc/coil layout
+   (MANUFACTURING.md section 6) and are printed with material and
+   thickness only, quantity "to be specified", exactly as the file
+   instructs -- not estimated. */
+function insulationPieceList(d, p) {
+  const derived = [
+    { item: "Yoke insulation", material: "Pressboard", qty: 6, thickness: 3.0 },
+    { item: "Phase barrier", material: "Pressboard", qty: 4, thickness: 3.0 },
+    { item: "Foot plate insulation", material: "Pressboard", qty: 3, thickness: 3.0 },
+    { item: "Core clamp insulation", material: "Pressboard", qty: 4, thickness: 3.0 },
+    { item: "Core-to-LV cylinder", material: "Pressboard", qty: 3, thickness: p.cylThk, diameter: +(d.dCore + 2 * p.coreLvClr).toFixed(1), height: +d.hLV.toFixed(0) },
+    { item: "LV-to-HV cylinder", material: "Pressboard", qty: 3, thickness: p.cylThk, diameter: +d.lvOD.toFixed(1), height: +d.hHV.toFixed(0) },
+  ];
+  const pending = [
+    { item: "HT spacers", material: "Pressboard", qty: "to be specified", thickness: 1.5 },
+    { item: "Common blocks", material: "Pressboard", qty: "to be specified", thickness: 8.0 },
+    { item: "CEEDEE blocks", material: "Permawood", qty: "to be specified", thickness: null },
+    { item: "Oil ducts", material: null, qty: "to be specified", thickness: null },
+    { item: "Dovetail strips", material: null, qty: "to be specified", thickness: null },
+  ];
+  return { derived, pending };
 }
 
 const bushHeight = (um) => (um <= 1.1 ? 180 : um <= 12 ? 300 : um <= 24 ? 420 : um <= 36 ? 560 : um <= 52 ? 760 : 1100);
@@ -1338,6 +1549,7 @@ export {
   documentRegister, routineTestSchedule, DOC_STATUS, REFS,
   inr, lakhs, bushMul, condRate, rkCond, fluxRange, bushHeight, parseVectorGroup,
   etkCurve, fitEtkToCost, ETK_RANGE,
+  tappingSchedule, conductorSchedule, hardwareSchedule, insulationPieceList,
 };
 
 export function computeDesign(core, over = {}, rates = DEFAULT_RATES, extras = []) {

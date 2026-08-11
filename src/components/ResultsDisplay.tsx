@@ -6,6 +6,7 @@ import { LvWindingDrawing, HvWindingDrawing, TapWindingDrawing } from './drawing
 import { InternalAssemblyDrawing } from './drawings/SectionDrawings';
 import { CadViewerTab } from './cad/CadViewerTab';
 import { DocumentsTab } from './documents/DocumentsTab';
+import { ManufacturingTab } from './manufacturing/ManufacturingTab';
 import { BudgetTab } from './budget/BudgetTab';
 import { CompareQuoteTab } from './compare/CompareQuoteTab';
 import { PRICE_SOURCE_LABELS, type PriceResolution } from '../lib/pricing';
@@ -57,7 +58,7 @@ interface ResultsDisplayProps {
   onSelectPreview: (candidate: any | null) => void;
 }
 
-type Tab = 'overview' | 'calculations' | 'bom' | 'winding' | 'core' | 'drawings' | 'reports' | '3d-model' | 'budget' | 'compare';
+type Tab = 'overview' | 'calculations' | 'bom' | 'winding' | 'core' | 'drawings' | 'reports' | 'manufacturing' | '3d-model' | 'budget' | 'compare';
 
 const TABS: { id: Tab; label: string; pending?: boolean }[] = [
   { id: 'overview', label: 'Overview' },
@@ -69,6 +70,7 @@ const TABS: { id: Tab; label: string; pending?: boolean }[] = [
   { id: 'core', label: 'Core Parts' },
   { id: 'drawings', label: '2D Drawings' },
   { id: 'reports', label: 'Reports & Docs' },
+  { id: 'manufacturing', label: 'Manufacturing' },
   { id: '3d-model', label: '3D CAD Model' },
 ];
 
@@ -512,6 +514,7 @@ export function ResultsDisplay({
           {activeTab === 'reports' && (
             <DocumentsTab core={core} design={design} bom={bom} params={params} project={project} />
           )}
+          {activeTab === 'manufacturing' && <ManufacturingTab design={design} params={params} />}
           {activeTab === '3d-model' && <CadViewerTab design={design} params={params} />}
         </div>
       </div>
