@@ -73,6 +73,20 @@ const r = E.computeDesign(E.ESSENTIALS, {}, E.DEFAULT_RATES, []);
 // lower ex-works price, with core mass falling back down rather than
 // continuing to rise. Losses stay inside the declared schedule either way,
 // autoFit's own job, unaffected by which K produced the core it is fitting.
+//
+// ENGINE_VERSION 1.4.1: fitEtkToCost bugfix, CALIBRATION.md section 2. It
+// used to fall back to the cheapest point on the whole etkCurve, feasible or
+// not, whenever nothing on the swept range was feasible -- which is every
+// rating where the loss schedule can't be closed at any K, not only a rare
+// edge case. This default 1000 kVA case is unaffected (K = 0.48 was already
+// feasible, golden numbers unchanged), but the impedance-solve check below
+// was not: 100 kVA has no feasible K anywhere in 0.40-0.70 at Level 2 (the
+// 1.42 T flux floor keeps no-load loss over schedule regardless of K), so
+// the old code picked K = 0.40 -- the swept range's own edge, and its worst
+// point for impedance -- purely because it was cheapest among candidates
+// none of which were acceptable. Fixed: fitEtkToCost now only ever selects
+// a feasible point, and returns no override at all when none exists, so
+// etK correctly falls back to deriveSpec's own suggestion instead.
 eq("ex-works", Math.round(r.bom.exFactory), 1548160, 500);
 eq("delivered", Math.round(r.bom.withGst), 1826829, 600);
 eq("tank length mm", Math.round(r.design.tankL), 1405, 2);
@@ -88,20 +102,24 @@ console.log("\nstepped core utilisation matches the classical table");
   eq(`${n} steps`, +E.stepWidths(n, 233).util.toFixed(4), u, 0.0005));
 
 console.log("\nimpedance solve tracks the declared value across ratings");
-// etK pinned explicitly (0.545, the pre-1.4.0 fixed suggestion): this check
-// is about the window-height bisection's own convergence, not about which K
-// a cost search happens to land on. Leaving etK on AUTO here would let
-// fitEtkToCost roam the whole 0.40-0.70 curve looking for the cheapest
-// point regardless of how cleanly that particular K's integer layer/turn
-// count lets the bisection hit the target -- 100 kVA landed on K = 0.40 (the
-// swept range's own edge) when left on AUTO and missed by 0.38, a genuine
-// quantization property of that corner of the search, not a bisection
-// regression. Pinning K removes that confound and restores exactly what
-// this test checked before 1.4.0 introduced the search at all.
+// etK left on AUTO. An earlier version of this test pinned it to 0.545,
+// reasoning that 100 kVA landing on K = 0.40 (the swept range's own edge)
+// and missing target by 0.38 was a quantization property of that corner of
+// the search -- it was not. fitEtkToCost had a real bug: whenever no point
+// on the 0.40-0.70 curve was feasible, it fell back to the cheapest point
+// on the WHOLE curve regardless of compliance, rather than reporting the
+// gap and keeping deriveSpec's own suggestion. At 100 kVA no K closes
+// no-load loss to the Level 2 schedule (the 1.42 T flux floor stops it,
+// not K), so every point was "infeasible" and it picked K = 0.40 purely
+// because it was cheapest -- the single worst point on the curve for
+// impedance, chosen by nobody. Fixed: fitEtkToCost now only ever chooses
+// among feasible points, and returns no override (plus etkSearchNote) when
+// none exist. 100 kVA now correctly falls back to K = 0.545 and converges
+// on its own, no pin needed.
 // 2500 kVA is still swapped for 2000 for the unrelated reason recorded
 // against ENGINE_VERSION 1.3.0 above.
 [100, 630, 2000].forEach((kva) => {
-  const d = E.computeDesign({ ...E.ESSENTIALS, kva }, { etK: 0.545 }, E.DEFAULT_RATES, []);
+  const d = E.computeDesign({ ...E.ESSENTIALS, kva }, {}, E.DEFAULT_RATES, []);
   eq(`${kva} kVA %Z`, +d.design.pctZ.toFixed(2), d.params.targetZ, 0.06);
 });
 

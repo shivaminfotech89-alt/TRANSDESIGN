@@ -96,45 +96,57 @@ tab also has its own K Sweep panel, plotting this curve directly for the
 design on screen with its minimum marked, so an engineer sees the shape of
 it rather than trusting one point.
 
+`etkCurve` marks a point `feasible` on the same three checks `searchDesigns`
+already gates its own grid on: impedance within the standard's tolerance of
+the declared value, thermal rise within limit, and no-load plus load loss
+within the loss schedule. `fitEtkToCost` **only ever picks among feasible
+points.** An earlier version of this function did not -- see "The bug this
+found," below, before reading the numbers, since it changes which points in
+what follows are real candidates and which are not.
+
 ### What the search actually finds
 
-The 1250 kVA reference, at its own guaranteed losses, 15 steps and OLTC (the
-values sections 1 and 3-5 hold fixed so this isolates K alone), swept against
-`DEFAULT_RATES`:
+The 1000 kVA default enquiry (no reference overrides, ordinary Level 2
+distribution) against `DEFAULT_RATES`:
 
-| K | Ex-works |
-|---|---|
-| 0.40 | ₹26,17,771 |
-| 0.46 | ₹25,87,246 |
-| **0.50** | **₹25,83,272 (cheapest)** |
-| 0.54 (designer's own, rounds to this step) | ₹26,02,728 |
-| 0.58 | ₹26,12,780 |
-| 0.70 | ₹26,98,226 |
+| K | Ex-works | Feasible |
+|---|---|---|
+| 0.40 | ₹15,53,631 | no -- misses the loss schedule |
+| 0.44 | ₹15,35,900 | no |
+| 0.46 | ₹15,36,118 | no |
+| **0.48** | **₹15,48,160** | **yes -- cheapest feasible** |
+| 0.50 | ₹15,48,160 | yes |
+| 0.54 | ₹15,52,599 | yes |
+| 0.56 | ₹15,76,188 | no |
+| 0.70 | ₹16,71,739 | no |
 
-The curve is genuinely U-shaped and the minimum (K = 0.50) is about ₹19,000
-(0.8%) cheaper than the designer's own K = 0.544 at these rates -- a real but
-modest saving, not a dramatic one. The 1000 kVA default enquiry (no reference
-overrides, ordinary Level 2 distribution) shows the same shape at a smaller
-scale: the AUTO suggestion is still 0.545, but `fitEtkToCost` raises the
-built design to K = 0.48, ₹15,48,160 against ₹15,52,599 pinned at 0.545.
+Only K = 0.48 to 0.54 comply here -- narrower than the swept range, and
+narrower than it looks from ex-works alone: 0.44 and 0.46 are actually
+*cheaper* than 0.48, but they build a smaller core than the loss schedule's
+no-load limit allows at this flux floor, so they are not real candidates.
+`fitEtkToCost` correctly skips past them to K = 0.48, ₹15,48,160 -- cheaper
+than the old fixed suggestion (K = 0.545, ₹15,52,599) but by less than
+picking the curve's bare minimum would have suggested.
 
-Moving the rates moves the minimum, confirming the trade is real rather than
-noise:
+Moving the rates moves the minimum within that feasible band, confirming the
+trade is real rather than noise:
 
-- **Copper at ₹1600/kg** (up from ₹1050): the 1250 kVA optimum moves from
-  K = 0.50 to **K = 0.58**. Dearer copper makes fewer turns worth more, so
-  the balance shifts toward a bigger core and less winding metal.
-- **CRGO at ₹240/kg** (down from ₹305): the optimum stays at K = 0.50 at this
-  step size on this design. Cheaper steel pushes the same direction as dearer
-  copper -- more core is worth buying either way -- but a 21% cut here isn't
-  as large a swing as the 52% copper rise above, and 0.02 steps aren't fine
-  enough to show a small shift. The direction is right; do not read the flat
-  result as "steel price doesn't matter."
+- **Copper at ₹1600/kg** (up from ₹1050): feasible band shifts to
+  0.48-0.54, cheapest **K = 0.52**, ₹17,98,902. Dearer copper makes fewer
+  turns worth more, so the balance shifts toward a bigger core and less
+  winding metal.
+- **CRGO at ₹240/kg** (down from ₹305): feasible band the same, cheapest
+  also **K = 0.52**, ₹14,36,886. Cheaper steel pushes the same direction as
+  dearer copper -- more core is worth buying either way.
+
+Both push the optimum from 0.48 to 0.52, the same direction, for the same
+underlying reason: whichever of the two materials gets relatively cheaper,
+the balance point moves toward buying more of it.
 
 ### Why the designer's own sheet sits above the computed optimum
 
-Both reference designs were priced at K = 0.544 / 0.623, above what
-`DEFAULT_RATES` optimises to. The copper-price sweep above shows exactly the
+Both reference designs were priced at K = 0.544 / 0.623, above the 0.48-0.54
+band this engine's defaults land in. The rate sweep above shows exactly the
 direction that would explain it: a designer facing copper that is dear
 relative to steel, or steel that is cheap relative to copper, rationally
 lands on a higher K than one at this engine's default rates would. The most
@@ -144,6 +156,59 @@ supplier terms on it, sit below what `DEFAULT_RATES.core` assumes -- not that
 than the ones shipped as the engine's default. This is a hypothesis, not a
 confirmed number: nothing in the two reference sheets states their actual
 steel cost, and it is not asserted as a test.
+
+This can't be checked against the 1250 kVA reference sheet directly, and
+that is worth being explicit about rather than glossing over: that
+reproduction sets `core.effLevel` to `level2` (not `custom`) while overriding
+`limitNLL`/`limitLL` to the sheet's own 1400/7600 W. `designTransformer`'s
+own compliance check only reads an overridden `limitNLL`/`limitLL` when
+`effLevel === "custom"` -- otherwise it silently recomputes the schedule
+limit from `lossSchedule(kva, effLevel, dry)` and checks against that instead,
+ignoring the override. So for that specific reproduction, `feasible` is
+checked against the engine's own auto Level 2 figure (1431 W) rather than
+the sheet's declared 1400 W, and the sheet's own K = 0.544 point fails it
+(1475 W built there) regardless -- not because K = 0.544 is a bad choice at
+Mehir's rates, but because this reproduction was never fitted to any
+schedule in the first place (`autoFit: false`, per the file header, reproduces
+the designer's own flux and density as given). **Flagging, not fixing:** this
+`effLevel`/override mismatch predates this section and also affects
+`searchDesigns`'s own long-standing `lossOk` filter, not just the new K
+search -- worth its own pass, checking every enquiry that sets explicit loss
+limits without also setting `effLevel: "custom"`, which is not scoped here.
+
+### The bug this found
+
+The first version of `fitEtkToCost` fell back to the cheapest point on the
+*whole* curve, feasible or not, whenever nothing on the swept range was
+feasible at all. At small ratings this fired every time: below about 400 kVA
+at Level 2, the 1.42 T flux floor (`fitToSchedule`'s own lower bound, "the
+core gets heavier faster than the loss falls" below it) stops no-load loss
+from closing to the schedule limit at *any* K, so no point was ever
+feasible, and the fallback picked whichever K was cheapest with zero regard
+for anything else. At 100 kVA that was K = 0.40, the swept range's own edge --
+built there, impedance came out 8.5% off the 4.5% declared value, inside the
+standard's own ±10% test tolerance but only because that tolerance is meant
+for a measured value on a built transformer, not a target to aim a cost
+search at. A design nobody asked for, chosen because it happened to be
+cheapest among candidates none of which were acceptable.
+
+Fixed: `fitEtkToCost` now only ever selects a feasible point. When none
+exists, it returns no override at all -- `etK` stays at `deriveSpec`'s own
+suggestion, exactly as it stood before this search existed -- and reports why
+in `etkSearchNote`, which `computeDesign` carries through on its result
+rather than silently picking anything. Confirmed against the same 50-5000 kVA
+scan used to check the sweep range (next section): every rating from 50 to
+400 kVA at Level 2 now reports no feasible K and correctly falls back,
+instead of silently landing somewhere.
+
+### Is the swept range too narrow?
+
+Checked directly rather than assumed: once the bug above was fixed, none of
+the genuine (feasible) optima found across a 50-5000 kVA scan at
+`DEFAULT_RATES` sit on the range's own edges (0.40 or 0.70) -- they cluster
+between 0.48 and 0.56 for every rating that has a feasible K at all. 100 kVA
+looking like an edge case before the fix was entirely the fallback bug, not
+evidence the range needed widening. 0.40-0.70 stands.
 
 ## 3. Steps in the stack
 
@@ -197,11 +262,12 @@ its deviation every run against a recorded baseline (-4.4%, -6.2%, and the
 tank figure) and only fails if a deviation gets worse than recorded --
 otherwise a permanently red suite for a known, tracked gap stops being read.
 
-**ENGINE_VERSION 1.4.0** (section 2, above): both reference designs give
-`etK` explicitly, so `fitEtkToCost` never runs against them and neither
-group's numbers moved. Only enquiries that leave `etK` on AUTO see the new
-economically-raised value -- `engine.test.mjs`'s default 1000 kVA case is
-one, and its golden numbers moved accordingly, recorded there.
+**ENGINE_VERSION 1.4.0 and 1.4.1** (section 2, above): both reference designs
+give `etK` explicitly, so `fitEtkToCost` never runs against them and neither
+group's numbers moved, in either version. Only enquiries that leave `etK` on
+AUTO see the new economically-raised value -- `engine.test.mjs`'s default
+1000 kVA case is one, and its golden numbers moved (1.4.0) then held steady
+through the 1.4.1 bugfix, recorded there.
 
 ---
 
