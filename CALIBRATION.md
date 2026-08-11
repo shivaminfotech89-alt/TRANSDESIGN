@@ -157,24 +157,31 @@ than the ones shipped as the engine's default. This is a hypothesis, not a
 confirmed number: nothing in the two reference sheets states their actual
 steel cost, and it is not asserted as a test.
 
-This can't be checked against the 1250 kVA reference sheet directly, and
-that is worth being explicit about rather than glossing over: that
-reproduction sets `core.effLevel` to `level2` (not `custom`) while overriding
-`limitNLL`/`limitLL` to the sheet's own 1400/7600 W. `designTransformer`'s
-own compliance check only reads an overridden `limitNLL`/`limitLL` when
-`effLevel === "custom"` -- otherwise it silently recomputes the schedule
-limit from `lossSchedule(kva, effLevel, dry)` and checks against that instead,
-ignoring the override. So for that specific reproduction, `feasible` is
-checked against the engine's own auto Level 2 figure (1431 W) rather than
-the sheet's declared 1400 W, and the sheet's own K = 0.544 point fails it
-(1475 W built there) regardless -- not because K = 0.544 is a bad choice at
-Mehir's rates, but because this reproduction was never fitted to any
-schedule in the first place (`autoFit: false`, per the file header, reproduces
-the designer's own flux and density as given). **Flagging, not fixing:** this
-`effLevel`/override mismatch predates this section and also affects
-`searchDesigns`'s own long-standing `lossOk` filter, not just the new K
-search -- worth its own pass, checking every enquiry that sets explicit loss
-limits without also setting `effLevel: "custom"`, which is not scoped here.
+This could not be checked against the 1250 kVA reference sheet directly at
+the time this section was first written, and that is worth being explicit
+about rather than glossing over: that reproduction sets `core.effLevel` to
+`level2` (not `custom`) while overriding `limitNLL`/`limitLL` to the sheet's
+own 1400/7600 W. `designTransformer`'s compliance check used to only read an
+overridden `limitNLL`/`limitLL` when `effLevel === "custom"` -- otherwise it
+silently recomputed the schedule limit from `lossSchedule(kva, effLevel, dry)`
+and checked against that instead, ignoring the override. So for that specific
+reproduction, `feasible` was checked against the engine's own auto Level 2
+figure (1431 W) rather than the sheet's declared 1400 W, and the sheet's own
+K = 0.544 point failed it (1475 W built there) regardless -- not because
+K = 0.544 is a bad choice at Mehir's rates, but because this reproduction was
+never fitted to any schedule in the first place (`autoFit: false`, per the
+file header, reproduces the designer's own flux and density as given).
+
+**Fixed in ENGINE_VERSION 1.4.2:** `designTransformer` now always reads
+`p.limitNLL`/`p.limitLL` for compliance, regardless of `effLevel` -- deriveSpec
+already resolves those correctly either way (the schedule's own suggestion, or
+an explicit override), so the `effLevel === "custom"` gate was never needed.
+`searchDesigns`' `lossOk` filter and `fitEtkToCost`'s feasible gate inherit
+the fix for free. This did not change either reference design's turns or
+geometry (both fix `etK` explicitly, so `fitEtkToCost` never ran against
+them, and `autoFit: false` means loss compliance was never fed back into the
+build) -- it changes only what `compliance.nll`/`ll` report, and what any
+future AUTO-etK enquiry with its own typed loss limits gets checked against.
 
 ### The bug this found
 
