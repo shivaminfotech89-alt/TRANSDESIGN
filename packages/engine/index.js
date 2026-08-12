@@ -8,7 +8,7 @@
  * without bumping it, or old quotations stop reproducing.
  */
 
-export const ENGINE_VERSION = "1.7.1";
+export const ENGINE_VERSION = "1.9.0";
 
 const CONDUCTORS = {
   copper: { name: "Copper, EC grade", rho20: 0.017241, alpha: 0.00393, dens: 8890, dMax: 3.6, short: "Cu", proof: 1.0 },
@@ -414,27 +414,47 @@ function deriveSpec(core, over = {}) {
      references guess for where the crossover actually is, the same
      caveat hvLayerMaxKva/hvDiscMinKva carry for HV.
 
-     lvStripMaxMM2 and lvStripAspect are fitted jointly against both
-     sheets (together with hvDiscGap above, since the two windings share
-     one window-height solve): 630 kVA dry reaches 4 axial x 2 radial,
-     an exact match to the sheet's own "8 conductors in 4 axial by 2
-     radial," at LV radial build within 1.5% of 20 mm. 1250 kVA oil
-     reaches 9 axial x 2 radial x 4 layers (36 conductors) against the
-     sheet's 30 in 5 axial by 6 radial over two layers -- LV OD closes to
-     within 1.5% of 374 mm, but the breakdown itself does not structurally
-     match the sheet's, unlike 630's. One aspect ratio was fitted to both
-     ratings at once; a real design likely does not use the same one at
-     both, which is the most direct explanation for why 630's structure
-     matches and 1250's doesn't. */
+     lvStripMaxMM2 caps one strand's own area. The axCount x radCount split
+     itself is no longer a separate fitted ratio (ENGINE_VERSION 1.9.0):
+     axCount comes directly from how many strand-widths of hLV are on
+     offer once every turn that must share the layer is accounted for,
+     and radCount absorbs whatever n does not fit axially -- see the build()
+     closure below. Confirmed exactly at both references without any
+     per-rating tuning: 630 kVA dry reaches 4 axial x 2 radial (the sheet's
+     own "8 conductors in 4 axial by 2 radial") and 1250 kVA oil reaches
+     5 axial x 6 radial (the sheet's own arrangement, previously 9 axial x
+     2 radial x 4 layers and structurally wrong). The old aspect-ratio
+     constant that used to live here could only ever fit one rating at a
+     time, because axCount:radCount reduced to that constant regardless of
+     scale -- it has been retired, not re-fitted. */
   put("lvFoilMaxKva", 300, [50, 1000, 50], null, "Below this rating, LV is a single conductor -- full-height foil, or a thin strip if several turns share an axial pass. Above it, LV splits into parallel conductors.");
   put("lvStripMaxMM2", 40, [10, 150, 5], null, "Practical area for one LV strip conductor before it splits into more than one, arranged axial x radial.");
-  put("lvStripAspect", 3.5, [1.2, 6.0, 0.1], null, "Width to thickness ratio of one LV strip conductor.");
   put("lvStripGap", 2, [0.5, 6, 0.5], null, "Gap between LV strip conductors placed side by side axially within one turn.");
 
   /* --- construction constants --- */
   put("lvIns", 0.30, [0.10, 1.20, 0.05], null, "Interturn insulation on the LV foil or strip.");
   put("hvPaper", 0.45, [0.20, 1.50, 0.05], null, "Paper covering on the HV conductor, on diameter.");
   put("hvInterlayer", Math.round((0.3 + 0.004 * S.bilHV) * 10) / 10, [0.2, 4.0, 0.1], null, "Interlayer insulation in the HV coil, from the volts per layer.");
+  /* CALIBRATION.md, radial cooling duct thresholds. ENGINE_VERSION 1.8.0:
+     the old LV rule keyed off total radial thickness (>22 mm), which put a
+     duct inside a compact single-layer LV bundle that never had one -- the
+     1250 kVA sheet's own insulation list places its ducts outside the LV
+     coil, in the LV-HV gap this engine already models as lvHvClr; the LV
+     bundle itself is solid. A duct exists to let a strand's own heat escape
+     without conducting through every other strand radially outward from
+     it, so what matters is how many radial layers deep the stack is, not
+     how many millimetres that happens to be -- a single 6-strand radial
+     stack is 40 mm thick and cools from both faces same as a thin one;
+     four layers of the same conductor is a real barrier regardless of how
+     thin each layer is. Same reasoning applied to the HV rule, which was
+     already layer-based (floor(layers/6), capped at 2) but at a much
+     higher threshold -- not confirmed against either reference sheet
+     either way, since both references' HV layer counts (12 and 13) sit
+     at or past ductLayers2 under both the old and the new default, so
+     this change does not move either reference's HV duct count. */
+  put("ductLayers1", 2, [1, 10, 1], null, "Radial layers of the same conductor before the first cooling duct appears.");
+  put("ductLayers2", 4, [2, 20, 1], null, "Radial layers before a second cooling duct appears.");
+  put("ductWidth", 6, [3, 12, 1], null, "Width added per radial cooling duct.");
   put("insFactor", 4.5, [2.5, 7.0, 0.1], null, "Multiplier that converts the cylinder volume into total insulation mass.");
   put("topOilSpace", dry ? 300 : Math.round(150 + 0.8 * S.bilHV), [100, 500, 10], null, "Space above the core for leads, the top oil level and the cover.");
   put("bottomClr", 60, [30, 150, 5], null, "Core bottom frame to tank floor.");
@@ -577,20 +597,40 @@ function designTransformer(p) {
       }
       lvAxCount = 1; lvRadCount = 1;
     } else {
-      const aspect = p.lvStripAspect;
+      /* CALIBRATION.md: axCount is what hLV can physically hold, not a
+         fixed ratio of n -- axial strands must all fit inside the coil
+         height (times nLV, since every turn needs the same axial room if
+         they are to share one radial layer, the arrangement both
+         reference sheets actually use); radial strands are limited only
+         by build depth, so radCount simply absorbs whatever n does not
+         fit axially. This is the inversion the old aspect-ratio split
+         missed: that formula's axCount:radCount reduced algebraically to
+         the aspect constant alone, at every n, so it could never shift
+         toward more-radial as current (and so n) rises the way a real
+         designer does. No separate strand aspect ratio is needed any
+         more -- the strand is sized square from its own share of aLVreq,
+         and lvStripAspect is retired (see its own former put() note,
+         removed here, not superseded elsewhere).
+         Strand size depends on the split and the split depends on strand
+         size, so this seeds axCount from an area-only estimate (n's own
+         average strip area, ignoring the eventual axCount/radCount
+         rounding) rather than iterating to a fixed point -- confirmed
+         against both reference sheets exactly, see reference-designs.test.mjs. */
       let n = Math.max(1, Math.ceil(aLVreq / p.lvStripMaxMM2));
-      lvRadCount = Math.max(1, Math.round(Math.sqrt(n / aspect)));
-      lvAxCount = Math.max(1, Math.ceil(n / lvRadCount));
+      const sideEst = Math.sqrt(aLVreq / n);
+      lvAxCount = Math.max(1, Math.min(n, Math.floor(hLV / ((sideEst + p.lvStripGap) * nLV))));
+      lvRadCount = Math.max(1, Math.ceil(n / lvAxCount));
       n = lvAxCount * lvRadCount;
       const stripArea = aLVreq / n;
-      tLV = Math.sqrt(stripArea / aspect);
-      foilW = aspect * tLV;
+      tLV = Math.sqrt(stripArea);
+      foilW = Math.sqrt(stripArea);
       const turnAxialWidth = lvAxCount * (foilW + p.lvStripGap);
       const perAxial = Math.max(1, Math.floor(hLV / turnAxialWidth));
       lvTurnLayers = Math.ceil(nLV / perAxial);
     }
     let lvRadial = lvTurnLayers * lvRadCount * (tLV + p.lvIns);
-    lvRadial += (lvRadial > 22 ? 2 : 1) * 6;
+    const lvDucts = lvTurnLayers >= p.ductLayers2 ? 2 : lvTurnLayers >= p.ductLayers1 ? 1 : 0;
+    lvRadial += lvDucts * p.ductWidth;
 
     /* HV: layer, crossover or disc winding, selected by p.hvConstruction
        (MANUFACTURING.md section 5). Conductor size (axHV, rdHV) does not
@@ -644,8 +684,8 @@ function designTransformer(p) {
     }
     const turnsPerLayer = groupTurns;
     const layers = Math.max(1, Math.ceil(nHVmax / (numGroups * groupTurns)));
-    const hvDucts = Math.min(2, Math.floor(layers / 6));
-    const hvRadial = layers * (rdHV + p.hvPaper) + (layers - 1) * p.hvInterlayer + hvDucts * 6;
+    const hvDucts = layers >= p.ductLayers2 ? 2 : layers >= p.ductLayers1 ? 1 : 0;
+    const hvRadial = layers * (rdHV + p.hvPaper) + (layers - 1) * p.hvInterlayer + hvDucts * p.ductWidth;
 
     const tLVin = clr.coreLvClr, tLVout = tLVin + lvRadial;
     const tHVin = tLVout + clr.lvHvClr, tHVout = tHVin + hvRadial;

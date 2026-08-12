@@ -155,14 +155,26 @@ const r = E.computeDesign(E.ESSENTIALS, {}, E.DEFAULT_RATES, []);
 // no-load loss here (1678 W against 1196 W); impedance and thermal both
 // stay within tolerance at this K, unlike the 100 kVA case in the
 // impedance-solve check below, where the cheapest point misses both.
-eq("ex-works", Math.round(r.bom.exFactory), 2501338, 800);
-eq("delivered", Math.round(r.bom.withGst), 2951579, 900);
-eq("tank length mm", Math.round(r.design.tankL), 1849, 2);
-eq("no-load loss W", Math.round(r.design.noLoad), 1678, 5);
-eq("load loss W", Math.round(r.design.loadLoss), 5020, 30);
-eq("impedance %", +r.design.pctZ.toFixed(2), 4.73, 0.02);
-eq("efficiency %", +r.design.eff100.toFixed(2), 99.33, 0.02);
-eq("core mass kg", Math.round(r.design.wCore), 2440, 15);
+//
+// ENGINE_VERSION 1.9.0 (CALIBRATION.md sections 8-11): two packing fixes,
+// both confirmed against real evidence -- see reference-designs.test.mjs's
+// own header for the full reasoning. Neither targeted this default case
+// specifically, but both windings share one window-height solve, so
+// removing radial depth the real windings never had (an always-on LV/HV
+// duct rule, and an LV axial x radial split whose ratio could not respond
+// to scale) shrinks the whole design: less core, less tank, lower price.
+// Losses and impedance follow the same window-height shift. compliant
+// stays false for the same pre-existing reason as 1.7.0 (no-load loss
+// still exceeds its own limit at the 1.42 T flux floor, unrelated to
+// either packing fix).
+eq("ex-works", Math.round(r.bom.exFactory), 2358780, 800);
+eq("delivered", Math.round(r.bom.withGst), 2783361, 900);
+eq("tank length mm", Math.round(r.design.tankL), 1792, 2);
+eq("no-load loss W", Math.round(r.design.noLoad), 1600, 5);
+eq("load loss W", Math.round(r.design.loadLoss), 5039, 30);
+eq("impedance %", +r.design.pctZ.toFixed(2), 4.81, 0.02);
+eq("efficiency %", +r.design.eff100.toFixed(2), 99.34, 0.02);
+eq("core mass kg", Math.round(r.design.wCore), 2327, 15);
 eq("compliant", r.design.compliant, false);
 eq("HV construction", r.design.hvConstruction, "crossover");
 eq("LV construction", r.design.lvConstruction, "strip");
@@ -229,10 +241,14 @@ const impedanceDev = (kva, baselinePct) => {
 // engineer building to it needs both facts, which etkSearchNote reports on
 // the design itself (see the default case above). Recorded as found, not
 // tuned toward a round number, same as every other baseline in this file.
-impedanceDev(100, -26.91);
-impedanceDev(630, -8.46);
+// ENGINE_VERSION 1.9.0's packing fixes (duct rule, LV split) moved every
+// baseline again, all toward zero -- a side effect of the same window-height
+// solve the LV/HV radial builds feed, not something either fix targeted.
+// Recorded as found.
+impedanceDev(100, -0.00);
+impedanceDev(630, -6.22);
 impedanceDev(2000, 0.00);
-impedanceDev(2500, -1.80);
+impedanceDev(2500, -0.00);
 
 console.log(failures ? `\n${failures} FAILURES` : "\nall passed");
 process.exit(failures ? 1 : 0);

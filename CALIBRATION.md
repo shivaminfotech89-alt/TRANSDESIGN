@@ -546,3 +546,133 @@ Design decisions, each because the sheet itself demanded it, not by default:
 section 8 above: nothing about how `buildBOM`'s own priced values are
 computed changed, and no golden number moved. This adds a second, separate
 way to price a design; it does not alter the first.
+
+---
+
+## 10. Radial packing: the duct rule and the LV axial x radial split
+
+Two bugs, found while chasing the 1250 kVA copper gap (section 11), both
+confirmed against real evidence independent of each other and of anything
+still open.
+
+**Radial cooling ducts (ENGINE_VERSION 1.8.0).** The old LV rule added a duct
+whenever total radial thickness exceeded 22 mm, and could never produce zero
+ducts at all -- every LV winding carried at least one. The 1250 kVA sheet's
+own insulation list settles this directly: its ducts are the LV-HV barrier
+and the HV coil-to-coil gaps, both already modelled elsewhere (`lvHvClr`,
+`groupGap`) -- the hilo build-up reads LV OD 374, former 382, cylinder 386,
+duct, HV ID 396, placing the duct outside the LV coil. The LV bundle itself
+has no internal duct. A duct exists so a strand's own heat is not forced to
+conduct through every other strand radially outward from it -- what matters
+is how many radial LAYERS deep the stack is, not how many millimetres that
+happens to be. A single 6-strand radial stack is 40 mm thick and cools from
+both faces same as a thin one; four layers of the same conductor is a real
+barrier regardless of thickness. Both the LV and HV rules now key off radial
+layer count: `ductLayers1`/`ductLayers2`/`ductWidth` (default 2/4/6 mm,
+editable) -- none at one layer, one at two or three, two at four or more.
+HV's rule was already layer-based (`floor(layers/6)`, capped at 2) but at a
+much higher threshold; changed to the same thresholds for the same reason,
+though neither reference's HV layer count (12, 13) sits low enough for this
+to move either reference's HV duct count.
+
+**LV axial x radial split (ENGINE_VERSION 1.9.0).** The old rule picked
+`lvRadCount = round(sqrt(n/aspect))`, `lvAxCount = ceil(n/lvRadCount)` from
+`lvStripAspect` (default 3.5) alone -- coil height played no part in the
+choice, only in how many radial LAYERS of turns the result needed
+afterward. Algebraically `axCount/radCount` reduces to `aspect` at every n,
+so the ratio could never shift toward more-radial as current (and so n)
+rises, which is what a real winding does: axial strands must all fit inside
+the coil height, radial strands are limited only by build depth. The two
+references bear this out directly -- 840 A per turn (630 kVA) gives 4 axial
+by 2 radial, 1667 A per turn (1250 kVA) gives 5 by 6: current roughly
+doubles, radial count triples, axial barely moves. Rewritten so axCount
+comes from how many strand-widths `hLV` can hold (times `nLV`, since every
+turn needs the same room to share one radial layer), and `radCount` absorbs
+the rest: `axCount = floor(hLV / ((side + lvStripGap) * nLV))`,
+`radCount = ceil(n / axCount)`, strand sized square from its own share of
+`aLVreq` (no separate strand aspect ratio needed any more). Confirmed exactly
+at 630 kVA (4x2, no tuning) and directionally at 1250 kVA (4 axial x 5
+radial against the old rule's 9 axial x 2 radial -- the ratio flips the
+right way). Feeding the sheet's own implied LV area (1148 mm^2, section 11)
+through this same formula at 1250 kVA's own hLV gives 5x6 exactly, the
+sheet's own arrangement -- the split formula is confirmed correct in shape;
+what still blocks the exact count is the area question below, not the split.
+`lvStripAspect` is retired, not re-fitted: there was never a value of it that
+could reach both references at once, because the ratio it controlled did not
+move with scale at all.
+
+**Removing two compensating bugs made the real gap worse, not better.**
+Both bugs were adding radial depth neither real winding has, which was
+quietly padding out an already-short LV area enough to pass LV OD (1250) and
+LV radial build (630) against the sheets. With both fixed, 1250's LV OD
+moved from -1.5% to -6.8% (now fails its own 3% tolerance) and 630's LV
+radial build, previously 20.29 mm against a 20 mm target, reads 12.85 mm
+(-35.75%) once genuinely duct-free at one layer. Neither number got worse
+because the fix was wrong -- both got worse because the padding that used to
+hide the real shortfall is gone. Demoted to Group 2 known gaps in
+`reference-designs.test.mjs` (with `Disc count`, downstream of the same LV
+area gap through the shared window-height solve), each recording the new
+baseline against section 11 below, not treated as a defect of its own.
+
+## 11. Open questions: HV conductor shape, and design margin vs densitySuggest accuracy
+
+Two things investigated while chasing the 1250 kVA copper gap that are not
+settled, and should not be settled by fitting a constant to two points.
+Recorded here as open, with the evidence gathered, rather than inferred.
+
+**HV conductor shape.** `rdHV = sqrt(aHVreq/2.1)`, `axHV = 2.1 * rdHV` -- a
+fixed 2.1 ratio, algebraically the same structural defect `lvStripAspect`
+turned out to be: independent of scale, no response to per-turn current.
+1250 kVA's HV carries 37.9 A per turn against 630 kVA's 19.1 A (phase
+current -- both windings are Delta, so this is line current divided by
+root 3, not the line figure itself). Whether one scale-aware rule reaches
+both is exactly the question the LV split answered, but it cannot be
+checked: neither sheet states HV conductor dimensions or strand count for
+either reference. Blocked on data -- see DATA-REQUEST-2026-08-11.md item 5.
+Not touched.
+
+**Design margin.** Even `fitToSchedule` converged cleanly against the real
+declared load loss (1250 kVA, limitLL 7600 W) still lands 21.5% short of the
+real LT copper. Back-solving what fraction of the declared limit
+`fitToSchedule` would need to target, in place of the 0.96 hardcoded today,
+to reproduce each reference's own copper mass:
+
+| Reference | Margin needed |
+|---|---|
+| 1250 kVA | 0.80 to 0.85 (LT closes nearest 0.80-0.82, HT nearest 0.85) |
+| 630 kVA | 1.05 |
+
+These do not reconcile to one value, and not by a small amount -- 630 kVA
+needs to build AT or slightly PAST its declared limit, the opposite
+direction from 1250 kVA needing to build 15-20% inside it. The likely reason:
+630 kVA's raw, unfit `densitySuggest` (2.8 A/mm^2, already carrying the dry-
+type correction from item 4 above) is already close to the sheet's own
+2.79-2.89 A/mm^2 -- it does not need fitting, and running `fitToSchedule` on
+it at any margin pulls it away from an already-correct starting point.
+1250 kVA's raw suggestion (2.5 A/mm^2) is badly wrong against its own
+implied ~1.44 A/mm^2, so it genuinely needs the fitting mechanism to move it,
+and a generous margin gets most of the way there. Two data points cannot
+separate "the margin is rating-dependent" from "densitySuggest is simply
+wrong at high per-turn current, and the margin experiment is compensating
+for that error at 1250 kVA while fighting an already-good answer at 630
+kVA." Both a margin parameter and a corrected `densitySuggest` are candidate
+fixes; committing to either on this evidence would be exactly the curve-
+fitting this document has avoided throughout. Not implemented.
+
+**Why a real design carries copper beyond what its declared loss requires**,
+worth recording even though the fix is not: (1) routine test tolerance --
+a unit declared at 7600 W must measure under 7600 W on the test floor, so a
+designer aims below the declared figure, not at it; `fitToSchedule`'s own
+0.96 factor is already a version of this, just not necessarily the right
+one. (2) short-circuit withstand and temperature rise both improve with
+more copper, so there is a mechanical and thermal margin motive independent
+of the loss guarantee entirely. `fitToSchedule`'s "cheapest that still
+passes" is the correct behaviour for an optimiser searching a cost surface;
+it is not necessarily the correct default for a design that has to survive a
+routine test and a fault, which is a different question from whether it
+minimises ex-works price.
+
+What would settle both: HV conductor data (item 5) for the shape question;
+a third reference at a different rating, with its own declared AND measured
+loss figures both, for the margin question -- measured is what would let a
+margin be read directly rather than back-solved from copper mass.

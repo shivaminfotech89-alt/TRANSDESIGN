@@ -78,6 +78,26 @@ whatever comes in from items 1-3.
 from the weight figure alone; it has to come from the sheet's own labelling
 or from whoever prepared it.
 
+## 5. HV conductor dimensions and strand count, for the two sheets we already have
+
+For both the 630 kVA and 1250 kVA references: HV conductor bare and covered
+dimensions, number of parallel strands, and their arrangement as axial by
+radial — the same information we already have for LV on both sheets, just
+for HV.
+
+**What it fixes:** we already have this for LV on both sheets, and it let us
+find and fix a real defect in how the engine chooses axial vs radial strand
+count — the old rule used a fixed ratio that couldn't respond to how much
+current a turn carries, when a real winding puts more strands radially as
+current rises. HV is built the same way in the engine (`axHV`/`rdHV` from a
+fixed 2.1 ratio) and is the leading suspect for the same defect, but we have
+no HV strand data on either sheet to check it against — everything we tried
+came back to a number the sheets don't actually state for either reference.
+
+**Why the engine can't infer it:** this is exactly the LV situation before
+these two sheets gave us real numbers to check against — a manufacturing
+arrangement choice, not something derivable from the electrical design alone.
+
 ---
 
 If only some of these are available right now, send what you have — each
