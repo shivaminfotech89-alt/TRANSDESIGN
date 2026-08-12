@@ -48,7 +48,7 @@ type PendingConflict =
  *  the adopted K as AUTO again and re-optimise it against the live rates,
  *  which can land somewhere other than what was previewed. */
 const BUDGET_OVER_KEYS = [
-  'coreType', 'coreGrade', 'flux', 'condLV', 'condHV', 'deltaLV', 'deltaHV', 'tankType', 'oilRiseTarget', 'lvHvClr',
+  'coreType', 'coreGrade', 'flux', 'condLV', 'condHV', 'deltaLV', 'deltaHV', 'tankType', 'cooling', 'oilRiseTarget', 'lvHvClr',
   'etK', 'steps', 'tapType',
 ] as const;
 

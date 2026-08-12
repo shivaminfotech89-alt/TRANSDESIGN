@@ -832,6 +832,11 @@ function designTransformer(p) {
     const capArea = (2 * tankL * tankW) / 1e6;
     kTank = (p.tankDiss * fluid.dissMul) / Math.pow(50, 1.25);
     kFin = (p.finDiss * fluid.dissMul) / Math.pow(50, 1.25);
+    // ODAF is given OFAF's 2.1 multiplier as a known simplification: directed
+    // oil flow raises the film coefficient at the winding surface, which this
+    // engine does not model separately from the forced-air-over-radiator
+    // effect that already drives OFAF's figure. Revisit if a directed-flow
+    // design is ever actually costed, not just declared.
     const forced = p.cooling === "ONAF" ? 1.5 : p.cooling === "OFAF" || p.cooling === "ODAF" ? 2.1 : 1.0;
     forcedMul = forced;
     /* the cooling surface must satisfy the top-oil limit AND the winding limit */
@@ -1106,7 +1111,20 @@ function searchDesigns(base, rates, band, opts) {
   const tapTypes = opts.tapTypes && opts.tapTypes.length ? opts.tapTypes : [base.tapType];
   const dScales = [0.72, 0.80, 0.88, 0.95, 1.03, 1.12, 1.22, 1.32];
   const gapScales = [0.9, 1.0, 1.12];
-  const riseTargets = opts.allowHotter ? [45, 50] : [base.oilRiseTarget];
+  /* Cooling and top-oil rise target are wired the same opt-in way as etK,
+     steps and tapType above: absent, they collapse to the design's own
+     current value, so an existing call site is unaffected. Rise target is
+     the one worth sweeping by default when the caller wants a real budget
+     search, because it is a genuine cost lever a designer can pull that the
+     grid otherwise never reaches -- a hotter design needs less tank and fin
+     steel for the same loss, trading tank cost against active-part cost, not
+     just re-picking material or grade at a fixed rise. `allowHotter` is kept
+     as a convenience for existing call sites: it only widens riseTargets when
+     the caller hasn't supplied its own array, it is not a second lever. */
+  const coolings = opts.coolings && opts.coolings.length ? opts.coolings : [base.cooling];
+  const riseTargets = opts.riseTargets && opts.riseTargets.length
+    ? opts.riseTargets
+    : opts.allowHotter ? [45, 50] : [base.oilRiseTarget];
 
   for (const core of cores) {
     const ctd = CORE_TYPES[core];
@@ -1122,30 +1140,32 @@ function searchDesigns(base, rates, band, opts) {
           for (const ds of dScales) {
             for (const tk of tanks) {
               for (const gs of gapScales) {
-                for (const rt of riseTargets) {
-                  for (const ek of etKs) {
-                    for (const st of stepsList) {
-                      for (const tt of tapTypes) {
-                        const cand = {
-                          ...base, coreType: core, buildFactor: ctd.bf, coreGrade: g, flux: B,
-                          condLV: cond, condHV: cond,
-                          deltaLV: Math.min(anchLV * ds, CONDUCTORS[cond].dMax),
-                          deltaHV: Math.min(anchHV * ds, CONDUCTORS[cond].dMax),
-                          autoClearance: false, tankType: tk, oilRiseTarget: rt,
-                          lvHvClr: Math.round(base.lvHvClr * gs),
-                          etK: ek, steps: st, tapType: tt,
-                        };
-                        const d = designTransformer(cand);
-                        if (!isFinite(d.wCore) || d.wCore <= 0) continue;
-                        const bom = buildBOM(d, rates);
-                        const zOk = Math.abs(d.pctZ - base.targetZ) / base.targetZ <= opts.zTol / 100;
-                        const thermalOk = d.compliance.rise.ok && d.compliance.wRise.ok;
-                        const lossOk = !opts.enforceLimits || (d.compliance.nll.ok && d.compliance.ll.ok);
-                        results.push({
-                          inputs: cand, d, bom, price: bom.exFactory, tco: bom.tco,
-                          zOk, thermalOk, lossOk, feasible: zOk && thermalOk && lossOk,
-                          withinBudget: bom.exFactory >= (band.min || 0) && bom.exFactory <= (band.max ?? Infinity),
-                        });
+                for (const cl of coolings) {
+                  for (const rt of riseTargets) {
+                    for (const ek of etKs) {
+                      for (const st of stepsList) {
+                        for (const tt of tapTypes) {
+                          const cand = {
+                            ...base, coreType: core, buildFactor: ctd.bf, coreGrade: g, flux: B,
+                            condLV: cond, condHV: cond,
+                            deltaLV: Math.min(anchLV * ds, CONDUCTORS[cond].dMax),
+                            deltaHV: Math.min(anchHV * ds, CONDUCTORS[cond].dMax),
+                            autoClearance: false, tankType: tk, cooling: cl, oilRiseTarget: rt,
+                            lvHvClr: Math.round(base.lvHvClr * gs),
+                            etK: ek, steps: st, tapType: tt,
+                          };
+                          const d = designTransformer(cand);
+                          if (!isFinite(d.wCore) || d.wCore <= 0) continue;
+                          const bom = buildBOM(d, rates);
+                          const zOk = Math.abs(d.pctZ - base.targetZ) / base.targetZ <= opts.zTol / 100;
+                          const thermalOk = d.compliance.rise.ok && d.compliance.wRise.ok;
+                          const lossOk = !opts.enforceLimits || (d.compliance.nll.ok && d.compliance.ll.ok);
+                          results.push({
+                            inputs: cand, d, bom, price: bom.exFactory, tco: bom.tco,
+                            zOk, thermalOk, lossOk, feasible: zOk && thermalOk && lossOk,
+                            withinBudget: bom.exFactory >= (band.min || 0) && bom.exFactory <= (band.max ?? Infinity),
+                          });
+                        }
                       }
                     }
                   }
@@ -1160,6 +1180,7 @@ function searchDesigns(base, rates, band, opts) {
   const best = new Map();
   for (const x of results) {
     const k = [x.inputs.coreType, x.inputs.coreGrade, x.inputs.condLV, x.inputs.tankType,
+      x.inputs.cooling, x.inputs.oilRiseTarget,
       x.d.B.toFixed(2), x.d.dLV.toFixed(2), x.d.dHV.toFixed(2),
       x.inputs.etK.toFixed(2), x.inputs.steps, x.inputs.tapType].join("|");
     const prev = best.get(k);

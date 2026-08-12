@@ -20,6 +20,7 @@ interface BudgetTabProps {
  *  is currently previewing, without a second source of truth for identity. */
 export function candidateKey(r: any): string {
   return [r.inputs.coreType, r.inputs.coreGrade, r.inputs.condLV, r.inputs.tankType,
+    r.inputs.cooling, r.inputs.oilRiseTarget,
     r.d.B.toFixed(2), r.d.dLV.toFixed(2), r.d.dHV.toFixed(2)].join('|');
 }
 
@@ -170,7 +171,6 @@ export function BudgetTab({ design, bom, params, rates, activePreviewKey, onSele
       conds: Object.keys(CONDUCTORS),
       tanks: params.dry ? [params.tankType] : ['fin', 'radiator'],
       cores: [params.coreType],
-      allowHotter: false,
       zTol: params.zTol,
       enforceLimits: true,
       // CALIBRATION.md section 2: K is swept alongside material, grade and
@@ -181,6 +181,18 @@ export function BudgetTab({ design, bom, params, rates, activePreviewKey, onSele
       // a sub-two-second search well past ten, for a lever that is rarely a
       // real cost choice on top of K, material and grade.
       etKs: ETK_RANGE,
+      // Top-oil rise target is swept alongside K, material, grade and tank:
+      // a lower target buys nothing but cost (more fin/tank steel for the
+      // same loss), a higher one saves tank steel up to whatever the
+      // standard and fluid actually allow (params.oilRiseTarget itself, if
+      // deriveSpec or the user has already set it to that ceiling). This is
+      // a fair trade because both ends are held to the same compliance
+      // check (d.compliance.rise/wRise.ok) that gates feasible either way.
+      // Cooling type is deliberately NOT swept here: buildBOM has no line
+      // item for fans or oil pumps, so a forced-cooling candidate would look
+      // cheaper only because its fan/pump cost is missing, not because it
+      // actually is cheaper. Sweep it once that cost exists.
+      riseTargets: [params.oilRiseTarget, Math.max(30, params.oilRiseTarget - 5), Math.max(30, params.oilRiseTarget - 10)],
     };
     // Deferred one tick so the "Searching" state actually paints before the
     // synchronous grid search (a few thousand designTransformer + buildBOM

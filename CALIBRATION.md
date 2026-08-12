@@ -1072,3 +1072,66 @@ the first two versions ("3% is acceptable," then "14-16% is now expected")
 were both wrong in the same way: declaring a gap acceptable without
 checking what was actually behind it. This time the check is the point,
 not the conclusion.
+
+## 17. Cooling, tank type and top-oil rise target as swept levers in searchDesigns
+
+`searchDesigns` already swept core grade, flux, conductor material and
+current density, tank type, and (opt-in) etK, steps and tap type. Cooling
+type was entirely absent as a dimension, and top-oil rise target existed
+only as a hardcoded binary gated by a boolean (`opts.allowHotter ? [45,
+50] : [base.oilRiseTarget]`) rather than a real opt-in array like the
+other levers.
+
+**Rise target** is now generalised to the same opt-in pattern:
+`opts.riseTargets` if supplied, else `[45, 50]` if `opts.allowHotter`,
+else the design's own current value -- so no existing call site's
+candidate count changes unless it opts in. This is a genuine cost lever,
+not a cosmetic one: a lower target buys nothing but more fin/tank steel
+for the same loss; a higher one (up to whatever the standard and fluid
+ceiling in deriveSpec actually allow) saves tank steel at the cost of
+running hotter. Both ends are gated by the same compliance check
+(`d.compliance.rise.ok` and `d.compliance.wRise.ok`) every other
+candidate is, so the trade is real, not free. `BudgetTab.tsx` now sweeps
+`[current, current-5, current-10]` (floored at 30, deriveSpec's own
+floor) by default in the live budget search.
+
+**Cooling** is now a real opt-in dimension (`opts.coolings`, defaulting
+to the design's own current value), wired the same way. It is
+*deliberately not swept by default* in `BudgetTab.tsx`'s live search:
+`buildBOM` has no line item for fans or oil pumps anywhere in the BOM.
+A forced-cooling candidate (ONAF, OFAF, ODAF) needs less fin/tank steel
+than ONAN for the same loss, so it would come out cheaper in this model
+purely because its own fan/pump cost is missing, not because it
+actually is cheaper. Sweeping cooling type in a live cost search before
+that cost is added would recommend equipment this platform cannot
+price. The engine-level capability is there for a caller that wants a
+narrower, single-cooling-type re-check (e.g. "is ONAF ever cheaper than
+ONAN at this rating, ignoring fan cost, purely to see the steel trade");
+it should not drive the default search until fan/pump cost exists.
+
+**Tank type** needed no change -- it was already swept
+(`opts.tanks`, already wired into `BudgetTab.tsx`'s live search as
+`params.dry ? [params.tankType] : ['fin', 'radiator']`). The user's
+request to add it alongside cooling and rise target reflected what the
+search was missing overall, not a gap in this dimension specifically.
+
+Both dedup keys that identify "the same candidate" -- `searchDesigns`'
+own internal `best` Map key, and `BudgetTab.tsx`'s separately exported
+`candidateKey` (reused by `App.tsx` to match the previewed row) -- now
+include cooling and rise target. Without this, two candidates differing
+only in one of these new dimensions would either silently collapse to
+one (the internal key) or be misidentified as each other in the results
+table (the UI key).
+
+ODAF's forced-cooling multiplier has always shared OFAF's 2.1 rather
+than having its own -- this was already true, not changed here, but is
+now recorded as a deliberate simplification in a code comment at the
+point it is used: directed oil flow raises the winding-surface film
+coefficient in a way this engine does not model separately from forced
+air over a radiator.
+
+No formula in `computeDesign`'s own reproduction path changed --
+`searchDesigns` is a what-if search over the Budget tab, not part of how
+a saved revision reprices on read. `ENGINE_VERSION` is not bumped for
+this change; no golden number moved and none could, since the default
+case never calls `searchDesigns`.
