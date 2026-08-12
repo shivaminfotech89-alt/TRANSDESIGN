@@ -1,11 +1,35 @@
 rules_version = '2';
 
 // Generated PDFs and drawings. Path: orgs/{orgId}/projects/{projectId}/{file}
+//
+// CALIBRATION.md-style note, since this is the same class of gap: Storage
+// Security Rules' firestore.exists()/get() can only ever reach the
+// (default) Firestore database, never a named one -- a current, real
+// Firebase platform limit, not a mistake in how the call below was written.
+// This app's data lives entirely in a named database (lib/firebase.ts,
+// CLAUDE.md), and (default) is never written to here, so the old
+// firestore.exists(/databases/(default)/documents/...) check could never
+// find a real membership document -- it would always deny.
+//
+// Fixed with Auth custom claims instead of a cross-service Firestore
+// lookup: functions/src/claims.ts (syncOrgClaims) mirrors each org
+// membership document onto the member's own Auth token, keyed
+// request.auth.token.orgs[orgId] = role, every time that membership
+// document changes. Storage rules read the token directly -- no Firestore
+// call at all, so the named-database limitation does not apply.
+//
+// Rejected alternative: mirroring membership data into (default) instead,
+// so the old firestore.exists() pattern would actually resolve. (default)
+// is shared with other, unrelated apps in this same Firebase project
+// (CLAUDE.md) -- writing this app's authorization data where another app's
+// code also reads is exactly the cross-contamination the named-database
+// split exists to avoid. Custom claims live on the Auth token, not in any
+// Firestore database, so they don't have this problem.
 service firebase.storage {
   match /b/{bucket}/o {
     match /orgs/{orgId}/projects/{projectId}/{allPaths=**} {
       allow read: if request.auth != null &&
-        firestore.exists(/databases/(default)/documents/orgs/$(orgId)/members/$(request.auth.uid));
+        request.auth.token.orgs[orgId] != null;
       // Files are written by the PDF Cloud Function using the Admin SDK, which
       // bypasses these rules. Clients never upload here.
       allow write: if false;

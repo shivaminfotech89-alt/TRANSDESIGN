@@ -1925,8 +1925,19 @@ function documentRegister(core, d, bom, project) {
       "Revisions are stored and browsable (TASKS.md item 5) -- a formatted revision-history report (what changed, between which revisions, by whom) is not generated as a document, though the data to build it from now exists"),
     r(27, "Compliance Report", "part", "Compliance block on the design sheet",
       "Losses, impedance, temperature rise and ratio error are checked. A clause-by-clause report needs the licensed standard text"),
-    r(28, "PDF Generation", "part", "PDF report button on the drawings tab",
-      "Bookmarks, clickable index, QR code, digital signature and watermark need a server-side PDF pipeline"),
+    // TASKS.md item 10: server-side pipeline landed -- generateReportPdf
+    // (functions/src/reportPdf.ts) renders src/report/PrintReport.tsx
+    // headlessly with a signed Firebase custom token, uploads to Storage,
+    // records the document, all triggered from the "PDF Report" panel on
+    // this tab, not the old client-side window.print() button. Bookmarks,
+    // page numbers, revision and QR code are all real now (CLAUDE.md
+    // invariant 7 -- this row's own "missing" text was the thing that made
+    // that check necessary here). Digital signature is the one item from
+    // the original gap list still genuinely absent -- cryptographic PDF
+    // signing is a distinct capability TASKS.md item 10 itself never asked
+    // for, not an oversight in this pass.
+    r(28, "PDF Generation", "part", "PDF Report panel, Reports & Docs tab",
+      "Digital signature is not applied -- cryptographic PDF signing, not built"),
   ];
 }
 

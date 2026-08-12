@@ -66,6 +66,7 @@ npm run dev              # Next.js dev server
 npm run typecheck        # tsc --noEmit, must be clean before commit
 npm run test:engine      # golden numbers, must pass before AND after engine edits
 firebase deploy --only firestore:rules,firestore:indexes,storage
+firebase deploy --only functions   # syncOrgClaims, generateReportPdf -- see functions/.env.example
 ```
 
 ---

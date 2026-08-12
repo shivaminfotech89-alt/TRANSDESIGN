@@ -833,6 +833,7 @@ export default function App() {
               core={core} design={activeDesign} bom={activeBom} params={activeParams}
               liveDesign={result.design} liveBom={result.bom} liveParams={result.params}
               project={buildMeta(projectName)}
+              orgId={orgId} projectId={currentProjectId} revision={projectCurrentRevision}
               rates={rates} onRatesChange={setRates} effectiveRates={effectiveRates}
               rateCard={orgRateCards.find((c) => c.id === rateCardId) || null}
               onManageRateCards={() => setShowRateCards(true)}

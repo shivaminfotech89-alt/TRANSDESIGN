@@ -63,6 +63,14 @@ interface ResultsDisplayProps {
   itemsByRateKey: Map<string, { code: string; partNumber: string }>;
   activePreviewKey: string | null;
   onSelectPreview: (candidate: any | null) => void;
+  /** TASKS.md item 10: null/-1 while no project or no saved revision exists
+   *  yet -- generating a server PDF needs a real saved revision to render
+   *  (the Cloud Function loads it the same way this app does, from
+   *  Firestore, never from in-memory state), so DocumentsTab disables the
+   *  button rather than offering to render something that was never saved. */
+  orgId: string;
+  projectId: string | null;
+  revision: number;
   /** CALIBRATION.md section 9: writes cardExtra into the live over object
    *  the same way any other override edit does (App.tsx's handleOverChange)
    *  -- not a separate persistence path. Disabled by the same pricingLocked
@@ -141,7 +149,7 @@ function PriceSourceBadge({ source }: { source: PriceResolution | undefined }) {
 export function ResultsDisplay({
   core, design, bom, params, liveDesign, liveBom, liveParams, project, rates, onRatesChange, effectiveRates,
   rateCard, onManageRateCards, pricingLocked, rateSources, priceLocks, onTogglePriceLock, itemsByRateKey,
-  activePreviewKey, onSelectPreview, onCardExtraChange,
+  activePreviewKey, onSelectPreview, onCardExtraChange, orgId, projectId, revision,
 }: ResultsDisplayProps) {
   const [activeTab, setActiveTab] = useState<Tab>('overview');
   const [isSaving, setIsSaving] = useState(false);
@@ -546,7 +554,10 @@ export function ResultsDisplay({
           )}
           {activeTab === 'drawings' && <Drawings2D design={design} params={params} project={project} />}
           {activeTab === 'reports' && (
-            <DocumentsTab core={core} design={design} bom={bom} params={params} project={project} />
+            <DocumentsTab
+              core={core} design={design} bom={bom} params={params} project={project}
+              orgId={orgId} projectId={projectId} revision={revision}
+            />
           )}
           {activeTab === 'manufacturing' && <ManufacturingTab design={design} params={params} />}
           {activeTab === '3d-model' && <CadViewerTab design={design} params={params} />}

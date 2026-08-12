@@ -8,6 +8,7 @@ import { initializeApp, getApps, type FirebaseApp } from "firebase/app";
 import { getAuth, type Auth } from "firebase/auth";
 import { getFirestore, type Firestore } from "firebase/firestore";
 import { getStorage, type FirebaseStorage } from "firebase/storage";
+import { getFunctions, type Functions } from "firebase/functions";
 
 const config = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY as string,
@@ -28,6 +29,7 @@ export const app: FirebaseApp = getApps().length ? getApps()[0] : initializeApp(
 export const auth: Auth = getAuth(app);
 export const db: Firestore = getFirestore(app, DATABASE_ID);
 export const storage: FirebaseStorage = getStorage(app);
+export const functions: Functions = getFunctions(app);
 
 // Diagnostic only, for the "Checking your organisation" hang: prove the env
 // vars actually reached the bundle (Vite requires the VITE_ prefix and a dev
