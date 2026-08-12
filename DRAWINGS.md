@@ -1,11 +1,14 @@
 # Drawing register
 
-Twenty-one drawings, all generated from the calculated design. Every one carries
+Twenty-two drawings, all generated from the calculated design. Every one carries
 dimension lines on the drawing itself, not only in a table beside it. A drawing
-without dimension lines is a picture and cannot be submitted.
+without dimension lines is a picture and cannot be submitted -- drawing 22 is the
+one exception, and says why where it's described.
 
 Numbering 1 to 20 follows the master specification section 18. Drawing 21 is an
-addition: the core shop cannot cut laminations without it.
+addition: the core shop cannot cut laminations without it. Drawing 22 is a second
+addition, for the same reason: a real core cutting chart is a different document
+from drawing 21's cutting schedule, not a restyling of it, and the shop needs both.
 
 ---
 
@@ -112,6 +115,61 @@ Dimension on both: outer edge, inner edge, width.
 Beneath: cutting schedule of pocket, width, stack, sheet count, limb sheet long
 and short edge, yoke sheet long and short edge, mass. Foot: total sheets and
 mass.
+
+### 22. Core cutting chart
+A different document from drawing 21, not the same numbers laid out twice.
+Where drawing 21 models two plate types (limb, yoke) from a single mitred
+long/short edge average, this models three -- Plate A (limb, mitred both
+ends), Plate B (half yoke, step-lap), Plate C (full yoke, mitred one end) --
+because that is the layout a real core chart actually uses, and the two
+documents are not meant to reconcile line for line (CALIBRATION.md section
+12).
+
+Header line: no-load loss, rating, flux density. Then three tables, one per
+plate, each row giving step number, length, width and weight, each table
+footed with its own total. A fourth table breaks Plate B's own sheet count
+down by its step-lap shift (0, 10, 20 mm), the 0 mm group carrying half the
+sheets at every step. Foot of the whole sheet: core total, the sum of all
+three plates.
+
+No dimension-line SVG, the one exception to this document's own universal
+requirement above: every dimension this chart carries is already a number in
+its own table -- length, width, weight, per step, per plate -- and a
+schematic outline would add a picture to numbers that are already complete
+and unambiguous on their own, not supply a dimension the table lacks.
+
+All three plate length formulas are fitted to the one 1250 kVA chart on file,
+each against the simplest relationship that reproduced its own plate total
+without an arbitrary offset, not the closest fit available:
+- Plate A: length = 2 x width exactly.
+- Plate C: length = 2*cc + width -- the engine's own existing yoke edge
+  (drawing 21's `yokeLong`), with the one mitre this plate actually has.
+- Plate B: the same steel Plate C's own formula gives for the same sheet
+  count, split 25/75 with Plate C (confirmed against the chart's own
+  263.822/788.84 kg split, 0.2506 against a stated 0.25), cut as two
+  half-length pieces per layer instead of one -- mass-conserving by
+  construction.
+
+Confirmed against the one chart on file to within 5% on every plate and the
+core total (reference-designs.test.mjs). Not confirmed at any other rating --
+ask for a second chart before trusting any of the three formulas away from
+ratings near 1250 kVA, the same caveat every other single-chart-fitted
+constant in this engine already carries.
+
+Lamination width snapping (both drawings 21 and 22): standard slit stock
+comes in whole increments, not a continuous circle-packing optimum --
+`stepWidths`'s own `increment` parameter (default 10 mm, editable via
+`p.stepIncrement`) rounds every step width UP to the next multiple, never
+down or to nearest, since a step narrower than its standard width would
+under-fill the circle at that radius. Stack depth is untouched -- only
+width is standardised, since that is a slitting-stock decision, independent
+of how many laminations deep a step runs. Confirmed against the 1250 kVA
+reference: the unsnapped optimum for its 15 steps ends at 42 mm: snapped, it
+ends at 50 mm, matching the real chart's own last step exactly, and the
+full snapped sequence (270, 270, 260, 250, 240, 220, 210, 200, 180, 160,
+150, 130, 100, 80, 50) tracks the chart's own (270, 260, 250, 240, 230, 220,
+210, 200, 180, 160, 140, 120, 100, 80, 50) closely without being fitted to
+it point for point.
 
 ---
 

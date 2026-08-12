@@ -676,3 +676,117 @@ What would settle both: HV conductor data (item 5) for the shape question;
 a third reference at a different rating, with its own declared AND measured
 loss figures both, for the margin question -- measured is what would let a
 margin be read directly rather than back-solved from copper mass.
+
+---
+
+## 12. Core cutting chart, DRAWINGS.md drawing 22
+
+Lamination is slit to standard widths, not cut to a continuous circle-
+packing optimum -- the 1250 kVA chart runs 270 down to 50 in 10 mm steps
+where `stepWidths`'s own unsnapped optimum for this diameter and step
+count ends at 42. `stepWidths` now takes an `increment` (default 10,
+editable via `p.stepIncrement`) and rounds every width UP to the next
+multiple -- never down or to nearest, since a step narrower than its
+standard width would under-fill the circle at that radius, and a real core
+never does. Only width is snapped; stack depth is untouched, since
+standardising width is a slitting-stock decision independent of lamination
+count. `engine.test.mjs`'s classical-utilisation check now passes
+`increment: 0` explicitly, since that check is deliberately testing the
+pure continuous packing formula against Sawhney's own published table, a
+different question from what real stock gives.
+
+Snapped, the 1250 kVA reference's 15 steps read 270, 270, 260, 250, 240,
+220, 210, 200, 180, 160, 150, 130, 100, 80, 50 -- close to the chart's own
+270, 260, 250, 240, 230, 220, 210, 200, 180, 160, 140, 120, 100, 80, 50
+without being fitted to it point for point, and the last step matches
+exactly (50), settling the specific 42-vs-50 discrepancy that started this.
+
+**Three plate types**, drawing 22, a different document from drawing 21's
+cutting schedule (`stampingSchedule`, untouched) -- that one models limb
+and yoke from a mitred long/short edge average; this models limb, half
+yoke and full yoke, because that is the layout the real chart actually
+uses. All three lengths are fitted to the one chart on file, CALIBRATION.md
+style: the simplest relationship that reproduced its own plate total
+without a free intercept, checked against the chart's real numbers before
+being kept, not tuned until they matched:
+
+| Plate | Formula | This engine | Chart | Deviation |
+|---|---|---|---|---|
+| A, limb, mitred both ends | length = 2 x width | 612.49 kg | 621.09 kg | -1.4% |
+| B, half yoke, step-lap | 25% of C's own steel, cut in two | 271.33 kg | 263.822 kg | +2.8% |
+| C, full yoke, mitred one end | length = 2cc + width | 822.45 kg | 788.84 kg | +4.3% |
+| Core total | | 1706.28 kg | 1672.8 kg | +2.0% |
+
+Plate C's formula is not new -- it is `stampingSchedule`'s own existing
+`yokeLong` edge, applied with the one mitre Plate C actually has instead of
+averaged against a short edge that does not exist on a single-mitre piece.
+Plate B is not a separate geometric formula at all: it is Plate C's own
+steel for its 25% share of the yoke sheet count, cut as two half-length
+pieces per layer instead of one -- mass-conserving by construction, so its
+weight needs no formula of its own, only the split fraction (confirmed
+against the chart's own 263.822/788.84 kg split, 0.2506 against a stated
+0.25) and the 50/25/25 division of its own sheets across the 0, 10 and
+20 mm step-lap shifts, which was stated directly, not fitted. Confirms the
+stated relationship directly: C minus A grows across the steps at this
+reference, from 738.6 mm at step 1 to 958.6 mm at step 15, because A
+shrinks (2 x width) while C barely moves (2cc + width, against a cc more
+than double any single step's width).
+
+All three formulas carry the same caveat every other single-chart-fitted
+constant in this document already does: confirmed at one rating, not
+checked away from it. `reference-designs.test.mjs` asserts each plate and
+the core total within 5% of the chart -- ask for a second real chart, at a
+different rating, before trusting any of the three formulas far from 1250
+kVA.
+
+## 13. A fourth no-load reference point -- and a correction to the third
+
+The 1250 kVA chart gives flux density, core mass and no-load loss
+together for the first time: **1.600 T, 1672.8 kg, 1400 W.** Every earlier
+reference point (this document's own two designs, CALIBRATION.md items
+1-6) gave loss alone, or loss with turns -- never flux and mass alongside
+it, which is what would let the no-load coefficient actually be solved
+rather than inferred from a mismatch elsewhere (section 11's own open
+question). Recorded here as a fourth data point. **The coefficient (4.6)
+is not changed.**
+
+**Correction, checked before recording anything:** the design margin
+section (11) quoted this engine's own reproduction as 1.46 T and 2094.7 kg
+against the chart's 1.600 T and 1672.8 kg, "25% heavy." That comparison
+predates the radial-packing fixes (section 10) -- re-run now, on the same
+unfit reproduction (`autoFit: false`, the sheet's own volts per turn and
+step count, per this file's own convention), this engine gives **flux
+1.600 T -- an exact match -- and core mass 1819.0 kg**, not 1.46 T and
+2094.7 kg. The window-height solve both flux and core mass depend on
+shifted when the packing bugs were fixed, and the old comparison was never
+re-run afterward. Recording the current, correct figures rather than
+repeating a stale one.
+
+Checked two ways, both independent of the design reproduction above (using
+the chart's own stated flux and mass directly, not this engine's own
+window-height solve, so neither result depends on anything in section 11
+still being open):
+
+- **The schedule coefficient itself** (`lossSchedule(1250, "level2", false)`,
+  coefficient 4.6): predicts **1431.4 W** against the chart's declared
+  1400 W -- 2.2% over. Closer than the "25% heavy" framing suggested,
+  because that framing was comparing whole-design reproductions carrying
+  the now-fixed packing bugs, not the coefficient against the chart's loss
+  figure directly.
+- **This engine's specific-core-loss physics** (`wPerKg`, independent of
+  the 4.6 schedule coefficient -- grade reference loss and the 1.9
+  exponent), evaluated at the chart's own 1.600 T: predicts **0.8627 W/kg**,
+  which at the chart's own 1672.8 kg core gives **1443.1 W** against the
+  declared 1400 W -- 3.1% over. The core mass this engine's own physics
+  would need to hit 1400 W exactly at 1.600 T is 1622.8 kg against the
+  chart's real 1672.8 kg -- 3.0% under.
+
+Both checks land within 2-3% of the chart's guarantee, not the roughly 25%
+gap the pre-packing-fix comparison showed. This does not confirm 4.6 is
+right -- one point checked two ways is still one point, and 2-3% is well
+within what a single reference could be showing by coincidence rather than
+settling anything -- but it removes the specific evidence ("25% heavy")
+that made this rating look like a clear case for lowering the coefficient.
+The honest state of section 11's open question is unchanged by this: still
+open, still not to be settled on one chart, now with a data point that reads
+considerably closer than previously recorded, not further away.

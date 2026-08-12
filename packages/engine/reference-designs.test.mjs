@@ -129,6 +129,15 @@ within("HV OD mm", +r1250.design.hvOD.toFixed(1), 494, 2);
 within("Tank length mm", Math.round(r1250.design.tankL), 1660, 2);
 exact("LV construction, auto-selected from rating alone", r1250.design.lvConstruction, "strip");
 
+// CALIBRATION.md section 12, DRAWINGS.md drawing 22: the core cutting
+// chart, checked against the one real chart on file for this reference --
+// "1250 KVA CORE CHART", 1672.8 kg total across three plate types.
+const chart1250 = E.coreCuttingChart(r1250.design, r1250.params);
+within("Cutting chart, Plate A (limb) kg", +chart1250.totalA.toFixed(2), 621.09, 5);
+within("Cutting chart, Plate B (half yoke) kg", +chart1250.totalB.toFixed(2), 263.822, 5);
+within("Cutting chart, Plate C (full yoke) kg", +chart1250.totalC.toFixed(2), 788.84, 5);
+within("Cutting chart, core total kg", +chart1250.chartTotal.toFixed(2), 1672.8, 5);
+
 console.log("\n630 kVA, 11/0.433 kV, dry type, copper -- Mehir Transformers sheet");
 const core630 = { ...E.ESSENTIALS, kva: 630, medium: "dry", application: "distribution", vector: "Dyn11" };
 const over630 = {

@@ -1,5 +1,5 @@
 import React, { useId } from 'react';
-import { stepWidths, stampingSchedule } from '@/packages/engine';
+import { stepWidths, stampingSchedule, coreCuttingChart } from '@/packages/engine';
 import { Card, DataRow, thCls, tdCls } from './ui';
 import {
   fitToViewBox, dimText, DimensionArrow, DimensionHorizontal, DimensionVertical, UnitsNote, TitleBlock,
@@ -125,7 +125,7 @@ export function CoreDrawing({ design, params, project }: Drawings2DProps) {
  *  stack per side". */
 export function CoreCrossSection({ design, params, project }: Drawings2DProps) {
   const arrowId = useId();
-  const steps = stepWidths(params.steps, design.dCore);
+  const steps = stepWidths(params.steps, design.dCore, params.stepIncrement);
   const nRows = steps.rows.length;
   const stackGap = 9;
   const box = { w: 340, h: 300 + nRows * stackGap };
@@ -238,7 +238,7 @@ export function CoreCrossSection({ design, params, project }: Drawings2DProps) {
  *  goes rather than showing an assembled edge. */
 export function StampingSchedule({ design, params, project }: Drawings2DProps) {
   const arrowId = useId();
-  const steps = stepWidths(params.steps, design.dCore);
+  const steps = stepWidths(params.steps, design.dCore, params.stepIncrement);
   const sched = stampingSchedule(design, steps);
   const centre = sched.rows[0];
 
@@ -355,6 +355,122 @@ export function StampingSchedule({ design, params, project }: Drawings2DProps) {
   );
 }
 
+/** DRAWINGS.md, drawing 22: the core CUTTING CHART -- a different document
+ *  from drawing 21's cutting SCHEDULE above, not a restyling of it.
+ *  Drawing 21 models limb and yoke from the mitred long/short edge
+ *  average, two plate types; this is the layout the real chart it is
+ *  checked against (CALIBRATION.md section 12) actually uses -- three
+ *  plate types, laid out as three tables, no per-pocket geometric
+ *  illustration, since every dimension the real chart carries is already
+ *  a number in its own table, not something a schematic would add to.
+ *  No dimension-line SVG for the same reason DRAWINGS.md's own universal
+ *  requirement exists to prevent: a picture without its numbers is
+ *  useless, and this document is only ever numbers. */
+export function CoreCuttingChart({ design, params, project }: Drawings2DProps) {
+  const chart = coreCuttingChart(design, params);
+
+  const plateTable = (title: string, key: 'A' | 'B' | 'C', total: number, note?: string) => (
+    <div className="mb-3">
+      <div className="text-[11px] font-display uppercase tracking-[0.12em] text-copper mb-1">{title}</div>
+      {note && <p className="text-[10px] text-steel mb-1">{note}</p>}
+      <table className="w-full">
+        <thead>
+          <tr>
+            <th className={thCls}>Step</th>
+            <th className={`${thCls} text-right`}>Length</th>
+            <th className={`${thCls} text-right`}>Width</th>
+            <th className={`${thCls} text-right`}>Weight</th>
+          </tr>
+        </thead>
+        <tbody>
+          {chart.rows.map((r: any) => (
+            <tr key={r.i}>
+              <td className={`${tdCls} text-[11px] text-ink2`}>{r.i}</td>
+              <td className={`${tdCls} text-right font-mono text-[11px]`}>{r[key].length.toFixed(1)}</td>
+              <td className={`${tdCls} text-right font-mono text-[11px]`}>{r.w.toFixed(1)}</td>
+              <td className={`${tdCls} text-right font-mono text-[11px]`}>{r[key].weight.toFixed(2)} kg</td>
+            </tr>
+          ))}
+        </tbody>
+        <tfoot className="bg-sheetAlt font-semibold">
+          <tr>
+            <td colSpan={3} className={`${tdCls} text-right text-[10px] font-display uppercase tracking-[0.1em] text-ink2`}>Total</td>
+            <td className={`${tdCls} text-right font-mono text-[11px] text-copper`}>{total.toFixed(2)} kg</td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  );
+
+  return (
+    <Card
+      title="Core Cutting Chart"
+      subtitle={`Drawing ${drawingNo(project, '22')} · ${chart.thk} mm lamination`}
+    >
+      <table className="w-full max-w-md mb-3">
+        <tbody>
+          <DataRow label="No-load loss" value={design.noLoad.toFixed(0)} unit="W" />
+          <DataRow label="Rating" value={ratingLabel(params)} />
+          <DataRow label="Flux density" value={design.B.toFixed(3)} unit="T" />
+        </tbody>
+      </table>
+
+      {plateTable('Plate A -- Limb, Mitred Both Ends', 'A', chart.totalA)}
+      {plateTable(
+        'Plate B -- Half Yoke, Step-Lap', 'B', chart.totalB,
+        'Shift 0/10/20 mm, the 0 mm group carrying half the sheets at each step -- see the shift breakdown below.',
+      )}
+      {plateTable('Plate C -- Full Yoke, Mitred One End', 'C', chart.totalC)}
+
+      <div className="mb-3">
+        <div className="text-[11px] font-display uppercase tracking-[0.12em] text-ink2 mb-1">Plate B Shift Breakdown</div>
+        <table className="w-full">
+          <thead>
+            <tr>
+              <th className={thCls}>Step</th>
+              <th className={`${thCls} text-right`}>Sheets</th>
+              <th className={`${thCls} text-right`}>Shift 0 mm</th>
+              <th className={`${thCls} text-right`}>Shift 10 mm</th>
+              <th className={`${thCls} text-right`}>Shift 20 mm</th>
+            </tr>
+          </thead>
+          <tbody>
+            {chart.rows.map((r: any) => (
+              <tr key={r.i}>
+                <td className={`${tdCls} text-[11px] text-ink2`}>{r.i}</td>
+                <td className={`${tdCls} text-right font-mono text-[11px]`}>{r.B.sheets}</td>
+                <td className={`${tdCls} text-right font-mono text-[11px]`}>{r.B.shift0}</td>
+                <td className={`${tdCls} text-right font-mono text-[11px]`}>{r.B.shift10}</td>
+                <td className={`${tdCls} text-right font-mono text-[11px]`}>{r.B.shift20}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <table className="w-full max-w-md">
+        <tbody>
+          <tr className="bg-sheetAlt font-semibold">
+            <td className={`${tdCls} text-[11px] font-display uppercase tracking-[0.1em] text-ink2`}>Core Total</td>
+            <td className={`${tdCls} text-right font-mono text-[13px] text-copper`}>{chart.chartTotal.toFixed(2)} kg</td>
+          </tr>
+        </tbody>
+      </table>
+      <p className="text-[10px] text-steel mt-2">
+        Fitted to the one 1250 kVA core cutting chart on file (CALIBRATION.md section 12) -- not confirmed at any
+        other rating. A second chart, at a different rating, would let these three plate formulas be checked
+        rather than assumed to hold away from ratings near 1250 kVA.
+      </p>
+      <TitleBlock
+        drawingNo={drawingNo(project, '22')} title="Core Cutting Chart" rev={project?.revision ?? 0}
+        sheet={22} totalSheets={22} fit={{ scale: 0 } as any} standard={params.standard}
+        projectName={project?.projectName} customer={project?.customer} ratingLabel={ratingLabel(params)}
+        material={design.grade.name} partNumber={PART_NUMBERS.core}
+      />
+    </Card>
+  );
+}
+
 /** All twenty-one of DRAWINGS.md's drawings, in order. */
 export function Drawings2D({ design, params, project }: Drawings2DProps) {
   return (
@@ -367,6 +483,7 @@ export function Drawings2D({ design, params, project }: Drawings2DProps) {
       <CoreDrawing design={design} params={params} project={project} />
       <CoreCrossSection design={design} params={params} project={project} />
       <StampingSchedule design={design} params={params} project={project} />
+      <CoreCuttingChart design={design} params={params} project={project} />
       <LvWindingDrawing design={design} params={params} project={project} />
       <HvWindingDrawing design={design} params={params} project={project} />
       <TapWindingDrawing design={design} params={params} project={project} />

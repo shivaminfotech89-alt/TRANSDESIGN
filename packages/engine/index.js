@@ -8,7 +8,7 @@
  * without bumping it, or old quotations stop reproducing.
  */
 
-export const ENGINE_VERSION = "1.9.0";
+export const ENGINE_VERSION = "1.10.0";
 
 const CONDUCTORS = {
   copper: { name: "Copper, EC grade", rho20: 0.017241, alpha: 0.00393, dens: 8890, dMax: 3.6, short: "Cu", proof: 1.0 },
@@ -325,6 +325,7 @@ function deriveSpec(core, over = {}) {
   const aNetEst = etTrialSug / (4.44 * (core.freq || 50) * fluxSug);
   const dCoreEst = Math.sqrt((4 * aNetEst) / (Math.PI * 0.94 * CORE_GRADES[gk].sf)) * 1000;
   put("steps", stepsSuggest(dCoreEst), null, Object.keys(STEP_UTIL).map((k) => [+k, k + " steps"]), "More steps fill the coil circle better and save steel, but cost more to cut and stack.");
+  put("stepIncrement", 10, [5, 25, 5], null, "Lamination is slit to standard widths, not cut to a continuous optimum. Step widths round up to the nearest multiple of this.");
   put("aspect", aspectSuggest(umHV), [2.0, 3.8, 0.05], null, "Starting window shape. The final height is solved to hit the declared impedance unless you turn that off.");
   put("autoWindow", true, null, [[true, "Solve height for the declared impedance"], [false, "Use the output equation only"]], "With this on, the window height is adjusted until the calculated impedance matches the declared value, which is what a designer does by hand.");
   put("autoFit", true, null, [[true, "Fit flux and current density to the loss limits"], [false, "Use the rating-based values only"]], "With this on, the flux density and the current densities are trimmed until the calculated losses sit just inside the declared limits, the cheapest core and coil that still passes.");
@@ -1524,7 +1525,25 @@ function calcSheet(d, bom) {
 }
 
 
-function stepWidths(n, d) {
+/* DRAWINGS.md drawing 22, CALIBRATION.md: lamination is slit to standard
+   widths, not cut to whatever a continuous circle-packing optimum happens
+   to land on -- the 1250 kVA core cutting chart runs 270 down to 50 in
+   10 mm steps where the unsnapped optimum for this diameter and step count
+   ends at 42. `increment` (default 10, 0 disables snapping -- used by
+   engine.test.mjs's own classical-utilisation check, which is deliberately
+   testing the pure continuous packing formula against Sawhney's textbook
+   table, a different question from what real slit stock gives) rounds
+   every width UP to the next multiple, never down or to nearest: a step
+   narrower than its standard width would leave the circle under-filled at
+   that radius, which a real core never does -- it always slightly
+   overfills each pocket's corner instead. Only width is snapped; the
+   stack depth (t/halfH) stays exactly what the continuous optimisation
+   found, since standardising width is a slitting-stock decision, not a
+   lamination-count one, and the two are independent. Utilisation and area
+   are recomputed from the snapped widths, per CALIBRATION.md, so they
+   reflect real material use (always >= the continuous ideal, since every
+   width only ever moves up) rather than the geometric target. */
+function stepWidths(n, d, increment = 10) {
   const R = d / 2;
   let a = Array.from({ length: n }, (_, i) => (Math.PI / 2) * ((i + 1) / (n + 1)));
   const area = (al) => {
@@ -1548,10 +1567,11 @@ function stepWidths(n, d) {
   const rows = [];
   let prevH = 0, total = 0;
   for (let i = 0; i < n; i++) {
-    const w = 2 * R * Math.cos(a[i]);
+    const wIdeal = 2 * R * Math.cos(a[i]);
+    const w = increment > 0 ? Math.ceil(wIdeal / increment) * increment : wIdeal;
     const h = R * Math.sin(a[i]);
     const t = i === 0 ? 2 * h : h - prevH;      // centre pocket is full depth, others are per side
-    rows.push({ w, t, halfH: h, perSide: i > 0 });
+    rows.push({ w, wIdeal, t, halfH: h, perSide: i > 0 });
     total += w * (i === 0 ? 2 * h : 2 * (h - prevH));
     prevH = h;
   }
@@ -1574,6 +1594,83 @@ function stampingSchedule(d, steps) {
     return { i: i + 1, w: s.w, stack, nSheets, limbLong, limbShort, yokeLong, yokeShort, mass };
   });
   return { rows, totalMass: wt, totalSheets: sheets, thk };
+}
+
+/* DRAWINGS.md drawing 22, CALIBRATION.md section 12: the core CUTTING
+   CHART, a different document from stampingSchedule's cutting SCHEDULE
+   above -- that one models two plate types (limb, yoke) from the
+   long/short mitred-edge average; this one models three (limb, half yoke,
+   full yoke) because that is what the one real chart checked against
+   actually shows, and the two are not meant to reconcile line for line.
+   stampingSchedule is untouched.
+
+   All three lengths are fitted to the one 1250 kVA chart available
+   (CALIBRATION.md), each against the cleanest formula that reproduced its
+   own plate total without a free intercept, not the closest arbitrary fit:
+
+   - Plate A (limb, mitred both ends): length = 2 x width exactly, no
+     offset -- a symmetric double 45 degree mitre with no straight run
+     between the two cuts. Reproduces the chart's 621.09 kg to -1.4%.
+   - Plate C (full yoke, mitred one end): length = 2*cc + width -- this
+     engine's own existing yokeLong edge (stampingSchedule above), not a
+     new formula, just applied with only the one mitre this plate actually
+     has, not averaged against a short edge that does not exist here.
+   - Plate B (half yoke, step-lap): the SAME steel as Plate C's formula
+     would give for the same sheet count, cut as two half-length pieces
+     per layer instead of one -- mass-conserving by construction, so its
+     weight is computed directly from Plate C's own length x its own 25%
+     share of the yoke sheet count, not a separate formula. Reported
+     length is that half, for the drawing.
+   - The 75/25 split between Plate C and Plate B reproduces the chart's own
+     788.84/263.822 kg split almost exactly (263.822/(263.822+788.84) =
+     0.2506). The 50/25/25 split of Plate B's own sheets across the 0, 10
+     and 20 mm step-lap shifts is stated directly, not fitted.
+   - Confirms C minus A grows across the steps, as stated: at this
+     reference, C - A runs from 738.6 mm at step 1 to 958.6 mm at step 15,
+     monotonically, because A shrinks (2w) while C barely moves (2cc + w
+     against a cc roughly double any single step's width).
+
+   Combined chart total against this one reference: 2% over 1672.8 kg --
+   good agreement for a reconstruction from stated relationships and two
+   aggregate totals, not the source chart's own per-step table, which this
+   engine has never seen. Ask for a second real chart, at a different
+   rating, before trusting any of these three formulas away from ratings
+   near 1250 kVA -- exactly the caveat every other single-chart-fitted
+   constant in this engine already carries. */
+function coreCuttingChart(d, p) {
+  const steps = stepWidths(p.steps, d.dCore, p.stepIncrement);
+  const thk = d.grade.thk || 0.27;
+  const dens = 7650;
+  const cc = d.cc;
+  const rows = steps.rows.map((s, i) => {
+    const stack = i === 0 ? s.t : 2 * s.t;
+    const nSheets = Math.max(2, Math.round(stack / thk));
+
+    const lenA = 2 * s.w;
+    const massA = ((s.w * lenA * thk) / 1e9) * dens * nSheets * 3; // 3 limbs
+
+    const lenYoke = 2 * cc + s.w; // Plate C's own full length
+    const yokeSheets = nSheets * 2; // top + bottom yoke positions
+    const cSheets = Math.round(yokeSheets * 0.75);
+    const bSheets = yokeSheets - cSheets; // sums exactly, never drifts
+    const shift0 = Math.round(bSheets * 0.5);
+    const shift10 = Math.round((bSheets - shift0) / 2);
+    const shift20 = bSheets - shift0 - shift10;
+
+    const massC = ((s.w * lenYoke * thk) / 1e9) * dens * cSheets;
+    const massB = ((s.w * lenYoke * thk) / 1e9) * dens * bSheets; // full-length steel, cut in half
+
+    return {
+      i: i + 1, w: s.w, stack, nSheets,
+      A: { length: +lenA.toFixed(1), weight: massA },
+      B: { length: +(lenYoke / 2).toFixed(1), weight: massB, sheets: bSheets, shift0, shift10, shift20 },
+      C: { length: +lenYoke.toFixed(1), weight: massC, sheets: cSheets },
+    };
+  });
+  const totalA = rows.reduce((s, r) => s + r.A.weight, 0);
+  const totalB = rows.reduce((s, r) => s + r.B.weight, 0);
+  const totalC = rows.reduce((s, r) => s + r.C.weight, 0);
+  return { rows, thk, totalA, totalB, totalC, chartTotal: totalA + totalB + totalC };
 }
 
 function finLayout(d) {
@@ -1891,8 +1988,8 @@ function documentRegister(core, d, bom, project) {
       "Foundation plan, wheel and rail gauge, and the approval signature block are not drawn"),
     r(5, "Internal Assembly Drawing", "part", "Drawing 10 and the 3D section view",
       "A dimensioned exploded 2D assembly is not produced; the 3D exploded view is the substitute"),
-    r(6, "Core Manufacturing Drawing", "done", "Drawing 6 with the cutting schedule",
-      "Clamp bolt positions are indicative, not from your clamping standard"),
+    r(6, "Core Manufacturing Drawing", "done", "Drawing 6, with the cutting schedule (21) and the cutting chart (22)",
+      "Clamp bolt positions are indicative, not from your clamping standard. Drawing 22's three plate lengths are fitted to one reference chart, unconfirmed at other ratings"),
     r(7, "Winding Manufacturing Drawing", "part", "Drawings 7 and 8, LV and HV coils",
       "Disc and interleaved-disc constructions are not modelled; the engine builds foil LV and layer HV only"),
     r(8, "Insulation Schedule", "part", "Clearances panel and the coil drawings",
@@ -1975,7 +2072,7 @@ export {
   inr, lakhs, bushMul, condRate, rkCond, fluxRange, bushHeight, parseVectorGroup,
   etkCurve, fitEtkToCost, ETK_RANGE,
   tappingSchedule, conductorSchedule, hardwareSchedule, insulationPieceList, windingSchedule,
-  cardCostModel, DEFAULT_CARD_RATES,
+  cardCostModel, DEFAULT_CARD_RATES, coreCuttingChart,
 };
 
 export function computeDesign(core, over = {}, rates = DEFAULT_RATES, extras = []) {

@@ -180,9 +180,22 @@ eq("HV construction", r.design.hvConstruction, "crossover");
 eq("LV construction", r.design.lvConstruction, "strip");
 eq("etK non-compliant, flagged", r.etkNonCompliant, true);
 
+// ENGINE_VERSION 1.10.0 (DRAWINGS.md drawing 22, CALIBRATION.md section 12):
+// stepWidths() now snaps every step width up to the nearest p.stepIncrement
+// (default 10 mm) instead of returning the continuous circle-packing
+// optimum -- a real behaviour change for every existing caller (the core
+// cross-section drawing, the stamping schedule, the 3D core geometry), even
+// though stepWidths is never called from designTransformer itself, so none
+// of this default case's own golden numbers above moved. New:
+// coreCuttingChart(), the drawing 22 three-plate model, purely additive.
 console.log("\nstepped core utilisation matches the classical table");
+// increment: 0 disables snapping (CALIBRATION.md, drawing 22) -- this is
+// testing the pure continuous circle-packing formula against Sawhney's own
+// published table, not what standard-width slit stock gives, which is a
+// different question with its own answer (always >= these figures, since
+// snapping only ever rounds a width up).
 [[3, 0.851], [5, 0.9079], [9, 0.9483], [13, 0.9642]].forEach(([n, u]) =>
-  eq(`${n} steps`, +E.stepWidths(n, 233).util.toFixed(4), u, 0.0005));
+  eq(`${n} steps`, +E.stepWidths(n, 233, 0).util.toFixed(4), u, 0.0005));
 
 console.log("\nimpedance solve tracks the declared value across ratings");
 // etK left on AUTO. An earlier version of this test pinned it to 0.545,
