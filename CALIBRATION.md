@@ -1135,3 +1135,129 @@ No formula in `computeDesign`'s own reproduction path changed --
 a saved revision reprices on read. `ENGINE_VERSION` is not bumped for
 this change; no golden number moved and none could, since the default
 case never calls `searchDesigns`.
+
+## 18. Outer design proportions -- reported in the calc sheet, checked against recalled figures
+
+New calc-sheet section 10, "Outer design proportions" (unconditional, no
+rate card needed -- moved the bom-gated materials section to 11 to make
+room ahead of it, since these three ratios are geometry, not cost).
+Three rows: fluid volume per kVA, tank-and-cooling mass per kVA, cooling
+surface per kW of total loss. Reported as ratios rather than absolute
+weights because a wrong tank/fin/oil figure is hardest to notice from an
+absolute number alone, a 100 kVA tank "looks small" in kg either way, and
+because the point of the request behind this was specifically whether the
+small end of the range is dominated by tank and oil, which a ratio shows
+directly and an absolute weight does not.
+
+Current engine, IS Level 2, copper, ONAN, default fin/radiator crossover
+(fin to 2500 kVA, radiator above), across the range:
+
+| kVA | Oil, L/kVA | Tank, kg/kVA | Tank + fin, kg/kVA | Cooling surface, m2/kW loss | Tank type |
+|---|---|---|---|---|---|
+| 100 | 5.51 | 2.42 | 2.46 | 3.43 | fin |
+| 250 | 2.82 | 1.18 | 1.30 | 3.68 | fin |
+| 630 | 1.43 | 0.58 | 0.71 | 3.80 | fin |
+| 1000 | 1.08 | 0.42 | 0.54 | 3.84 | fin |
+| 1600 | 0.80 | 0.30 | 0.43 | 3.88 | fin |
+| 2500 | 0.64 | 0.23 | 0.34 | 3.89 | fin |
+| 5000 | 0.49 | 0.18 | 0.31 | 3.92 | radiator |
+
+Confirms the shape of the claim this was asked to check: the small end
+is dominated by tank and oil relative to rating, both ratios falling by
+roughly a factor of 10 from 100 to 5000 kVA while the active part scales
+far more slowly, because tank surface (which sets both steel and oil
+volume) grows with the two-thirds power of a roughly-cubic volume while
+kVA grows faster than that over most of this range.
+
+Checked against two recalled reference figures, 4.56 L/kVA at 100 kVA
+against 0.32 at 5000, and 2.40 kg/kVA tank at 100 against 0.44 at 5000.
+Tank mass at 100 kVA matches closely (2.42 against 2.40). The other
+three do not: oil per kVA is high by about 21% at 100 kVA and 53% at
+5000, and tank mass at 5000 kVA moves the other direction from what was
+recalled, 0.18 to 0.31 kg/kVA here (rising, not falling, from 2500 to
+5000, where the tank type crossover to radiator also lands) against a
+recalled 0.44. Rather than guess which figure moved, this is recorded
+as-is: CALIBRATION.md sections 14 and 15 already found that this
+session moved winding radial build and window height with the packing
+and wCore fixes, both of which set tankW and tankH directly and so the
+oil and tank figures with them, the same reason the no-load coefficient
+comparison did not match a pre-fix recollection either. No fix is
+proposed here; the current table is what the engine computes today, and
+is what should be compared against, not re-derived to match an older
+recollection.
+
+## 19. Dual rating (ONAN/ONAF) from one tank -- what it would require
+
+Investigation only, not implemented. Selling one physical build under
+two name-plate points, e.g. 5000 kVA ONAN / 6250 kVA ONAF (the 0.8
+natural-to-forced ratio in that example is the standard IEC/IS
+convention, not a coincidence), is routine practice at this size and the
+engine currently has no concept of it: p.kva is a single value that
+drives turns, current density, loss targets and thermal sizing
+throughout, and designTransformer evaluates exactly one rating against
+exactly one cooling type per call.
+
+What a dual rating actually needs, by what in the engine each part
+touches:
+
+1. Two rating figures, not one. The active part (core, windings, tap
+   changer) is sized to the higher, forced-cooled rating -- that is what
+   sets turns, conductor area and current density, since it carries the
+   larger current. The natural rating is not a separate design, it is a
+   derating of the same one: kvaNatural = kvaForced x naturalFraction
+   (0.8 typically, per the convention above, but manufacturer and duty
+   specific). core would need a second field, e.g. dualCooling and
+   naturalFraction, alongside the single kva it already forces to mean
+   "the rating this build is sized to."
+
+2. Two loss guarantees, not one. lossSchedule and the compliance checks
+   (d.compliance.nll/ll) are evaluated at whatever p.kva is. A dual-rated
+   design is normally guaranteed at both points: losses at the forced
+   rating are what the active part actually produces; losses at the
+   natural rating are the same active part carrying less current, i.e.
+   load loss scaled by naturalFraction squared, no-load loss unchanged.
+   compliance would need to become two objects, or one with both points,
+   and documentRegister and the report would need both nameplate loss
+   lines, not one -- exactly the kind of change invariant 7 flags:
+   landing this without reviewing documentRegister would leave a stale
+   single-rating nameplate on a dual-rated design.
+
+3. Two thermal constraints on one tank, not one. This is the part that
+   is not just bookkeeping. designTransformer solves finAreaReq once,
+   against one target rise, one loss figure and one forced multiplier
+   (ONAN forced = 1.0 or ONAF forced = 1.5). A dual rating needs the SAME
+   fin area to satisfy two separate checks at once: the top-oil and
+   winding rise limits at the natural rating own (lower) loss with
+   forced = 1.0, and the same limits at the forced rating (higher) loss
+   with forced = 1.5. Whichever of the two is tighter sets the fin area
+   actually built -- normally the forced point, since it carries more
+   loss, but not provably always, and specifically not provable without
+   computing both. The single solve for finAreaReq today would need to
+   become a max over both evaluations, not a different formula, but it
+   is a second evaluation of the same dissipation law, not a free
+   extension of the first.
+
+4. Fan and pump cost, which do not exist yet. Section 17 above already
+   found buildBOM has no fan or pump line item at all -- ONAF is already
+   free cooling capacity in the cost model today for a single-rating
+   design, and a dual rating makes that gap load-bearing rather than
+   cosmetic, since the fan bank is the entire mechanism that makes the
+   forced point sellable. This has to be priced before a dual rating can
+   be costed at all, not just before it can be searched over.
+
+5. The nameplate and every document that echoes it. The rating plate,
+   the test report, and any drawing that prints "kVA" currently assume
+   one figure. A dual-rated nameplate carries both ratings and both
+   loss and current figures against each, per IS 2026 / IEC 60076
+   nameplate practice -- this is a documents-and-drawings change on top
+   of the engine change, not instead of it.
+
+None of this is a small add. It changes "one rating in, one design out"
+(the assumption the whole engine is built on, computeDesign own
+signature and every downstream consumer of p.kva) into "one rating pair
+in, a design that is checked against both, sized by the harder one." The
+natural place to start, if this is taken up, is item 3 (the dual thermal
+constraint) and item 4 (fan/pump cost) together, since neither is honest
+without the other -- a fin area sized for two points but costed as if
+forced cooling were free is not actually costed for the design being
+sold.

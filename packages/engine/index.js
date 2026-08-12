@@ -1556,8 +1556,22 @@ function calcSheet(d, bom) {
     row("Sound level estimate", "L\u1D65\u2090", "empirical from rating, flux density and grade", `39 + 12.5\u00B7log(${p.kva}/100) + (${n(d.B)}\u22121.6)\u00D728`, `${n(d.noise, 0)} dB(A)`, REFS.B, "rating, flux density"),
   ]);
 
+  /* The small end of the range is dominated by tank and oil, not the active
+     part -- these three ratios are where that shows up, and where a wrong
+     tank/fin/oil formula would be hardest to notice from the absolute
+     numbers alone (a 100 kVA tank looks "small" in kg either way). Reported
+     per kVA or per kW of total loss rather than as absolute weights so a
+     design at one rating can be sanity-checked against another without
+     doing the division by hand every time. Not gated on bom: none of the
+     three need a rate card, only the design's own geometry. */
+  sec("10. Outer design proportions", REFS.B, [
+    row("Fluid per rating", "V\u2092/S", d.dry ? "not applicable" : "V\u2092 / kVA", d.dry ? "n/a" : `= ${n(d.fluidLitres, 0)} / ${p.kva}`, d.dry ? "n/a" : `${n(d.fluidLitres / p.kva, 2)} L/kVA`, REFS.B, "fluid volume, rating"),
+    row("Tank and cooling mass per rating", "(W\u209C\u2090\u2099\u2096+W\u1DA0\u1D62\u2099)/S", d.dry ? "W\u2091\u2099\u1D9C\u2097\u1D52\u02E2\u1D58\u02B3\u1D49 / kVA" : "(W\u209C\u2090\u2099\u2096 + W\u1DA0\u1D62\u2099) / kVA", d.dry ? `= ${n(d.wEnclosure, 0)} / ${p.kva}` : `= (${n(d.wTank, 0)} + ${n(d.wFin, 0)}) / ${p.kva}`, `${n((d.dry ? d.wEnclosure : d.wTank + d.wFin) / p.kva, 2)} kg/kVA`, REFS.B, "tank/enclosure mass, fin mass, rating"),
+    row("Cooling surface per kW total loss", "A\u1D9C\u2092\u2092\u2097/P\u209C\u2092\u209C", d.dry ? "A\u1D04 / (P\u209C\u2092\u209C/1000)" : "(A\u209C + A\u1DA0\u1D62\u2099) / (P\u209C\u2092\u209C/1000)", d.dry ? `= ${n(d.coilArea)} / (${n(d.totalLoss, 0)}/1000)` : `= (${n(d.tankArea)} + ${n(d.finAreaReq)}) / (${n(d.totalLoss, 0)}/1000)`, `${n((d.dry ? d.coilArea : d.tankArea + d.finAreaReq) / (d.totalLoss / 1000), 2)} m\u00B2/kW`, REFS.B, "cooling surface, total loss"),
+  ]);
+
   if (bom) {
-    sec("10. Materials and cost build-up", "Works costing practice \u00B7 rates are yours to set", [
+    sec("11. Materials and cost build-up", "Works costing practice \u00B7 rates are yours to set", [
       row("Fluid volume", "V\u2092", d.dry ? "not applicable" : "V = tank volume \u2212 active part volume, \u00D7 fittings factor", d.dry ? "n/a" : `tank ${n((d.tankL * d.tankW * d.tankH) / 1e9, 3)} m\u00B3`, d.dry ? "n/a" : `${n(d.fluidLitres, 0)} L`, REFS.B, "tank size, active part"),
       row("Raw material", "n/a", "\u03A3 (quantity \u00D7 rate) over segments A, B, C", "see the costing tab", inr(bom.material), "Your rates", "weights, rates"),
       row("Factory cost", "n/a", "material + conversion + scrap", `= ${inr(bom.material)} + ${inr(bom.labourCost)} + ${inr(bom.scrap)}`, inr(bom.factory), "Your rates", "material, labour"),
