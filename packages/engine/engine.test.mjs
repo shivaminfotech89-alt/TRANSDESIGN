@@ -167,27 +167,46 @@ const r = E.computeDesign(E.ESSENTIALS, {}, E.DEFAULT_RATES, []);
 // stays false for the same pre-existing reason as 1.7.0 (no-load loss
 // still exceeds its own limit at the 1.42 T flux floor, unrelated to
 // either packing fix).
-eq("ex-works", Math.round(r.bom.exFactory), 2358780, 800);
-eq("delivered", Math.round(r.bom.withGst), 2783361, 900);
-eq("tank length mm", Math.round(r.design.tankL), 1792, 2);
-eq("no-load loss W", Math.round(r.design.noLoad), 1600, 5);
-eq("load loss W", Math.round(r.design.loadLoss), 5039, 30);
-eq("impedance %", +r.design.pctZ.toFixed(2), 4.81, 0.02);
-eq("efficiency %", +r.design.eff100.toFixed(2), 99.34, 0.02);
-eq("core mass kg", Math.round(r.design.wCore), 2327, 15);
-eq("compliant", r.design.compliant, false);
-eq("HV construction", r.design.hvConstruction, "crossover");
-eq("LV construction", r.design.lvConstruction, "strip");
-eq("etK non-compliant, flagged", r.etkNonCompliant, true);
-
 // ENGINE_VERSION 1.10.0 (DRAWINGS.md drawing 22, CALIBRATION.md section 12):
 // stepWidths() now snaps every step width up to the nearest p.stepIncrement
 // (default 10 mm) instead of returning the continuous circle-packing
 // optimum -- a real behaviour change for every existing caller (the core
-// cross-section drawing, the stamping schedule, the 3D core geometry), even
-// though stepWidths is never called from designTransformer itself, so none
-// of this default case's own golden numbers above moved. New:
-// coreCuttingChart(), the drawing 22 three-plate model, purely additive.
+// cross-section drawing, the stamping schedule, the 3D core geometry).
+// stepWidths was not yet called from designTransformer itself at 1.10.0, so
+// none of this default case's own numbers moved then. New: coreCuttingChart(),
+// the drawing 22 three-plate model, purely additive at 1.10.0.
+//
+// ENGINE_VERSION 1.11.0 (CALIBRATION.md section 15): that changed. wCore's
+// limb term used to be aGross x 3 x Hw -- every lamination treated as if it
+// ran the full window height regardless of step. A mitred-both-ends limb
+// lamination's own length is 2 x width (drawing 22's own Plate A, validated
+// against a real cut plate to -1.4%), not Hw, so the limb term is now
+// computed the same way Plate A is: per step, off the same snapped widths
+// (stepWidths is now called from inside designTransformer for exactly this).
+// The yoke term is untouched -- it already matched Plate B + Plate C to
+// within 0.5 kg on the reference checked. This was not a calibration change:
+// two formulas in the same engine disagreed about the same physical steel,
+// and the cutting chart is the one validated against a real cut plate.
+// Every core mass in the project moved -- core mass fell (less steel is a
+// real result, not a smaller one dressed up), which fell no-load loss with
+// it (wPerKg x wCore), which changed what autoFit and fitEtkToCost land on
+// for this default case enough to flip `compliant` to true and drop
+// `etkNonCompliant` to false: a design that used to be flagged unable to
+// meet its own no-load ceiling at any K now can, because the core the old
+// formula thought it needed to build was never real.
+eq("ex-works", Math.round(r.bom.exFactory), 2310742, 800);
+eq("delivered", Math.round(r.bom.withGst), 2726676, 900);
+eq("tank length mm", Math.round(r.design.tankL), 1628, 2);
+eq("no-load loss W", Math.round(r.design.noLoad), 1138, 5);
+eq("load loss W", Math.round(r.design.loadLoss), 6085, 30);
+eq("impedance %", +r.design.pctZ.toFixed(2), 5.00, 0.02);
+eq("efficiency %", +r.design.eff100.toFixed(2), 99.28, 0.02);
+eq("core mass kg", Math.round(r.design.wCore), 1612, 15);
+eq("compliant", r.design.compliant, true);
+eq("HV construction", r.design.hvConstruction, "crossover");
+eq("LV construction", r.design.lvConstruction, "strip");
+eq("etK non-compliant, flagged", r.etkNonCompliant, false);
+
 console.log("\nstepped core utilisation matches the classical table");
 // increment: 0 disables snapping (CALIBRATION.md, drawing 22) -- this is
 // testing the pure continuous circle-packing formula against Sawhney's own
@@ -257,11 +276,19 @@ const impedanceDev = (kva, baselinePct) => {
 // ENGINE_VERSION 1.9.0's packing fixes (duct rule, LV split) moved every
 // baseline again, all toward zero -- a side effect of the same window-height
 // solve the LV/HV radial builds feed, not something either fix targeted.
-// Recorded as found.
-impedanceDev(100, -0.00);
-impedanceDev(630, -6.22);
+//
+// ENGINE_VERSION 1.11.0's core mass correction (CALIBRATION.md section 15)
+// moved 100 kVA hard, back away from zero -- less core steel for the same
+// flux and turns is a smaller, cheaper core, which the window-height solve
+// answers with a shorter Hw at 100 kVA specifically, missing the declared
+// impedance by more than before. Not a regression in the impedance solve
+// itself: this is the correction reaching a rating small enough that the
+// core mass error was large relative to the whole design. 630, 2000 and
+// 2500 kVA barely moved.
+impedanceDev(100, -19.91);
+impedanceDev(630, -5.91);
 impedanceDev(2000, 0.00);
-impedanceDev(2500, -0.00);
+impedanceDev(2500, 0.00);
 
 console.log(failures ? `\n${failures} FAILURES` : "\nall passed");
 process.exit(failures ? 1 : 0);

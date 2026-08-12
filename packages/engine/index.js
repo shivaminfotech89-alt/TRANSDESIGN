@@ -8,7 +8,7 @@
  * without bumping it, or old quotations stop reproducing.
  */
 
-export const ENGINE_VERSION = "1.10.0";
+export const ENGINE_VERSION = "1.11.0";
 
 const CONDUCTORS = {
   copper: { name: "Copper, EC grade", rho20: 0.017241, alpha: 0.00393, dens: 8890, dMax: 3.6, short: "Cu", proof: 1.0 },
@@ -762,7 +762,28 @@ function designTransformer(p) {
   const wLVCovered = wLV + 3 * nLV * g.lmtLV * (g.lvAxCount * g.lvRadCount * g.foilW * p.lvIns) * 1e-6 * 1150;
   const wHVCovered = wHV + 3 * nHVmax * g.lmtHV * ((g.axHV + p.hvPaper) * (g.rdHV + p.hvPaper) - aHVreq) * 1e-6 * 1150;
   const yokeDepth = shape === "circ" ? 0.86 * dCore : coreD;
-  const wCore = aGross * (3 * (Hw / 1000) + 2 * ((2 * g.cc + (shape === "circ" ? dCore : coreD)) / 1000)) * 7650;
+  /* CALIBRATION.md section 15: the limb term used to be aGross x 3 x Hw,
+     treating every lamination as if it ran the full window height
+     regardless of step -- but a mitred-both-ends limb lamination's own
+     length is 2 x width (coreCuttingChart's own Plate A, drawing 22,
+     validated against a real cut plate to -1.4%), not Hw. This is not two
+     separate models: it is the same per-step, snapped-width computation
+     Plate A already does (same stepWidths call, same p.stepIncrement real
+     slit stock uses), so wCore and the cutting chart agree on the limb by
+     construction, not by coincidence. The yoke term is untouched -- it
+     already matched Plate B + Plate C to within 0.5 kg on the one
+     reference checked, so there was nothing there to fix. */
+  const coreSteps = stepWidths(p.steps, dCore, p.stepIncrement);
+  const lamThk = grade.thk || 0.27;
+  let wLimb = 0;
+  coreSteps.rows.forEach((s, i) => {
+    const stack = i === 0 ? s.t : 2 * s.t;
+    const nSheets = Math.max(2, Math.round(stack / lamThk));
+    const lenA = 2 * s.w;
+    wLimb += ((s.w * lenA * lamThk) / 1e9) * 7650 * nSheets * 3; // 3 limbs
+  });
+  const wYoke = aGross * 2 * ((2 * g.cc + (shape === "circ" ? dCore : coreD)) / 1000) * 7650;
+  const wCore = wLimb + wYoke;
   const coreHeight = Hw + 2 * yokeDepth;
   const coreWidth = 2 * g.cc + (shape === "circ" ? dCore : coreD);
 
@@ -885,7 +906,7 @@ function designTransformer(p) {
     layers: g.layers, turnsPerLayer: g.turnsPerLayer, axHV: g.axHV, rdHV: g.rdHV, voltsPerLayer: g.voltsPerLayer,
     numGroups: g.numGroups, groupGap: g.groupGap, hvConstruction: p.hvConstruction,
     lvID: g.lvID, lvOD: g.lvOD, hvID: g.hvID, hvOD: g.hvOD, lmtLV: g.lmtLV, lmtHV: g.lmtHV, hLV: g.hLV, hHV: g.hHV,
-    wLV, wHV, wLVCovered, wHVCovered, wCore, wIns, wFrame, wTank, wFin, wEnclosure, fluidLitres, coilArea,
+    wLV, wHV, wLVCovered, wHVCovered, wCore, wLimb, wYoke, wIns, wFrame, wTank, wFin, wEnclosure, fluidLitres, coilArea,
     coreHeight, coreWidth, yokeDepth, tankL, tankW, tankH, tankArea, finAreaReq,
     wPerKg, noLoad, loadLoss, totalLoss, i0pct, i2rLV: g.i2rLV, i2rHV: g.i2rHV, rLV: g.rLV, rHV: g.rHV,
     pctX: g.pctX, pctR: g.pctR, pctZ: g.pctZ, regFull, oilRise, windRise, grad, hotspot, hotspotAvg, lifeFactor,
@@ -1465,7 +1486,9 @@ function calcSheet(d, bom) {
 
   sec("6. Core weight, no-load loss and exciting current", REFS.K, [
     row("Specific core loss", "w", "w = w\u1D63\u2091\u1da0 (B/B\u1D63\u2091\u1da0)^1.9 \u00D7 building factor", `= ${n(d.grade.wRef)} \u00D7 (${n(d.B)}/${n(d.grade.bRef)})^1.9 \u00D7 ${n(p.buildFactor)}`, `${n(d.wPerKg, 3)} W/kg`, REFS.K + " \u00B7 " + REFS.B, "grade, flux density, joint type"),
-    row("Core weight", "W\u1da0\u2091", "W = \u03C1\u1da0\u2091 A\u1D4D [3H\u1D65\u1D65 + 2(2C + d)]", `= 7650 \u00D7 ${n(d.aGross / 1e4, 5)} \u00D7 [3\u00D7${n(d.Hw / 1000, 3)} + 2(2\u00D7${n(d.cc / 1000, 3)} + ${n(d.dCore / 1000, 3)})]`, `${n(d.wCore, 1)} kg`, REFS.S, "core area, window height, limb spacing"),
+    row("Core weight, limb", "W\u2097\u1D62\u2098\u1D47", "per step, mitred both ends: length = 2 \u00D7 width (drawing 22, Plate A)", "see drawing 22, core cutting chart", `${n(d.wLimb, 1)} kg`, REFS.B, "stepped widths, lamination thickness"),
+    row("Core weight, yoke", "W\u1D67\u2092\u2096\u2091", "W = \u03C1\u1da0\u2091 A\u1D4D \u00D7 2(2C + d)", `= 7650 \u00D7 ${n(d.aGross / 1e4, 5)} \u00D7 2(2\u00D7${n(d.cc / 1000, 3)} + ${n(d.dCore / 1000, 3)})`, `${n(d.wYoke, 1)} kg`, REFS.S, "core area, limb spacing"),
+    row("Core weight, total", "W\u1da0\u2091", "W = W\u2097\u1D62\u2098\u1D47 + W\u1D67\u2092\u2096\u2091", `= ${n(d.wLimb, 1)} + ${n(d.wYoke, 1)}`, `${n(d.wCore, 1)} kg`, REFS.S, "limb weight, yoke weight"),
     row("No-load loss", "P\u2080", "P\u2080 = w \u00D7 W\u1da0\u2091", `= ${n(d.wPerKg, 3)} \u00D7 ${n(d.wCore, 1)}`, `${n(d.noLoad, 0)} W`, REFS.IS1180, "specific loss, core weight"),
     row("Exciting volt-amperes", "VA/kg", "VA/kg = va\u1D63\u2091\u1da0 (B/B\u1D63\u2091\u1da0)\u2074 \u00D7 joint factor", `joint factor = ${n(d.ct.exc, 2)} for ${d.ct.name.split(",")[0]}`, `${n(d.vaPerKg, 2)} VA/kg`, REFS.K, "grade, flux density, joint type"),
     row("No-load current", "I\u2080", "I\u2080% = VA/kg \u00D7 W\u1da0\u2091 / (S\u00D710\u00B3) \u00D7 100", `= ${n(d.vaPerKg, 2)} \u00D7 ${n(d.wCore, 1)} / ${p.kva}000 \u00D7 100`, `${n(d.i0pct)} %`, REFS.K, "exciting VA, core weight"),

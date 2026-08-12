@@ -38,7 +38,15 @@ sheet before touching the slope.
 
 Cost effect on the 1250 kVA at its own guaranteed losses: ex-works falls from
 ₹25,24,734 to ₹23,15,045, a saving of ₹2.1 lakh for identical losses and
-impedance.
+impedance. **Stale (section 14): this pair of figures predates the load loss
+recalibration, the winding construction work and the packing fixes -- so many
+engine versions have landed since that "before" no longer corresponds to any
+state worth reproducing.** The clearance fix itself is unaffected (it is a
+direct BIL-driven formula, not geometry-solve dependent) and stands as
+described; only this specific cost illustration is out of date. Current
+ex-works at the 1250 kVA reference's own guaranteed losses is ₹27,38,590 --
+not comparable to either figure above, since the loss schedule, rates and
+construction model behind it have all changed since this was written.
 
 ## 2. Volts per turn constant
 
@@ -373,36 +381,44 @@ through the 1.4.1 bugfix, recorded there.
 
 ## Fitted parameters awaiting a proper derivation
 
-Two parameters in the ENGINE_VERSION 1.5.0/1.6.0 winding construction work
-are curve-fit constants, not derived from any physical model, and should be
-named as such rather than left looking like ordinary design inputs:
+**`lvStripAspect` is retired, not merely flagged.** This section used to carry
+it here as a fitted-not-derived constant (3.5, the 1250 kVA reference's own
+conductor arrangement not matching its sheet at that fit). ENGINE_VERSION
+1.9.0 (section 10) removed the parameter entirely -- the LV axial x radial
+split is now sized from coil height and turn count directly, no aspect ratio
+left to fit. Left the old bullet here uncorrected for a time after the
+parameter was gone, which is exactly the kind of stale claim section 14
+below exists to catch; noted here so a reader of this section specifically
+does not go looking for a parameter that no longer exists.
 
-- **`hvDiscGap`** (packages/engine/index.js, `deriveSpec`): the axial gap
-  between adjacent HV discs. Fitted jointly against both reference sheets'
-  overall dimensions (HV OD, tank length, LV OD) at 3.5 mm -- not derived
-  from the discs' own dielectric or cooling requirements, and not the
-  sheet's own stated average gap (97.5 mm over 43 gaps at 1250 kVA, 2.3 mm)
-  either, since this engine's own axHV/rdHV conductor sizing does not match
-  the sheet's exactly. It is a single number standing in for what a real
-  disc winding varies gap by gap for dielectric grading and cooling.
-- **`lvStripAspect`** (same location): the width-to-thickness ratio of one
-  LV strip conductor. Fitted at 3.5 against both sheets' overall LV OD at
-  once. The 630 kVA reference's own conductor arrangement (4 axial x 2
-  radial) matches its sheet exactly at this fit; the 1250 kVA reference's
-  does not (9 axial x 2 radial over 4 layers against the sheet's 5 axial by
-  6 radial over two layers) -- the most direct evidence that a real design
-  does not use one aspect ratio at both ratings, and that fitting one to
-  both here is a compromise, not a confirmed figure.
+**`hvDiscGap`** (packages/engine/index.js, `deriveSpec`) is still a curve-fit
+constant, not derived from any physical model -- the axial gap between
+adjacent HV discs, standing in for what a real disc winding varies gap by
+gap for dielectric grading and cooling. Its own fitted value has moved twice
+since first recorded here, each time as a side effect of other work, not a
+re-fit of its own:
 
-Both should come out of a real axial design instead of being tuned:
-`hvDiscGap` from MANUFACTURING.md section 6's own axial spacer and gap
-schedule, once the engine has an actual dielectric/cooling-driven gap model
-to replace the single averaged constant with; `lvStripAspect` from whatever
-capability eventually gives the LV winding the same kind of real internal
-layout HV's disc grading (also deferred, see reference-designs.test.mjs's
-own known-gap note on the 1250 kVA conductor arrangement) is waiting on.
-Flagging both here so they are re-examined when that lands, rather than
-carried forward silently as if they were confirmed.
+| When | Value | 1250 kVA disc count | Why it moved |
+|---|---|---|---|
+| First fit (ENGINE_VERSION 1.5.0) | 4.5 mm | 44 | Against HV OD/tank length alone, before LV strip construction existed |
+| Retuned (1.6.0) | 3.5 mm | 53 | LV multi-layer strip construction landed; both windings share one window-height solve, so getting LV right moved HV's own disc count too, not a re-fit of hvDiscGap on its own evidence |
+| Current (1.9.0, packing fixes) | 3.5 mm, unchanged | 49 | The LV area gap (section 11) shifted the same shared window-height solve again; hvDiscGap itself was not touched -- disc count is downstream of it, not independent evidence about it |
+
+53 was the value `reference-designs.test.mjs` asserted as exact for a time;
+demoted to a Group 2 known gap in the same commit as the packing fixes
+(section 10), since the assertion depended on window-height numbers that
+moved out from under it, not because `hvDiscGap` itself was found wrong.
+Not the sheet's own stated average gap either, at any of these three values
+(97.5 mm over 43 gaps at 1250 kVA, 2.3 mm) -- this engine's own axHV/rdHV
+conductor sizing has never matched the sheet's closely enough to make that
+comparison direct.
+
+Should come out of a real axial design instead of being tuned: MANUFACTURING.md
+section 6's own axial spacer and gap schedule, once the engine has an actual
+dielectric/cooling-driven gap model to replace the single averaged constant
+with. Flagging it here, with its own history, so it is re-examined when that
+lands rather than carried forward silently as if the current 3.5 mm were
+confirmed by the disc count it happens to produce today.
 
 ---
 
@@ -465,6 +481,24 @@ LV+HV conductor total (it may include material this design's `wLV`/`wHV`
 were never meant to cover -- tap leads, connections, bracing), or there is a
 real, separate discrepancy in the 1250 kVA winding build that covered weight
 does not touch. Flagging this rather than guessing which.
+
+**Correction (section 14): the table above predates the radial-packing
+fixes.** Re-run on the current engine, same unfit reproductions:
+
+| | Bare | Covered | Sheet | Bare dev. | Covered dev. |
+|---|---|---|---|---|---|
+| 630 kVA | 279.7 kg | 289.0 kg | 292 kg | -4.2% | -1.0% |
+| 1250 kVA | 553.9 kg | 566.6 kg | 982 kg | -43.6% | -42.3% |
+
+630 kVA moved more than a rounding amount: covered used to sit 2.38% *over*
+the sheet, now it sits 1.0% *under* -- still comfortably inside the ±5%
+tolerance either way, so no test outcome changes, but the sign flip means
+"covered mass is slightly high" is no longer an accurate description of where
+630 kVA sits. 1250 kVA's gap is materially unchanged in shape (still a large,
+unexplained shortfall covering cannot account for) but moved from -41.6%/
+-40.1% to -43.6%/-42.3% -- consistent with, not contradicting, section 14's
+own finding that the LV area gap and the packing fixes are two different
+things moving in different directions on this reference.
 
 ## Not adopted
 
@@ -790,3 +824,192 @@ that made this rating look like a clear case for lowering the coefficient.
 The honest state of section 11's open question is unchanged by this: still
 open, still not to be settled on one chart, now with a data point that reads
 considerably closer than previously recorded, not further away.
+
+---
+
+## 14. Re-audit after the packing fixes -- the no-load coefficient case, corrected
+
+Every conclusion in this document that rests on a full design reproduction
+(window height, HV/LV construction, core or winding mass) was checked
+against the current engine, not assumed current. Pure-formula claims --
+lossSchedule's own load loss table (section 6, re-verified: 4461.1 W and
+7540.2 W, unchanged to the first decimal, since lossSchedule takes kva
+alone and nothing about it moved), the clearance ratio (section 1),
+DEFAULT_RATES (section 7), the card-cost validation (section 9, built from
+the sheet's own literal figures, never this engine's own reproduction) --
+do not depend on the window-height solve and are confirmed unaffected.
+Three did depend on it and needed correcting: the covered-mass comparison
+table (section 8, corrected in place above), the 1250 kVA cost illustration
+(section 1, corrected in place above), and the no-load coefficient case
+itself, which is large enough to need its own account here.
+
+### The no-load coefficient case no longer stands as recorded
+
+Section 6 argued 4.6 was too tight from two pieces of evidence: a 630 kVA
+joint search that could not meet its own no-load ceiling "at any K... 3-20%
+over depending on K," and (from the chart, section 13) a 1250 kVA
+reproduction "25% heavy" against the real core. Section 13 already
+corrected the second -- re-run, this engine matches the chart's flux
+exactly and its schedule-vs-guarantee check lands within 2.2%. Checking the
+first the same way, on the current engine, directly:
+
+**630 kVA, joint search (flux and density both refit at each K,
+`computeDesign` itself, not an approximation):**
+
+| K | Flux | No-load | Limit | Over | Compliant |
+|---|---|---|---|---|---|
+| 0.40 | 1.420 T | 823 W | 825 W | -0.2% | **yes** |
+| 0.44 | 1.420 T | 836 W | 825 W | +1.4% | no |
+| 0.48 | 1.420 T | 880 W | 825 W | +6.7% | no |
+| 0.52-0.70 | 1.420 T | 937-1162 W | 825 W | +13.5% to +40.8% | no |
+
+K = 0.40 is fully compliant -- no-load, load loss, impedance, oil and
+winding rise all pass (`compliance.nll.ok` through `compliance.wRise.ok`,
+checked directly, not inferred). **"Cannot meet its own no-load ceiling at
+any K" is false at the current engine.** A compliant, cheap design exists;
+the original investigation did not find it.
+
+**1250 kVA, the same check:** K = 0.40 through 0.52 are *all* compliant
+(flux drops as low as 1.420 T at the floor, no-load lands 1379-1389 W
+against a 1431 W limit, 3.0-3.6% under). The engine's own AUTO search
+(`computeDesign(core1250, {autoFit: true})`, no override at all) lands on
+**etK = 0.50, flux 1.420 T, no-load 1379 W, fully compliant.** The default,
+no-intervention 1250 kVA enquiry is no-load compliant today. This is the
+same reversal as the chart comparison in section 13, from the opposite
+direction: not "the chart shows we are heavy," but "our own unprompted
+suggestion is not heavy at all."
+
+**Why 630 kVA still LOOKS non-compliant in normal use, and why that is not
+evidence about the coefficient.** `computeDesign(core630, {autoFit: true})`
+with etK on AUTO lands at etK = 0.66, still over limit -- not because K=0.40
+is not there, but because `etkCurve` (CALIBRATION.md item 2) freezes flux
+and density at whatever `fitToSchedule` already settled with the *default*
+etK before sweeping, rather than refitting both at every K the way the
+table above does. Checked directly: every single point on 630 kVA's own
+`etkCurve` sweep reports `feasible: false`, including K = 0.40 -- the sweep
+itself never sees the compliant point the joint search finds two rows
+above. This is a real, current limitation of the AUTO search mechanism,
+already partly documented (item 2's own "why the swept range" discussion,
+the residual-mass investigation's K=0.42-vs-0.545 finding) -- it is a
+search-quality gap, not evidence the loss schedule itself is unreachable.
+Not fixed here; flagging the distinction is the point of this entry.
+
+**Checked a third way, independent of any search:** `lossSchedule`'s own
+no-load coefficient against each sheet's real guaranteed figure directly,
+no fitting or search involved at all --
+
+| Rating | Schedule (coefficient 4.6) | Real guarantee | Deviation |
+|---|---|---|---|
+| 630 kVA | 1195.6 W | 1300 W | **-8.0%** (schedule under-predicts) |
+| 1250 kVA | 1431.4 W | 1400 W | **+2.2%** (schedule over-predicts) |
+
+The two real points pull in *opposite directions* -- 630 kVA says the
+coefficient should be higher, 1250 kVA says it is already very close to
+right, if anything fractionally high. A coefficient that is uniformly "too
+tight" would miss the same direction at both ratings; this one does not.
+That is what a reasonably-calibrated coefficient checked against two
+mid-range points looks like, not what "too tight" looks like.
+
+### What this changes
+
+Every specific piece of evidence this document previously recorded for
+"4.6 is too tight" has either reversed or was already corrected:
+
+- 630 kVA "unsatisfiable at any K" -- **false**, corrected above.
+- 1250 kVA "25% heavy" against the chart -- **corrected in section 13**,
+  now 2.2-3.1% agreement.
+- 1250 kVA AUTO search -- **compliant**, not heavy, checked directly above.
+- Direct schedule-vs-guarantee check -- **splits in opposite directions**,
+  not a one-sided miss.
+
+**The coefficient is not changed by this entry either.** This does not
+prove 4.6 is correct -- two mid-range points splitting in opposite
+directions is consistent with "about right" but is not proof of it, and
+the exponent (0.805) remains just as unconfirmed at the ends of the range
+as section 6 already said. What this entry does is remove the specific
+evidence that was previously used to argue the coefficient needed lowering.
+The case for touching it is now considerably weaker than what was on
+record, not stronger -- exactly the kind of thing worth finding out before
+acting on it rather than after. DATA-REQUEST-2026-08-11.md item 1 (more
+real no-load figures away from the middle of the range) is unchanged as
+the thing that would actually settle it.
+
+---
+
+## 15. wCore's limb term corrected to match the cutting chart
+
+Not a calibration change -- two formulas in the same engine disagreed about
+the same physical steel, and section 12/14's own investigation localised
+which one to trust. `wCore`'s limb term used to be `aGross x 3 x Hw`,
+treating every lamination as if it ran the full window height regardless of
+step. A mitred-both-ends limb lamination's own length is `2 x width`
+(drawing 22's Plate A, validated against a real cut plate to -1.4%), not
+`Hw`. The limb term is now computed the same way Plate A is -- the same
+`stepWidths` call, the same snapped widths real slit stock uses -- so
+`wCore` and the cutting chart agree on the limb by construction, not by
+coincidence. The yoke term is untouched: it already matched Plate B + Plate
+C to within 0.5 kg on the reference checked, so there was nothing there to
+fix.
+
+1250 kVA reference, before and after:
+
+| | Limb | Yoke | Core total | vs cutting chart (1706.3 kg) |
+|---|---|---|---|---|
+| Before | 725.7 kg (`aGross x 3Hw`) | 1093.3 kg | 1819.0 kg | +6.6% |
+| After | 612.5 kg (Plate A, per step) | 1093.3 kg | **1705.8 kg** | +0.5 kg |
+
+Core mass fell 113.2 kg on this reference -- almost exactly the internal
+inconsistency section 14 measured between the two formulas, because that is
+what it was. `design.wLimb`/`design.wYoke` are now exposed alongside
+`wCore` (also split out on the calc sheet's own Core Weight rows), and the
+default 1000 kVA case moved with everything downstream of it: less core,
+less no-load loss, `compliant` flips to `true`, `etkNonCompliant` flips to
+`false` -- a design that used to be flagged unable to meet its own no-load
+ceiling at any K now can, because the core the old formula thought it
+needed to build was never real. Every golden number in `engine.test.mjs`
+moved and is recorded there with this reasoning; `reference-designs.test.mjs`
+did not move at all, since both reference reproductions fix `etK`/`steps`
+explicitly (`autoFit: false`) and `wCore` was never part of the
+window-height solve either formula fed -- only the reported mass changed,
+which is exactly what the cutting chart assertions there were already
+checking.
+
+### The no-load coefficient, checked once more -- not changed
+
+Section 14 checked the coefficient against the old, inflated core mass.
+Re-checked against the corrected one, same method, same two generic
+no-override enquiries as section 14's own table (not the sheet
+reproductions, which fix losses directly and were never testing the
+schedule):
+
+| | Before (section 14) | After (this fix) |
+|---|---|---|
+| 630 kVA AUTO, etK | 0.66, non-compliant | **0.52, compliant** (797.5 W against 825.0 W, -3.3%) |
+| 1250 kVA AUTO, etK | 0.50, compliant, 1379 W (-3.6%) | **0.50, compliant, 1241.1 W (-13.3%)** -- more comfortably compliant, not less |
+| 1250 kVA, sheet's own unfit reproduction | 1569.3 W against 1400 W declared, **+12.1%** | **1471.6 W against 1400 W, +5.1%** |
+
+630 kVA's AUTO search no longer needs the separate K=0.40 manual check
+section 14 relied on -- with the corrected mass, more points on `etkCurve`'s
+own sweep read feasible, and the search finds a compliant point on its own.
+That etkCurve/joint-search gap section 14 flagged as separate from the
+coefficient question is accordingly less visible now, though not
+necessarily closed at every rating -- not re-verified beyond these two.
+
+Two checks are unaffected by this fix entirely, because neither depends on
+this engine's own `wCore`: `lossSchedule`'s coefficient against each real
+guarantee directly (630 kVA -8.0%, 1250 kVA +2.2%, unchanged to the first
+decimal) and the chart's own external flux and mass run through `wPerKg`
+(1443.1 W against 1400 W declared, +3.1%, unchanged) -- both were already
+independent of the bug this section fixes, which is exactly why they did
+not move.
+
+**Coefficient not changed.** Every figure above moved toward compliance,
+not away from it -- the corrected geometry makes 4.6 look, if anything,
+slightly better calibrated at both ratings than section 14's own read
+already suggested, not worse. That is not evidence for changing it either:
+the two real guarantees still split in opposite directions on the one
+check that does not depend on this engine's own geometry at all (-8.0% and
++2.2%), which is the actual test of the coefficient, and that test did not
+move today. Recorded so the coefficient discussion sits on the corrected
+core mass everywhere it is read, not so it can be acted on -- it still
+cannot be, on two mid-range points.

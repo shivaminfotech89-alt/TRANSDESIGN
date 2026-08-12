@@ -358,9 +358,34 @@ the control "DXF, backend required" rather than offering a button that fails.
 
 ---
 
-## Known and acceptable discrepancy
+## Known and acceptable discrepancy -- and one that is no longer
 
-The cutting schedule mass exceeds the engine's core mass by roughly three per
-cent. The schedule integrates real mitred trapezoids; the loss calculation uses
-mean lengths. Both are correct for their purpose. Do not force either to match
-the other. The schedule figure is the one for a steel purchase order.
+**CALIBRATION.md section 15 (ENGINE_VERSION 1.11.0): this note used to say
+the cutting schedule (drawing 21) exceeds the engine's own core mass by
+roughly three per cent, "do not force either to match the other." That was
+true of a different pairing than it looked like at the time. `wCore` used to
+compute its limb steel as `aGross x 3 x Hw` -- one average cross-section run
+the full window height, the same simplification drawing 21's own long/short
+mitred-edge average makes, which is why the two sat close together. Checked
+against a real cut plate (drawing 22, CALIBRATION.md section 12), that
+simplification turned out to overstate the limb by exactly the amount
+section 14 found as an unexplained "25% heavy" core mass gap. `wCore` now
+computes its limb term the way drawing 22's Plate A does, per step, off the
+real snapped widths -- because that is the one checked against an actual cut
+plate, not because three per cent looked wrong on its own.**
+
+Two consequences, both intended, neither a bug to chase further:
+
+- **`wCore` and drawing 22 (the cutting chart) now agree to well under one
+  per cent** -- not a coincidence, the same calculation runs both.
+- **`wCore` and drawing 21 (the cutting schedule) now diverge by roughly
+  14-16%, not three** -- drawing 21's own limb model is unchanged (still
+  `Hw`-based), so it no longer tracks `wCore` the way it used to by
+  construction of both sharing the same simplification. Drawing 21 is still
+  the correct figure for a steel purchase order built to its own two-plate
+  convention; it is drawing 22 that is checked against a real chart, and
+  `wCore` that now follows drawing 22, not drawing 21. Do not force drawing
+  21 to match `wCore` either -- if drawing 21 is ever rebuilt on drawing 22's
+  own three-plate, per-step model instead of the long/short edge average,
+  that is the point at which the two would be expected to agree again, not
+  before.
