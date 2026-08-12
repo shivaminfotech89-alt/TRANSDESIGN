@@ -8,7 +8,7 @@
  * without bumping it, or old quotations stop reproducing.
  */
 
-export const ENGINE_VERSION = "1.11.0";
+export const ENGINE_VERSION = "1.12.0";
 
 const CONDUCTORS = {
   copper: { name: "Copper, EC grade", rho20: 0.017241, alpha: 0.00393, dens: 8890, dMax: 3.6, short: "Cu", proof: 1.0 },
@@ -1601,15 +1601,53 @@ function stepWidths(n, d, increment = 10) {
   return { rows, util: total / (Math.PI * R * R), area: total };
 }
 
+/* CALIBRATION.md section 16: two independent fixes, found together because
+   fixing the first exposed the second -- they had been compensating for
+   each other in the total, which is exactly why "the total looks close"
+   was never proof either half was right.
+
+   Limb: the edges used to be Hw + 2w (long) and Hw (short) -- window
+   height as the short edge, the same Hw-based shortcut wCore's own limb
+   term used and no longer does (section 15). Rebuilt on the one
+   relationship wCore's fix and drawing 22's Plate A both already
+   established: a mitred-both-ends limb lamination's average length is 2w
+   (validated against a real cut plate to -1.4%), and a 45 degree mitre at
+   each end changes the edge length by w per end, so long - short = 2w
+   independent of what the average turns out to be. Solving both together
+   gives short = w, long = 3w -- not a second fit, the one average
+   combined with the mitre angle, which is geometry, not curve-fitting.
+
+   Yoke: the edges were 2C + w (long) and 2C - w (short) -- averaging to
+   2C exactly, missing the +dCore term wCore's own yoke span
+   (2*cc + dCore) always carried, the same "outside-to-outside" allowance
+   for the outer limbs' own width DRAWINGS.md's universal requirements
+   assume everywhere else a yoke length is dimensioned. Checked, not
+   assumed: with the old 2C-only average, this schedule's yoke total ran
+   888.8 kg against wCore's own 1093.3 kg on the 1250 kVA reference --
+   18.7% short, previously invisible because the old limb term's own
+   overstatement (+18.5%) landed the COMBINED total close to wCore's old
+   (also inflated) figure by coincidence, not because either half agreed
+   with anything. Now 2C + dCore + w / 2C + dCore - w, average
+   2C + dCore, matching wCore's own yoke term (and so drawing 22's
+   Plate B + Plate C) to within rounding -- same 45 degree, both-ends
+   mitre relationship (long - short = 2w) preserved, only the anchor
+   corrected.
+
+   The mass formula itself is untouched throughout (average edge x width x
+   stack x density, the shape it always was) -- only what the two
+   averages resolve to changed, so wCore, drawing 21 and drawing 22 now
+   all derive limb and yoke from the same two figures instead of three
+   sets of numbers that used to land close by coincidence of this
+   reference's own proportions, not by agreement. */
 function stampingSchedule(d, steps) {
   const thk = d.grade.thk || 0.27;
-  const Hw = d.Hw, C = d.cc;
+  const C = d.cc, dC = d.dCore;
   let wt = 0, sheets = 0;
   const rows = steps.rows.map((s, i) => {
     const stack = i === 0 ? s.t : 2 * s.t;
     const nSheets = Math.max(2, Math.round(stack / thk));
-    const limbLong = Hw + 2 * s.w, limbShort = Hw;
-    const yokeLong = 2 * C + s.w, yokeShort = 2 * C - s.w;
+    const limbLong = 3 * s.w, limbShort = s.w;
+    const yokeLong = 2 * C + dC + s.w, yokeShort = 2 * C + dC - s.w;
     const aLimb = (((limbLong + limbShort) / 2) * s.w) / 1e6;
     const aYoke = (((yokeLong + yokeShort) / 2) * s.w) / 1e6;
     const mass = (3 * aLimb + 2 * aYoke) * (stack / 1000) * 7650;

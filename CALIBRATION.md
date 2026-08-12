@@ -1013,3 +1013,62 @@ check that does not depend on this engine's own geometry at all (-8.0% and
 move today. Recorded so the coefficient discussion sits on the corrected
 core mass everywhere it is read, not so it can be acted on -- it still
 cannot be, on two mid-range points.
+
+---
+
+## 16. Drawing 21 rebuilt on the same limb and yoke formulas as wCore and drawing 22
+
+Section 15 fixed `wCore`'s limb term and left drawing 21 (the cutting
+schedule, `stampingSchedule`) alone -- which meant it now disagreed with
+`wCore` by 14-16% instead of the ~3% recorded before, since the two used to
+share the same `Hw`-based limb shortcut and now only one of them did. Two
+cutting documents in the same tool disagreeing by that much means a shop
+can be quoted two different steel weights for the same core, so this was
+not left as a second "acceptable discrepancy."
+
+**Limb**, rebuilt the same way section 15 rebuilt `wCore`'s: average length
+2w (Plate A, drawing 22, validated to -1.4% against a real cut plate),
+combined with the 45 degree both-ends mitre relationship (long - short =
+2w, a geometric fact of the mitre angle, not a second fit) to recover the
+edges separately -- short = w, long = 3w. Not two independent guesses: one
+validated average and one geometric constraint, solved together.
+
+**Yoke, found while fixing the limb, not assumed to already be right.**
+Rebuilding only the limb exposed a second, independent error that had been
+sitting underneath it: drawing 21's yoke average was `2C` (C = limb centre
+distance) alone, missing the `+dCore` term `wCore`'s own yoke span
+(`2*cc + dCore`) always carried -- the outer limbs' own width, the same
+"outside-to-outside" allowance every other yoke-length figure in this
+engine already includes. Checked directly: with the old `2C`-only average,
+drawing 21's yoke total ran 888.8 kg against `wCore`'s own 1093.3 kg on the
+1250 kVA reference -- 18.7% short, invisible before this because the
+limb's own +18.5% overstatement was landing the *combined* total close to
+`wCore`'s old (also inflated) figure. Two wrongs, not an agreement.
+Corrected to `2C + dCore + w` / `2C + dCore - w`, average `2C + dCore`,
+matching `wCore`'s own yoke term -- same mitre relationship preserved,
+only the anchor fixed.
+
+1250 kVA reference:
+
+| | Drawing 21 total | wCore | Deviation |
+|---|---|---|---|
+| Before section 15 (both Hw-based) | 1943.4 kg | 1819.0 kg | +6.8% |
+| After section 15 alone (limb fixed, yoke not) | 1943.4 kg (unchanged) | 1705.8 kg | +13.9% |
+| After this section (both fixed) | 1739.8 kg | 1705.8 kg | **+2.0%** |
+
+The remaining ~2% is not a formula disagreement -- `stampingSchedule`
+reports mass off the continuous stack depth per step; `wCore` and drawing
+22 both round to a whole sheet count first (`Math.max(2, Math.round(stack
+/ thk))`) and derive mass from that. Real integer sheets versus a
+continuous approximation, not error. `reference-designs.test.mjs` now
+asserts drawing 21's total against `wCore` directly (within 3%), not just
+each against the real chart separately -- checking the two disagree by a
+few per cent from counting whole sheets is the actual guarantee a shop
+needs, not that each happens to be close to a historical reference on its
+own.
+
+DRAWINGS.md's own note on this is rewritten a third time, not patched --
+the first two versions ("3% is acceptable," then "14-16% is now expected")
+were both wrong in the same way: declaring a gap acceptable without
+checking what was actually behind it. This time the check is the point,
+not the conclusion.

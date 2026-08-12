@@ -138,6 +138,18 @@ within("Cutting chart, Plate B (half yoke) kg", +chart1250.totalB.toFixed(2), 26
 within("Cutting chart, Plate C (full yoke) kg", +chart1250.totalC.toFixed(2), 788.84, 5);
 within("Cutting chart, core total kg", +chart1250.chartTotal.toFixed(2), 1672.8, 5);
 
+// CALIBRATION.md section 16: drawing 21's cutting schedule rebuilt on the
+// same limb and yoke edge formulas wCore and drawing 22 use -- checked
+// directly against wCore itself, not just the real chart, since agreeing
+// with wCore is the actual point (two cutting documents in one tool must
+// not send a shop two different steel weights for the same core). A few
+// per cent residual is expected and left alone: stampingSchedule reports
+// mass off the continuous stack depth, wCore and the cutting chart off a
+// rounded whole sheet count -- real integer sheets, not a formula gap.
+const stepsFor1250 = E.stepWidths(15, r1250.design.dCore, r1250.params.stepIncrement);
+const sched1250 = E.stampingSchedule(r1250.design, stepsFor1250);
+within("Cutting schedule vs wCore, core total kg", +sched1250.totalMass.toFixed(2), r1250.design.wCore, 3);
+
 console.log("\n630 kVA, 11/0.433 kV, dry type, copper -- Mehir Transformers sheet");
 const core630 = { ...E.ESSENTIALS, kva: 630, medium: "dry", application: "distribution", vector: "Dyn11" };
 const over630 = {

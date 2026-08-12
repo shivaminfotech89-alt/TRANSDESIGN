@@ -358,34 +358,52 @@ the control "DXF, backend required" rather than offering a button that fails.
 
 ---
 
-## Known and acceptable discrepancy -- and one that is no longer
+## One core mass, three places it is computed -- now the same formula
 
-**CALIBRATION.md section 15 (ENGINE_VERSION 1.11.0): this note used to say
-the cutting schedule (drawing 21) exceeds the engine's own core mass by
-roughly three per cent, "do not force either to match the other." That was
-true of a different pairing than it looked like at the time. `wCore` used to
-compute its limb steel as `aGross x 3 x Hw` -- one average cross-section run
-the full window height, the same simplification drawing 21's own long/short
-mitred-edge average makes, which is why the two sat close together. Checked
-against a real cut plate (drawing 22, CALIBRATION.md section 12), that
-simplification turned out to overstate the limb by exactly the amount
-section 14 found as an unexplained "25% heavy" core mass gap. `wCore` now
-computes its limb term the way drawing 22's Plate A does, per step, off the
-real snapped widths -- because that is the one checked against an actual cut
-plate, not because three per cent looked wrong on its own.**
+This note went through two wrong states before landing here, both worth
+knowing about since the same mistake (declaring a gap "acceptable" instead
+of checking what was behind it) is exactly what let the first one stand for
+as long as it did.
 
-Two consequences, both intended, neither a bug to chase further:
+**Originally:** drawing 21's own cutting schedule mass exceeded `wCore` by
+roughly three per cent, filed as "the schedule integrates real mitred
+trapezoids, the loss calculation uses mean lengths, do not force either to
+match the other." Both figures were built on the *same* Hw-based limb
+shortcut at the time (`wCore`'s own limb term was `aGross x 3 x Hw`; drawing
+21's own long/short mitred average reduces to the same idea) -- the three
+per cent was two near-identical approximations differing only in rounding,
+not two independently-reasoned figures that happened to agree.
 
-- **`wCore` and drawing 22 (the cutting chart) now agree to well under one
-  per cent** -- not a coincidence, the same calculation runs both.
-- **`wCore` and drawing 21 (the cutting schedule) now diverge by roughly
-  14-16%, not three** -- drawing 21's own limb model is unchanged (still
-  `Hw`-based), so it no longer tracks `wCore` the way it used to by
-  construction of both sharing the same simplification. Drawing 21 is still
-  the correct figure for a steel purchase order built to its own two-plate
-  convention; it is drawing 22 that is checked against a real chart, and
-  `wCore` that now follows drawing 22, not drawing 21. Do not force drawing
-  21 to match `wCore` either -- if drawing 21 is ever rebuilt on drawing 22's
-  own three-plate, per-step model instead of the long/short edge average,
-  that is the point at which the two would be expected to agree again, not
-  before.
+**CALIBRATION.md section 15 (ENGINE_VERSION 1.11.0):** checked against a
+real cut plate (drawing 22, section 12), that shared shortcut turned out to
+overstate the limb by exactly the amount section 14 had already found as an
+unexplained "25% heavy" core mass gap. `wCore`'s limb term was rebuilt on
+drawing 22's own Plate A formula (mitred both ends, length = 2 x width, per
+step, off the real snapped widths). Drawing 21 was left alone for one
+commit -- which meant it now diverged from `wCore` by 14-16% instead of
+three, since the shortcut the two used to share had been removed from only
+one of them.
+
+**CALIBRATION.md section 16 (same version): fixed properly, not left as a
+second "acceptable" gap.** Drawing 21's own limb edges are now derived the
+same way `wCore`'s are -- the same 2w average Plate A already validated,
+combined with the 45 degree both-ends mitre relationship (long - short = 2w,
+geometry, not a fit) to get the long and short edges separately: short = w,
+long = 3w. Rebuilding the limb alone exposed a second, independent gap that
+had been sitting underneath it the whole time: drawing 21's yoke average
+(`2C`, C = limb centre distance) was missing the `+dCore` term `wCore`'s own
+yoke span always carried -- 18.7% short on its own, invisible before only
+because the limb's own overstatement (+18.5%) was landing the *combined*
+total close to `wCore`'s old, also-inflated figure. Fixed the same way:
+`2C + dCore + w` / `2C + dCore - w`, average `2C + dCore`, matching `wCore`'s
+yoke term, same mitre relationship preserved.
+
+**All three -- `wCore`, drawing 21, drawing 22 -- now derive limb and yoke
+from the same two edge-length formulas**, checked directly against each
+other, not just against the one real reference chart (`reference-designs.test.mjs`,
+"Cutting schedule vs wCore"). A few per cent residual remains, and is left
+alone deliberately: drawing 21 reports mass off the continuous stack depth,
+`wCore` and drawing 22 off a rounded whole sheet count -- real integer
+sheets, not a formula disagreement. Two documents in this tool disagreeing
+by double digits meant a shop could be quoted two different steel weights
+for the same core; a few per cent from counting whole sheets is not that.
