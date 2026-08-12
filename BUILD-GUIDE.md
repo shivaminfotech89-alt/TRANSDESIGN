@@ -282,3 +282,116 @@ Firestore free tier covers a small team comfortably. The two things that will
 actually cost money are Cloud Functions with Puppeteer (allocate 1 GB memory,
 expect a few seconds per report) and Cloud Storage for accumulated PDFs. Set a
 budget alert on the project before you invite anyone.
+
+---
+
+## 12. Deploying the PDF pipeline (item 10, built)
+
+The actual layout ended up `functions/` and `src/report/` at the repository
+root, not `apps/web/` — sections 1-11 above describe the original Next.js
+migration plan; this section describes what was actually built and how to
+put it live. `functions/` is its own npm package (`functions/package.json`),
+separate from the root one.
+
+**Before starting:** the Firebase project must be on the Blaze (pay-as-you-go)
+plan. Cloud Functions 2nd gen — what `syncOrgClaims` and `generateReportPdf`
+both are — will not deploy on the free Spark plan. Firebase Console → Project
+Settings → Usage and billing.
+
+Run every `firebase` command from the repository root (`.firebaserc` already
+points at `tendermaster-ai`, so plain `firebase deploy` targets the right
+project without `firebase use` first).
+
+### Step 1 — install the functions package's own dependencies
+
+```bash
+cd functions
+npm install
+cd ..
+```
+
+### Step 2 — set APP_URL
+
+`generateReportPdf` needs to know where the built SPA is actually served, so
+Puppeteer has somewhere to navigate to — this cannot be derived from the
+Firebase project id or the function's own URL, it depends on how you deploy
+hosting, which is outside what this repository controls. Find it the same
+way you'd open the app yourself: whatever origin (scheme + host, no path, no
+trailing slash) you type into a browser to reach it today — check Firebase
+Console → Hosting or → App Hosting, whichever this project actually uses, if
+you are not sure.
+
+```bash
+cp functions/.env.example functions/.env
+```
+
+Edit `functions/.env` and set `APP_URL` to that origin, e.g.
+`APP_URL=https://tendermaster-ai.web.app`.
+
+### Step 3 — deploy the two Cloud Functions
+
+```bash
+firebase deploy --only functions
+```
+
+This builds `functions/` automatically (the `predeploy` hook in
+`firebase.json`) and deploys both `syncOrgClaims` and `generateReportPdf` --
+everything `functions/src/index.ts` exports. If this fails with a billing
+error, that is step zero not being done yet, not a bug.
+
+**Verify:** Firebase Console → Functions — both `syncOrgClaims` and
+`generateReportPdf` show a green "Deployed" status. Or:
+
+```bash
+firebase functions:log --only syncOrgClaims
+```
+
+should run without an error about the function not existing.
+
+### Step 4 — backfill custom claims for every existing member
+
+`syncOrgClaims` only fires on a write to a membership document from now on --
+every member added before this deploy has no claim yet, and storage.rules
+(step 5) will deny them a read they are actually entitled to until this runs.
+
+Get credentials for a script running outside the Functions environment:
+Firebase Console → Project Settings (gear icon) → Service Accounts →
+Generate new private key. Save the downloaded file as
+`functions/service-account.json` — already in `functions/.gitignore`, never
+commit it.
+
+```powershell
+cd functions
+$env:GOOGLE_APPLICATION_CREDENTIALS = "./service-account.json"
+npm run backfill-claims
+```
+
+(bash/zsh: `GOOGLE_APPLICATION_CREDENTIALS=./service-account.json npm run backfill-claims`)
+
+This prints one line per member, "set" or "ok, already correct", then a
+summary count. **Verify by running the exact same command a second time** --
+the summary should now read `0 changed`. If it does not, something is still
+writing claims that do not match what's in Firestore; do not proceed to step
+5 until a repeat run is a true no-op.
+
+### Step 5 — deploy the new storage.rules
+
+```bash
+firebase deploy --only storage
+```
+
+Only after step 4 confirms every existing member has a claim — deploying
+this first would deny reads to everyone until the backfill catches up.
+
+**Verify:** Firebase Console → Storage → Rules tab shows the deployed rule
+reading `request.auth.token.orgs[orgId]`, not the old
+`firestore.exists(/databases/(default)/...)`.
+
+### Step 6 — test the round trip
+
+Sign out of the app and back in first — an already-open session's ID token
+was minted before its custom claim existed and will not show it until
+refreshed, which a normal sign-in does. Then: open a project, save a
+revision if none exists yet, Reports & Docs tab, Generate PDF, wait, then
+Download. `functions:log --only generateReportPdf` shows the render if
+anything needs debugging.
