@@ -63,6 +63,14 @@ interface ResultsDisplayProps {
   itemsByRateKey: Map<string, { code: string; partNumber: string }>;
   activePreviewKey: string | null;
   onSelectPreview: (candidate: any | null) => void;
+  /** TASKS.md item 10: null/-1 while no project or no saved revision exists
+   *  yet -- generating a server PDF needs a real saved revision to render
+   *  (the Cloud Function loads it the same way this app does, from
+   *  Firestore, never from in-memory state), so DocumentsTab disables the
+   *  button rather than offering to render something that was never saved. */
+  orgId: string;
+  projectId: string | null;
+  revision: number;
   /** CALIBRATION.md section 9: writes cardExtra into the live over object
    *  the same way any other override edit does (App.tsx's handleOverChange)
    *  -- not a separate persistence path. Disabled by the same pricingLocked
@@ -141,7 +149,7 @@ function PriceSourceBadge({ source }: { source: PriceResolution | undefined }) {
 export function ResultsDisplay({
   core, design, bom, params, liveDesign, liveBom, liveParams, project, rates, onRatesChange, effectiveRates,
   rateCard, onManageRateCards, pricingLocked, rateSources, priceLocks, onTogglePriceLock, itemsByRateKey,
-  activePreviewKey, onSelectPreview, onCardExtraChange,
+  activePreviewKey, onSelectPreview, onCardExtraChange, orgId, projectId, revision,
 }: ResultsDisplayProps) {
   const [activeTab, setActiveTab] = useState<Tab>('overview');
   const [isSaving, setIsSaving] = useState(false);
@@ -289,6 +297,37 @@ export function ResultsDisplay({
                   </tbody>
                 </table>
               </Card>
+
+              {design.dualCompliance && (
+                <Card title="Compliance, Second Rating" subtitle={`${params.kva2} kVA, ${params.cooling2}`}>
+                  <table className="w-full">
+                    <thead>
+                      <tr><th className={thCls}>Check</th><th className={`${thCls} text-right`}>Value</th><th className={`${thCls} text-right`}>Limit</th><th className={`${thCls} text-right`}>OK</th></tr>
+                    </thead>
+                    <tbody>
+                      {[
+                        ['No-Load Loss (W)', design.dualCompliance.nll],
+                        ['Load Loss (W)', design.dualCompliance.ll],
+                        ['Total Loss (W)', design.dualCompliance.total],
+                        [design.dry ? 'Winding Rise (K)' : 'Top Rise (K)', design.dualCompliance.rise],
+                        ['Winding Rise (K)', design.dualCompliance.wRise],
+                      ].map(([label, c]: [string, any]) => (
+                        <tr key={label}>
+                          <td className={`${tdCls} text-ink2 text-[11px]`}>{label}</td>
+                          <td className={`${tdCls} text-right font-mono text-[11px] ${c.ok ? 'text-ink' : 'text-alert'}`}>{c.val.toFixed(2)}</td>
+                          <td className={`${tdCls} text-right font-mono text-[11px] text-steel`}>{c.lim.toFixed(2)}</td>
+                          <td className={`${tdCls} text-right font-mono text-[11px]`}><CheckMark ok={c.ok} /></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  <p className="text-[10px] text-steel px-1 pt-2">
+                    The fin area above is sized so both ratings pass at once (packages/engine's
+                    designTransformer, CALIBRATION.md section 21) -- this table is the second
+                    rating's own check, not a duplicate of the first.
+                  </p>
+                </Card>
+              )}
             </div>
           )}
 
@@ -328,6 +367,14 @@ export function ResultsDisplay({
           {/* BOM & COST */}
           {activeTab === 'bom' && (
             <div className="space-y-4">
+              {bom.warnings?.map((w: any) => (
+                <div key={w.code} className="bg-white border border-alert rounded-[2px] px-4 py-3 print:hidden">
+                  <div className="text-[11px] font-display uppercase tracking-[0.14em] text-alert mb-1">
+                    Cooling Equipment Priced At Zero
+                  </div>
+                  <p className="text-[11px] text-ink2">{w.message}</p>
+                </div>
+              ))}
               {bom.segments.map((seg: any) => (
                 <Card key={seg.title} title={seg.title} subtitle={inr(seg.total)}>
                   <table className="w-full">
@@ -546,7 +593,10 @@ export function ResultsDisplay({
           )}
           {activeTab === 'drawings' && <Drawings2D design={design} params={params} project={project} />}
           {activeTab === 'reports' && (
-            <DocumentsTab core={core} design={design} bom={bom} params={params} project={project} />
+            <DocumentsTab
+              core={core} design={design} bom={bom} params={params} project={project}
+              orgId={orgId} projectId={projectId} revision={revision}
+            />
           )}
           {activeTab === 'manufacturing' && <ManufacturingTab design={design} params={params} />}
           {activeTab === '3d-model' && <CadViewerTab design={design} params={params} />}

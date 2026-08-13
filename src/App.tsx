@@ -48,7 +48,7 @@ type PendingConflict =
  *  the adopted K as AUTO again and re-optimise it against the live rates,
  *  which can land somewhere other than what was previewed. */
 const BUDGET_OVER_KEYS = [
-  'coreType', 'coreGrade', 'flux', 'condLV', 'condHV', 'deltaLV', 'deltaHV', 'tankType', 'oilRiseTarget', 'lvHvClr',
+  'coreType', 'coreGrade', 'flux', 'condLV', 'condHV', 'deltaLV', 'deltaHV', 'tankType', 'cooling', 'oilRiseTarget', 'lvHvClr',
   'etK', 'steps', 'tapType',
 ] as const;
 
@@ -833,6 +833,7 @@ export default function App() {
               core={core} design={activeDesign} bom={activeBom} params={activeParams}
               liveDesign={result.design} liveBom={result.bom} liveParams={result.params}
               project={buildMeta(projectName)}
+              orgId={orgId} projectId={currentProjectId} revision={projectCurrentRevision}
               rates={rates} onRatesChange={setRates} effectiveRates={effectiveRates}
               rateCard={orgRateCards.find((c) => c.id === rateCardId) || null}
               onManageRateCards={() => setShowRateCards(true)}

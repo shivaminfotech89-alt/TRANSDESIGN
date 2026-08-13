@@ -1,7 +1,9 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { documentRegister, routineTestSchedule, DOC_STATUS } from '@/packages/engine';
-import { Card, thCls, tdCls } from '../ui';
+import { Card, Button, thCls, tdCls } from '../ui';
 import { NamePlateDrawing } from '../drawings/NamePlateDrawing';
+import { generateReportPdf, getDocumentUrl, listDocuments } from '../../../lib/projects';
+import type { GeneratedDocument } from '../../../lib/types';
 
 interface DocumentsTabProps {
   core: any;
@@ -9,13 +11,111 @@ interface DocumentsTabProps {
   bom: any;
   params: any;
   project: any;
+  orgId: string;
+  projectId: string | null;
+  revision: number;
 }
 
 /** DOC_STATUS keys are the engine's own vocabulary (done/part/need) -- this
  *  only maps them to a colour, it never re-labels or upgrades a status. */
 const STATUS_TONE: Record<string, string> = { done: 'text-good', part: 'text-amber', need: 'text-alert' };
 
-export function DocumentsTab({ core, design, bom, params, project }: DocumentsTabProps) {
+/** TASKS.md item 10: triggers functions/src/reportPdf.ts and lists what it
+ *  has already produced. Reads listDocuments fresh on every generate so a
+ *  new PDF shows up without a manual refresh -- there is no live listener
+ *  here since a handful of documents per project never needs one. */
+function PdfReportPanel({ orgId, projectId, revision }: { orgId: string; projectId: string | null; revision: number }) {
+  const [docs, setDocs] = useState<(GeneratedDocument & { id: string })[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  const [generating, setGenerating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const refresh = () => {
+    if (!projectId) return;
+    listDocuments(orgId, projectId)
+      .then((d) => { setDocs(d as any); setLoaded(true); })
+      .catch((e) => { setError(String(e)); setLoaded(true); });
+  };
+
+  useEffect(() => { refresh(); }, [orgId, projectId]);
+
+  const canGenerate = !!projectId && revision >= 0;
+
+  const handleGenerate = async () => {
+    if (!projectId) return;
+    setGenerating(true);
+    setError(null);
+    try {
+      await generateReportPdf(orgId, projectId, revision);
+      refresh();
+    } catch (e) {
+      setError(String(e));
+    }
+    setGenerating(false);
+  };
+
+  const handleDownload = async (doc: GeneratedDocument) => {
+    if (!doc.storagePath) return;
+    try {
+      const url = await getDocumentUrl(doc.storagePath);
+      window.open(url, '_blank');
+    } catch (e) {
+      window.alert(`Could not resolve a download link: ${e}`);
+    }
+  };
+
+  return (
+    <Card
+      title="PDF Report"
+      subtitle="Server-rendered, not window.print() -- bookmarks, page numbers, revision and QR verification"
+    >
+      <div className="px-1 pb-2 space-y-2">
+        {!canGenerate && (
+          <p className="text-[11px] text-steel">Save this design as a revision first -- the report renders a saved revision, not what is currently on screen.</p>
+        )}
+        {canGenerate && (
+          <Button variant="primary" onClick={handleGenerate} disabled={generating}>
+            {generating ? 'Rendering' : `Generate PDF, Revision ${revision}`}
+          </Button>
+        )}
+        {error && <p className="text-[11px] text-alert">{error}</p>}
+      </div>
+
+      {loaded && docs.length > 0 && (
+        <table className="w-full">
+          <thead>
+            <tr>
+              <th className={thCls}>Document</th><th className={`${thCls} text-right`}>Revision</th>
+              <th className={thCls}>Status</th><th className={thCls} />
+            </tr>
+          </thead>
+          <tbody>
+            {docs.map((d) => (
+              <tr key={d.id}>
+                <td className={`${tdCls} font-mono text-[10px] text-copper`}>{d.docNo}</td>
+                <td className={`${tdCls} text-right font-mono text-[11px]`}>{d.revision}</td>
+                <td className={`${tdCls} font-display uppercase text-[10px] ${STATUS_TONE[d.status === 'generated' ? 'done' : d.status === 'partial' ? 'part' : 'need']}`}>
+                  {d.status}
+                </td>
+                <td className={`${tdCls} text-right`}>
+                  <button
+                    type="button"
+                    onClick={() => handleDownload(d)}
+                    className="text-[10px] font-display uppercase tracking-[0.08em] text-patina underline underline-offset-2"
+                  >
+                    Download
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </Card>
+  );
+}
+
+export function DocumentsTab({ core, design, bom, params, project, orgId, projectId, revision }: DocumentsTabProps) {
   const register = documentRegister(core, design, bom, project);
   const tests = routineTestSchedule(design);
 
@@ -26,6 +126,8 @@ export function DocumentsTab({ core, design, bom, params, project }: DocumentsTa
 
   return (
     <div className="space-y-4">
+      <PdfReportPanel orgId={orgId} projectId={projectId} revision={revision} />
+
       <Card
         title="Document Register"
         subtitle={`${counts.done || 0} generated · ${counts.part || 0} partial · ${counts.need || 0} needs input`}

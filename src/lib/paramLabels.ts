@@ -11,6 +11,7 @@ export const LABELS: Record<string, string> = {
   cooling: 'Cooling', tankType: 'Tank type', oilRiseTarget: 'Rise target',
   refTemp: 'Loss reference temperature', ambient: 'Ambient, maximum', ambientAvg: 'Ambient, yearly average',
   limitNLL: 'No-load loss limit', limitLL: 'Load loss limit', targetZ: 'Target impedance', zTol: 'Impedance tolerance',
+  kva2: 'Second rating', cooling2: 'Second rating, cooling', limitNLL2: 'Second rating, no-load loss limit', limitLL2: 'Second rating, load loss limit',
   coreGrade: 'Core steel grade', coreType: 'Core / joint construction', buildFactor: 'Building factor',
   flux: 'Flux density', steps: 'Core steps', etK: 'Volts-per-turn constant (K)', aspect: 'Window aspect ratio',
   autoWindow: 'Solve window height for impedance', autoFit: 'Fit flux / current density to loss limits',
@@ -24,12 +25,14 @@ export const LABELS: Record<string, string> = {
   lvIns: 'LV interturn insulation', hvPaper: 'HV conductor paper covering', hvInterlayer: 'HV interlayer insulation',
   insFactor: 'Insulation mass factor', topOilSpace: 'Top oil / lead space', bottomClr: 'Bottom clearance',
   finDiss: 'Fin/radiator dissipation @50K', tankDiss: 'Tank wall dissipation @50K', airDiss: 'Dry-type coil dissipation coefficient',
+  fanUnitArea: 'Cooling surface per fan',
   tariff: 'Energy tariff', years: 'Evaluation period', loadFactor: 'Average load factor', pf: 'Power factor',
   // Core-level enquiry fields (not derived, but still worth a friendly label
   // in the Design Impact Summary when one of these is what changed).
   application: 'Application', standard: 'Design standard', kva: 'Rating', hv: 'HV voltage', lv: 'LV voltage',
   freq: 'Frequency', vector: 'Vector group', effLevel: 'Efficiency level', medium: 'Cooling medium',
   condPref: 'Conductor preference', dualHV: 'Dual HV voltage', hv2: 'HV voltage, second', dualLV: 'Dual LV voltage', lv2: 'LV voltage, second',
+  dualRating: 'Dual rating (natural + forced)',
 };
 
 /** Compact units shown next to a value, in the sidebar and the impact summary. */
@@ -37,6 +40,7 @@ export const UNITS: Record<string, string> = {
   umHV: 'kV', bilHV: 'kVp', acHV: 'kV', umLV: 'kV', bilLV: 'kVp', acLV: 'kV',
   oilRiseTarget: 'K', refTemp: '°C', ambient: '°C', ambientAvg: '°C',
   limitNLL: 'W', limitLL: 'W', targetZ: '%', zTol: '%', buildFactor: '×', flux: 'T',
+  kva2: 'kVA', limitNLL2: 'W', limitLL2: 'W', fanUnitArea: 'm²',
   etK: '', aspect: '', windowSpace: '', deltaLV: 'A/mm²', deltaHV: 'A/mm²', stray: '%',
   tapPlus: '%', tapMinus: '%', tapStep: '%',
   coreLvClr: 'mm', lvHvClr: 'mm', phaseClr: 'mm', endClrLV: 'mm', endClrHV: 'mm',

@@ -20,6 +20,7 @@ interface BudgetTabProps {
  *  is currently previewing, without a second source of truth for identity. */
 export function candidateKey(r: any): string {
   return [r.inputs.coreType, r.inputs.coreGrade, r.inputs.condLV, r.inputs.tankType,
+    r.inputs.cooling, r.inputs.oilRiseTarget,
     r.d.B.toFixed(2), r.d.dLV.toFixed(2), r.d.dHV.toFixed(2)].join('|');
 }
 
@@ -170,7 +171,6 @@ export function BudgetTab({ design, bom, params, rates, activePreviewKey, onSele
       conds: Object.keys(CONDUCTORS),
       tanks: params.dry ? [params.tankType] : ['fin', 'radiator'],
       cores: [params.coreType],
-      allowHotter: false,
       zTol: params.zTol,
       enforceLimits: true,
       // CALIBRATION.md section 2: K is swept alongside material, grade and
@@ -181,6 +181,33 @@ export function BudgetTab({ design, bom, params, rates, activePreviewKey, onSele
       // a sub-two-second search well past ten, for a lever that is rarely a
       // real cost choice on top of K, material and grade.
       etKs: ETK_RANGE,
+      // Top-oil rise target is swept alongside K, material, grade and tank:
+      // a lower target buys nothing but cost (more fin/tank steel for the
+      // same loss), a higher one saves tank steel up to whatever the
+      // standard and fluid actually allow (params.oilRiseTarget itself, if
+      // deriveSpec or the user has already set it to that ceiling). This is
+      // a fair trade because both ends are held to the same compliance
+      // check (d.compliance.rise/wRise.ok) that gates feasible either way.
+      riseTargets: [params.oilRiseTarget, Math.max(30, params.oilRiseTarget - 5), Math.max(30, params.oilRiseTarget - 10)],
+      // CALIBRATION.md section 23: cooling is only swept once fan, pump and
+      // control-gear rates are all actually priced -- DEFAULT_RATES ships
+      // them at 0 (no reference-sheet basis, section 20/23), and a search
+      // is a ranked recommendation, not a banner someone can notice and
+      // dismiss: at a zero rate it would rank a forced-cooled candidate
+      // first for looking cheaper than it really is, every time, silently.
+      // Better the lever is unavailable than available and wrong. Once all
+      // three are priced this is a fair trade (buildBOM's fan/pump/
+      // control-gear rows are real cost by then), and sweeps ONAN vs ONAF
+      // only, not the full four -- OFAF/ODAF are rarely the live cost
+      // question at the ratings this search is normally run at, and each
+      // added cooling multiplies the whole grid, the same tradeoff steps
+      // and tapType were left out of above. Dry designs have no fan/pump
+      // costing (oil-only geometry), so stay at their single current
+      // cooling regardless.
+      coolings: (() => {
+        const coolingPriced = rates.coolingFan > 0 && rates.oilPump > 0 && rates.coolingControlGear > 0;
+        return params.dry || !coolingPriced ? [params.cooling] : ['ONAN', 'ONAF'];
+      })(),
     };
     // Deferred one tick so the "Searching" state actually paints before the
     // synchronous grid search (a few thousand designTransformer + buildBOM

@@ -16,11 +16,12 @@ const SECTIONS: { id: string; title: string; keys: string[] }[] = [
   { id: 'insulation', title: 'Insulation Levels', keys: ['umHV', 'bilHV', 'acHV', 'umLV', 'bilLV', 'acLV'] },
   { id: 'system', title: 'Cooling & Insulation System', keys: ['dryType', 'fluid', 'insClass', 'cooling', 'tankType', 'oilRiseTarget', 'refTemp', 'ambient', 'ambientAvg'] },
   { id: 'losses', title: 'Losses & Impedance', keys: ['limitNLL', 'limitLL', 'targetZ', 'zTol'] },
+  { id: 'dual', title: 'Dual Rating', keys: ['kva2', 'cooling2', 'limitNLL2', 'limitLL2'] },
   { id: 'core', title: 'Core', keys: ['coreGrade', 'coreType', 'buildFactor', 'flux', 'steps', 'etK', 'aspect', 'autoWindow', 'autoFit', 'windowSpace'] },
   { id: 'windings', title: 'Windings', keys: ['condLV', 'condHV', 'deltaLV', 'deltaHV', 'stray'] },
   { id: 'tappings', title: 'Tappings', keys: ['tapType', 'tapPlus', 'tapMinus', 'tapStep'] },
   { id: 'clearances', title: 'Clearances', keys: ['coreLvClr', 'lvHvClr', 'phaseClr', 'endClrLV', 'endClrHV', 'hvTankClr', 'endTankClr', 'cylThk'] },
-  { id: 'construction', title: 'Construction Constants', keys: ['lvIns', 'hvPaper', 'hvInterlayer', 'insFactor', 'topOilSpace', 'bottomClr', 'finDiss', 'tankDiss', 'airDiss'] },
+  { id: 'construction', title: 'Construction Constants', keys: ['lvIns', 'hvPaper', 'hvInterlayer', 'insFactor', 'topOilSpace', 'bottomClr', 'finDiss', 'tankDiss', 'fanUnitArea', 'airDiss'] },
   { id: 'economics', title: 'Economics', keys: ['tariff', 'years', 'loadFactor', 'pf'] },
 ];
 
@@ -224,6 +225,17 @@ export function TransformerForm({
             <CoreField label="Rating (kVA)">
               <input type="number" value={core.kva} onChange={(e) => setCore({ kva: Number(e.target.value) })} className={inputCls} />
             </CoreField>
+            <label className={`flex items-center gap-2 ${labelCls}`}>
+              <input type="checkbox" checked={!!core.dualRating} onChange={(e) => setCore({ dualRating: e.target.checked })} />
+              Dual rating (natural + forced cooling, one tank)
+            </label>
+            {core.dualRating && (
+              <p className="text-[10px] font-body text-steel leading-snug">
+                Rating above is sized for the active part (turns, conductor, current density) --
+                enter the second name-plate point in Dual Rating below. The engine sizes the
+                cooling surface to satisfy both.
+              </p>
+            )}
             <div className="grid grid-cols-2 gap-3">
               <CoreField label="HV (V)">
                 <input type="number" value={core.hv} onChange={(e) => setCore({ hv: Number(e.target.value) })} className={inputCls} />
@@ -271,8 +283,13 @@ export function TransformerForm({
         )}
       </div>
 
-      {/* Every derived parameter: AUTO from deriveSpec, or SET by the user */}
-      {SECTIONS.map(({ id, title, keys }) => (
+      {/* Every derived parameter: AUTO from deriveSpec, or SET by the user.
+          "dual" is hidden entirely rather than shown empty when the Dual
+          Rating checkbox above is off: deriveSpec only put()s kva2/cooling2/
+          limitNLL2/limitLL2 when core.dualRating is true, so ParamRow would
+          render nothing for any of them anyway -- this just avoids an
+          expandable section header over an empty body. */}
+      {SECTIONS.filter((s) => s.id !== 'dual' || core.dualRating).map(({ id, title, keys }) => (
         <div key={id}>
           <GroupHeader title={title} expanded={expandedSection === id} onToggle={() => toggleSection(id)} />
           {expandedSection === id && (

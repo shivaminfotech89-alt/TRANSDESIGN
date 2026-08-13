@@ -17,7 +17,9 @@ import {
   collection, doc, getDoc, getDocs, setDoc, addDoc, updateDoc, deleteDoc,
   query, where, orderBy, limit, serverTimestamp, writeBatch, arrayUnion,
 } from "firebase/firestore";
-import { db } from "./firebase";
+import { httpsCallable } from "firebase/functions";
+import { ref as storageRef, getDownloadURL } from "firebase/storage";
+import { db, functions, storage } from "./firebase";
 import { DEFAULT_RATES } from "@/packages/engine";
 import type {
   Project, ProjectMeta, Revision, RateCard, Rates, DesignSummary,
@@ -428,6 +430,27 @@ export async function recordDocument(
 export async function listDocuments(orgId: string, projectId: string): Promise<GeneratedDocument[]> {
   const snap = await getDocs(collection(db, "orgs", orgId, "projects", projectId, "documents"));
   return snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<GeneratedDocument, "id">) }));
+}
+
+/** TASKS.md item 10. functions/src/reportPdf.ts does the actual work
+ *  (Puppeteer renders src/report/PrintReport.tsx with a signed custom
+ *  token, uploads to Storage, records the document itself via the Admin
+ *  SDK) -- this only invokes it and returns what it reports. The returned
+ *  storagePath is resolved to a real download URL by getDocumentUrl below,
+ *  through the same storage.rules every other read already goes through
+ *  (request.auth.token.orgs[orgId], not a separate PDF-specific check). */
+export async function generateReportPdf(
+  orgId: string, projectId: string, rev: number
+): Promise<{ storagePath: string; docId: string; docNo: string }> {
+  const call = httpsCallable<{ orgId: string; projectId: string; rev: number }, { storagePath: string; docId: string; docNo: string }>(
+    functions, "generateReportPdf",
+  );
+  const res = await call({ orgId, projectId, rev });
+  return res.data;
+}
+
+export async function getDocumentUrl(storagePath: string): Promise<string> {
+  return getDownloadURL(storageRef(storage, storagePath));
 }
 
 /* ---------------- membership ---------------- */

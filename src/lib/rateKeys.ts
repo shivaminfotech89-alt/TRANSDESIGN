@@ -37,6 +37,16 @@ export const RATE_KEY_GROUPS: RateKeyGroup[] = [
     ],
   },
   {
+    // CALIBRATION.md section 20: no cost basis for these three, so
+    // DEFAULT_RATES ships them at 0 -- shown here so a zero is something
+    // the user sees and can fill in, not something buried in a BOM total.
+    title: 'Cooling Equipment (ONAF / OFAF / ODAF)',
+    fields: [
+      ['coolingFan', 'Cooling Fan, Unit Rate', '₹/no'], ['oilPump', 'Oil Circulation Pump, Unit Rate', '₹/no'],
+      ['coolingControlGear', 'Cooling Control Gear and Wiring', '₹/lot'],
+    ],
+  },
+  {
     title: 'Labour',
     fields: [
       ['labWind', 'Winding Labour', '₹/kg'], ['labCore', 'Core Labour', '₹/kg'],

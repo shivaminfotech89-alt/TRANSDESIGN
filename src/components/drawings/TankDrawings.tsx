@@ -1,12 +1,12 @@
 import React, { useId } from 'react';
-import { finLayout } from '@/packages/engine';
+import { finLayout, radiatorLayout, conservatorSize } from '@/packages/engine';
 import { Card, DataRow, thCls, tdCls } from '../ui';
 import {
   fitToViewBox, dimText, DimensionArrow, DimensionHorizontal, DimensionVertical, UnitsNote, TitleBlock,
   drawingNo, ratingLabel,
 } from './DrawingPrimitives';
 import { PART_NUMBERS } from './partNumbers';
-import { finPlacements } from '../cad/geometry';
+import { finPlacements, bankPlacements } from '../cad/geometry';
 
 interface Props { design: any; params: any; project: any; }
 
@@ -121,49 +121,66 @@ export function FinOrRadiatorDrawing({ design, params, project }: Props) {
       </Card>
     );
   }
-  const fins = finLayout(design);
+  // CALIBRATION.md section 24: finLayout is fin-tank-only -- a radiator
+  // design reads radiatorLayout, and its positions are BANKS (one header-
+  // pipe-and-panels unit each), not individual fins.
   const isFin = params.tankType === 'fin';
+  const fins = isFin ? finLayout(design) : null;
+  const rad = isFin ? null : radiatorLayout(design);
+  const cons = isFin ? null : conservatorSize(design);
+  const depth = isFin ? fins!.depth : rad!.panelWidth;
 
   const box = { w: 380, h: 280 };
   const margin = { side: 40, top: 30, bottom: 46 };
-  const fit = fitToViewBox(design.tankL, design.tankW + 2 * fins.depth, box.w - 2 * margin.side, box.h - margin.top - margin.bottom, 10);
+  const fit = fitToViewBox(design.tankL, design.tankW + 2 * depth, box.w - 2 * margin.side, box.h - margin.top - margin.bottom, 10);
   const tankLpx = design.tankL * fit.scale, tankWpx = design.tankW * fit.scale;
-  const depthPx = fins.depth * fit.scale;
+  const depthPx = depth * fit.scale;
   const tx = margin.side + fit.offsetX, ty = margin.top + fit.offsetY + depthPx;
 
-  const positions = finPlacements(fins.perSide, design.tankL, design.tankH, fins.height, 0);
+  const positions = isFin
+    ? finPlacements(fins!.perSide, design.tankL, design.tankH, fins!.height, 0)
+    : bankPlacements(rad!.bankCount, rad!.panelsPerBank, rad!.panelPitch, design.tankL, design.tankH, rad!.panelHeight, 0);
   const pitch = positions.length > 1 ? positions[1].x - positions[0].x : 0;
   const wallExtent = positions.length > 1 ? positions[positions.length - 1].x - positions[0].x : 0;
-  const elemW = isFin ? Math.max(2, Math.min(6, (tankLpx / Math.max(1, fins.perSide)) * 0.4)) : Math.max(6, (tankLpx / Math.max(1, fins.perSide)) * 0.55);
+  const perSideOrBank = isFin ? fins!.perSide : rad!.bankCount;
+  const elemW = isFin ? Math.max(2, Math.min(6, (tankLpx / Math.max(1, perSideOrBank)) * 0.4)) : undefined;
 
-  // At high counts (large ratings, or radiator panels drawn wider than fin
-  // ticks), drawing every position at elemW would overlap them into a solid
-  // block -- illegible, not "showing the count". Sampled evenly for the
-  // picture; pitch, wall extent and the count in the table are still the
-  // real, complete numbers, never reduced.
-  const drawStep = Math.max(1, Math.ceil((elemW * positions.length) / Math.max(1, tankLpx)));
+  // At high fin counts (large ratings), drawing every position at elemW
+  // would overlap them into a solid block -- illegible, not "showing the
+  // count". Sampled evenly for the picture; pitch, wall extent and the
+  // count in the table are still the real, complete numbers, never
+  // reduced. Radiator banks are few enough (a handful, never dozens) that
+  // every one is always drawn at its own real width.
+  const drawStep = isFin ? Math.max(1, Math.ceil((elemW! * positions.length) / Math.max(1, tankLpx))) : 1;
   const drawnPositions = positions.filter((_, i) => i % drawStep === 0);
 
-  const surfaceProvided = fins.n * fins.per;
+  const surfaceProvided = isFin ? fins!.n * fins!.per : rad!.totalPanels * rad!.per;
 
   return (
     <Card
       title="Radiator or Fin Drawing"
-      subtitle={`Drawing ${drawingNo(project, '14')} · ${isFin ? 'fin tank' : 'radiator tank'}, ${fins.n} ${isFin ? 'fins' : 'panels'} total, ${fins.perSide} per tankW face`}
+      subtitle={isFin
+        ? `Drawing ${drawingNo(project, '14')} · fin tank, ${fins!.n} fins total, ${fins!.perSide} per tankW face`
+        : `Drawing ${drawingNo(project, '14')} · radiator tank, ${rad!.totalPanels} panels total in ${rad!.bankCount} bank${rad!.bankCount === 1 ? '' : 's'} of ${rad!.panelsPerBank}`}
     >
       <div className="flex flex-col sm:flex-row gap-4 items-start">
         <svg width={box.w} height={box.h} viewBox={`0 0 ${box.w} ${box.h}`} className="shrink-0">
           <DimensionArrow id={arrowId} />
           {drawnPositions.map((p, i) => {
             const px = tx + tankLpx / 2 + p.x * fit.scale;
+            const w = isFin ? elemW! : Math.max(4, (p as any).width * fit.scale);
             return (
               <React.Fragment key={i}>
-                <rect x={px - elemW / 2} y={ty - depthPx} width={elemW} height={depthPx} fill={isFin ? 'none' : 'var(--color-sheetAlt)'} stroke="var(--color-steel)" strokeWidth={0.6} />
-                <rect x={px - elemW / 2} y={ty + tankWpx} width={elemW} height={depthPx} fill={isFin ? 'none' : 'var(--color-sheetAlt)'} stroke="var(--color-steel)" strokeWidth={0.6} />
+                <rect x={px - w / 2} y={ty - depthPx} width={w} height={depthPx} fill={isFin ? 'none' : 'var(--color-sheetAlt)'} stroke="var(--color-steel)" strokeWidth={0.6} />
+                <rect x={px - w / 2} y={ty + tankWpx} width={w} height={depthPx} fill={isFin ? 'none' : 'var(--color-sheetAlt)'} stroke="var(--color-steel)" strokeWidth={0.6} />
                 {!isFin && (
                   <>
-                    <circle cx={px} cy={ty - depthPx - 4} r={1.6} fill="none" stroke="var(--color-ink2)" strokeWidth={0.5} />
-                    <circle cx={px} cy={ty + tankWpx + depthPx + 4} r={1.6} fill="none" stroke="var(--color-ink2)" strokeWidth={0.5} />
+                    {/* header pipes, top and bottom of the bank */}
+                    <line x1={px - w / 2} y1={ty - depthPx * 0.15} x2={px + w / 2} y2={ty - depthPx * 0.15} stroke="var(--color-ink2)" strokeWidth={1.2} />
+                    <line x1={px - w / 2} y1={ty + tankWpx + depthPx * 1.15} x2={px + w / 2} y2={ty + tankWpx + depthPx * 1.15} stroke="var(--color-ink2)" strokeWidth={1.2} />
+                    {/* isolating valves at the tank-wall connection, top and bottom */}
+                    <circle cx={px} cy={ty - depthPx - 4} r={2.2} fill="none" stroke="var(--color-ink2)" strokeWidth={0.6} />
+                    <circle cx={px} cy={ty + tankWpx + depthPx + 4} r={2.2} fill="none" stroke="var(--color-ink2)" strokeWidth={0.6} />
                   </>
                 )}
               </React.Fragment>
@@ -176,7 +193,7 @@ export function FinOrRadiatorDrawing({ design, params, project }: Props) {
           {positions.length > 0 && (
             <DimensionVertical
               y1={ty - depthPx} y2={ty} featureX={tx + tankLpx / 2 + positions[0].x * fit.scale}
-              dimX={tx - 16} label={dimText(fins.depth)} arrowId={arrowId} fontSize={5.5}
+              dimX={tx - 16} label={dimText(depth)} arrowId={arrowId} fontSize={5.5}
             />
           )}
           {positions.length > 1 && (
@@ -196,9 +213,19 @@ export function FinOrRadiatorDrawing({ design, params, project }: Props) {
         <div className="flex-1 min-w-0 space-y-1">
           <table className="w-full">
             <tbody>
-              <tr><td className={`${tdCls} text-[11px] text-ink2`}>{isFin ? 'Fin' : 'Panel'} count</td><td className={`${tdCls} text-right font-mono text-[11px]`}>{fins.n} total, {fins.perSide} per face</td></tr>
-              <tr><td className={`${tdCls} text-[11px] text-ink2`}>{isFin ? 'Fin' : 'Panel'} depth x height</td><td className={`${tdCls} text-right font-mono text-[11px]`}>{fins.depth} x {Math.round(fins.height)} mm</td></tr>
-              <tr><td className={`${tdCls} text-[11px] text-ink2`}>Pitch</td><td className={`${tdCls} text-right font-mono text-[11px]`}>{pitch.toFixed(1)} mm</td></tr>
+              {isFin ? (
+                <>
+                  <tr><td className={`${tdCls} text-[11px] text-ink2`}>Fin count</td><td className={`${tdCls} text-right font-mono text-[11px]`}>{fins!.n} total, {fins!.perSide} per face</td></tr>
+                  <tr><td className={`${tdCls} text-[11px] text-ink2`}>Fin depth x height</td><td className={`${tdCls} text-right font-mono text-[11px]`}>{fins!.depth} x {Math.round(fins!.height)} mm</td></tr>
+                </>
+              ) : (
+                <>
+                  <tr><td className={`${tdCls} text-[11px] text-ink2`}>Panel count</td><td className={`${tdCls} text-right font-mono text-[11px]`}>{rad!.totalPanels} total, {rad!.panelsPerBank} per bank</td></tr>
+                  <tr><td className={`${tdCls} text-[11px] text-ink2`}>Panel size</td><td className={`${tdCls} text-right font-mono text-[11px]`}>{rad!.panelWidth} x {Math.round(rad!.panelHeight)} mm</td></tr>
+                  <tr><td className={`${tdCls} text-[11px] text-ink2`}>Bank count</td><td className={`${tdCls} text-right font-mono text-[11px]`}>{rad!.bankCount} ({rad!.lvBanks} LV end / {rad!.hvBanks} HV end)</td></tr>
+                </>
+              )}
+              <tr><td className={`${tdCls} text-[11px] text-ink2`}>{isFin ? 'Pitch' : 'Bank pitch'}</td><td className={`${tdCls} text-right font-mono text-[11px]`}>{pitch.toFixed(1)} mm</td></tr>
               <tr><td className={`${tdCls} text-[11px] text-ink2`}>Wall extent, each tankW face</td><td className={`${tdCls} text-right font-mono text-[11px]`}>{wallExtent.toFixed(1)} mm</td></tr>
             </tbody>
           </table>
@@ -209,10 +236,19 @@ export function FinOrRadiatorDrawing({ design, params, project }: Props) {
           )}
           {!isFin && (
             <>
-              <DataRow label="Bank Position" value="to be specified" />
-              <DataRow label="Header Connection Centres" value="to be specified" />
-              <DataRow label="Valve Positions" value="to be specified" />
-              <p className="text-[10px] text-steel pt-1 leading-snug">Header pipe size: vendor catalogue data, to be specified.</p>
+              <DataRow label="Bank Position" value={`${rad!.lvBanks} LV end, ${rad!.hvBanks} HV end`} />
+              <DataRow label="Header Connection Centres" value={rad!.headerCentres.toFixed(0)} unit="mm" />
+              <DataRow label="Valve Positions" value={`${rad!.totalValves} total, top and bottom of each bank`} />
+              <p className="text-[10px] text-steel pt-1 leading-snug">
+                Panel width, pitch and panels-per-bank are editable inputs (radiatorPanelWidth/Pitch/PerBank), not a
+                specific vendor's catalogue -- header pipe size itself is vendor data, still to be specified.
+              </p>
+              {cons && cons.dia > 0 && (
+                <p className="text-[10px] text-steel pt-1 leading-snug">
+                  Conservator {Math.round(cons.dia)} dia x {Math.round(cons.length)} long mm, {Math.round(cons.volumeL)} L
+                  {' '}-- see drawing 9 / the 3D model for its mounting.
+                </p>
+              )}
             </>
           )}
           <div className="pt-2 space-y-0.5">

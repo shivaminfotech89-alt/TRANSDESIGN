@@ -1,6 +1,7 @@
 import React, { useId, useMemo } from 'react';
 import { Card } from '../ui';
 import { computePartRecords, PartRecord } from '../../lib/partRecords';
+import { conservatorSize } from '@/packages/engine';
 import {
   fitToViewBox, DimensionArrow, UnitsNote, TitleBlock, drawingNo, ratingLabel,
 } from './DrawingPrimitives';
@@ -47,6 +48,12 @@ export function ExplodedAssemblyDrawing({ design, params, project }: Props) {
     { key: 'lvBushing', widthMm: design.cc * 2, count: byKey.lvBushing?.quantity, itemWidthMm: 40 },
     { key: 'hvBushing', widthMm: design.cc * 2, count: byKey.hvBushing?.quantity, itemWidthMm: 40 },
     ...(byKey.fins ? [{ key: 'fins', widthMm: design.tankL * 0.85 }] : []),
+    // CALIBRATION.md section 24: conservator is a new part record (only on
+    // a radiator tank) -- included here on the same "parts list must be
+    // complete against the shared record set" basis as every other row,
+    // not left to silently drop off this drawing while still showing in
+    // the 3D model and the BOM.
+    ...(byKey.conservator ? [{ key: 'conservator', widthMm: conservatorSize(design).length }] : []),
     { key: 'tankCover', widthMm: design.tankL + 20 },
     { key: 'insulation', widthMm: design.hvOD },
     { key: 'hvWinding', widthMm: design.hvOD },

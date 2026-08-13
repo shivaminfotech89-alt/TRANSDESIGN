@@ -26,7 +26,7 @@
  */
 import { PART_NUMBERS } from '../components/drawings/partNumbers';
 import { coreCrossSectionSpan, hvBushingSpec, lvBushingSpec } from '../components/cad/geometry';
-import { finLayout } from '@/packages/engine';
+import { finLayout, radiatorLayout, conservatorSize } from '@/packages/engine';
 import { parseVectorGroup } from './vectorGroup';
 
 export interface PartRecord {
@@ -52,7 +52,15 @@ export function computePartRecords(design: any, params: any): PartRecord[] {
   const crossSpan = coreCrossSectionSpan(params.steps, design.dCore);
   const hvBush = hvBushingSpec(params.umHV);
   const lvBush = lvBushingSpec(params.umLV);
-  const fins = design.dry ? { n: 0, depth: 0, height: 0, perSide: 0 } : finLayout(design);
+  // CALIBRATION.md section 24: finLayout is fin-tank-only now -- calling it
+  // regardless of tankType (as every consumer including this one used to)
+  // is exactly the bug that gave a radiator design fin-wall numbers for a
+  // tank that has no fin wall. isRadiator picks the matching function; the
+  // two return different shapes (n/depth/height vs totalPanels/panelWidth/
+  // panelHeight), so every field below that reads one of them branches too.
+  const isRadiator = !design.dry && params.tankType === 'radiator';
+  const fins = design.dry ? null : (isRadiator ? radiatorLayout(design) : finLayout(design));
+  const cons = isRadiator ? conservatorSize(design) : null;
 
   const channelH = 100, channelW = 80;
   const channelLen = design.tankL * 0.95;
@@ -110,12 +118,29 @@ export function computePartRecords(design: any, params: any): PartRecord[] {
       unitDimensions: `${(design.tankL + 20).toFixed(0)} x ${(design.tankW + 20).toFixed(0)} x 20 mm`,
       unitMass: steelMass((design.tankL + 20) * (design.tankW + 20) * 20), quantity: 1,
     },
-    ...(design.dry ? [] : [{
-      key: 'fins', group: 'fins', name: params.tankType === 'fin' ? 'Radiator Fins' : 'Radiator Panels',
-      partNumber: PART_NUMBERS.fins, material: params.tankType === 'fin' ? 'CRCA steel' : 'Pressed steel',
+    ...(design.dry ? [] : isRadiator ? [{
+      key: 'fins', group: 'fins', name: 'Radiator Panels',
+      partNumber: PART_NUMBERS.fins, material: 'Pressed steel',
+      unitDimensions: `${fins.panelWidth.toFixed(0)} x ${Math.round(fins.panelHeight)} mm, ${fins.bankCount} bank${fins.bankCount === 1 ? '' : 's'}`,
+      unitMass: fins.totalPanels > 0 ? design.wFin / fins.totalPanels : 0, quantity: fins.totalPanels,
+    }] : [{
+      key: 'fins', group: 'fins', name: 'Radiator Fins',
+      partNumber: PART_NUMBERS.fins, material: 'CRCA steel',
       unitDimensions: `${fins.depth.toFixed(0)} x ${Math.round(fins.height)} mm`,
       unitMass: fins.n > 0 ? design.wFin / fins.n : 0, quantity: fins.n,
     }]),
+    // Conservator: not costed by the engine as its own BOM line (folded
+    // into the AC-01 fittings lump, CALIBRATION.md section 20/24) -- this
+    // unitMass is a presentational shell-mass estimate at a nominal 4 mm
+    // plate, the same "UI-layer guess, not reconciled against a costed
+    // total" status the Tank Cover row above already carries, not a real
+    // engine figure.
+    ...(isRadiator && cons && cons.dia > 0 ? [{
+      key: 'conservator', group: 'conservator', name: 'Conservator', partNumber: PART_NUMBERS.conservator,
+      material: 'Mild steel, IS 2062',
+      unitDimensions: `${Math.round(cons.dia)} dia x ${Math.round(cons.length)} long mm`,
+      unitMass: steelMass(Math.PI * cons.dia * cons.length * 4), quantity: 1,
+    }] : []),
     {
       key: 'hvBushing', group: 'bushings', name: `HV Bushing${vg.hvLabels.length > 1 ? 's' : ''} (${vg.hvLabels.join('/')})`,
       partNumber: PART_NUMBERS.hvBushing, material: 'Porcelain, oil-filled',

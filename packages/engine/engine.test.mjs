@@ -155,22 +155,66 @@ const r = E.computeDesign(E.ESSENTIALS, {}, E.DEFAULT_RATES, []);
 // no-load loss here (1678 W against 1196 W); impedance and thermal both
 // stay within tolerance at this K, unlike the 100 kVA case in the
 // impedance-solve check below, where the cheapest point misses both.
-eq("ex-works", Math.round(r.bom.exFactory), 2501338, 800);
-eq("delivered", Math.round(r.bom.withGst), 2951579, 900);
-eq("tank length mm", Math.round(r.design.tankL), 1849, 2);
-eq("no-load loss W", Math.round(r.design.noLoad), 1678, 5);
-eq("load loss W", Math.round(r.design.loadLoss), 5020, 30);
-eq("impedance %", +r.design.pctZ.toFixed(2), 4.73, 0.02);
-eq("efficiency %", +r.design.eff100.toFixed(2), 99.33, 0.02);
-eq("core mass kg", Math.round(r.design.wCore), 2440, 15);
-eq("compliant", r.design.compliant, false);
+//
+// ENGINE_VERSION 1.9.0 (CALIBRATION.md sections 8-11): two packing fixes,
+// both confirmed against real evidence -- see reference-designs.test.mjs's
+// own header for the full reasoning. Neither targeted this default case
+// specifically, but both windings share one window-height solve, so
+// removing radial depth the real windings never had (an always-on LV/HV
+// duct rule, and an LV axial x radial split whose ratio could not respond
+// to scale) shrinks the whole design: less core, less tank, lower price.
+// Losses and impedance follow the same window-height shift. compliant
+// stays false for the same pre-existing reason as 1.7.0 (no-load loss
+// still exceeds its own limit at the 1.42 T flux floor, unrelated to
+// either packing fix).
+// ENGINE_VERSION 1.10.0 (DRAWINGS.md drawing 22, CALIBRATION.md section 12):
+// stepWidths() now snaps every step width up to the nearest p.stepIncrement
+// (default 10 mm) instead of returning the continuous circle-packing
+// optimum -- a real behaviour change for every existing caller (the core
+// cross-section drawing, the stamping schedule, the 3D core geometry).
+// stepWidths was not yet called from designTransformer itself at 1.10.0, so
+// none of this default case's own numbers moved then. New: coreCuttingChart(),
+// the drawing 22 three-plate model, purely additive at 1.10.0.
+//
+// ENGINE_VERSION 1.11.0 (CALIBRATION.md section 15): that changed. wCore's
+// limb term used to be aGross x 3 x Hw -- every lamination treated as if it
+// ran the full window height regardless of step. A mitred-both-ends limb
+// lamination's own length is 2 x width (drawing 22's own Plate A, validated
+// against a real cut plate to -1.4%), not Hw, so the limb term is now
+// computed the same way Plate A is: per step, off the same snapped widths
+// (stepWidths is now called from inside designTransformer for exactly this).
+// The yoke term is untouched -- it already matched Plate B + Plate C to
+// within 0.5 kg on the reference checked. This was not a calibration change:
+// two formulas in the same engine disagreed about the same physical steel,
+// and the cutting chart is the one validated against a real cut plate.
+// Every core mass in the project moved -- core mass fell (less steel is a
+// real result, not a smaller one dressed up), which fell no-load loss with
+// it (wPerKg x wCore), which changed what autoFit and fitEtkToCost land on
+// for this default case enough to flip `compliant` to true and drop
+// `etkNonCompliant` to false: a design that used to be flagged unable to
+// meet its own no-load ceiling at any K now can, because the core the old
+// formula thought it needed to build was never real.
+eq("ex-works", Math.round(r.bom.exFactory), 2310742, 800);
+eq("delivered", Math.round(r.bom.withGst), 2726676, 900);
+eq("tank length mm", Math.round(r.design.tankL), 1628, 2);
+eq("no-load loss W", Math.round(r.design.noLoad), 1138, 5);
+eq("load loss W", Math.round(r.design.loadLoss), 6085, 30);
+eq("impedance %", +r.design.pctZ.toFixed(2), 5.00, 0.02);
+eq("efficiency %", +r.design.eff100.toFixed(2), 99.28, 0.02);
+eq("core mass kg", Math.round(r.design.wCore), 1612, 15);
+eq("compliant", r.design.compliant, true);
 eq("HV construction", r.design.hvConstruction, "crossover");
 eq("LV construction", r.design.lvConstruction, "strip");
-eq("etK non-compliant, flagged", r.etkNonCompliant, true);
+eq("etK non-compliant, flagged", r.etkNonCompliant, false);
 
 console.log("\nstepped core utilisation matches the classical table");
+// increment: 0 disables snapping (CALIBRATION.md, drawing 22) -- this is
+// testing the pure continuous circle-packing formula against Sawhney's own
+// published table, not what standard-width slit stock gives, which is a
+// different question with its own answer (always >= these figures, since
+// snapping only ever rounds a width up).
 [[3, 0.851], [5, 0.9079], [9, 0.9483], [13, 0.9642]].forEach(([n, u]) =>
-  eq(`${n} steps`, +E.stepWidths(n, 233).util.toFixed(4), u, 0.0005));
+  eq(`${n} steps`, +E.stepWidths(n, 233, 0).util.toFixed(4), u, 0.0005));
 
 console.log("\nimpedance solve tracks the declared value across ratings");
 // etK left on AUTO. An earlier version of this test pinned it to 0.545,
@@ -229,10 +273,125 @@ const impedanceDev = (kva, baselinePct) => {
 // engineer building to it needs both facts, which etkSearchNote reports on
 // the design itself (see the default case above). Recorded as found, not
 // tuned toward a round number, same as every other baseline in this file.
-impedanceDev(100, -26.91);
-impedanceDev(630, -8.46);
+// ENGINE_VERSION 1.9.0's packing fixes (duct rule, LV split) moved every
+// baseline again, all toward zero -- a side effect of the same window-height
+// solve the LV/HV radial builds feed, not something either fix targeted.
+//
+// ENGINE_VERSION 1.11.0's core mass correction (CALIBRATION.md section 15)
+// moved 100 kVA hard, back away from zero -- less core steel for the same
+// flux and turns is a smaller, cheaper core, which the window-height solve
+// answers with a shorter Hw at 100 kVA specifically, missing the declared
+// impedance by more than before. Not a regression in the impedance solve
+// itself: this is the correction reaching a rating small enough that the
+// core mass error was large relative to the whole design. 630, 2000 and
+// 2500 kVA barely moved.
+impedanceDev(100, -19.91);
+impedanceDev(630, -5.91);
 impedanceDev(2000, 0.00);
-impedanceDev(2500, -1.80);
+impedanceDev(2500, 0.00);
+
+console.log("\ncooling equipment: fan and pump count follow cooling type, not a fixed number");
+// CALIBRATION.md section 20. 5000 kVA, 33/11 kV power duty so ONAF is the
+// AUTO default at ONAF/OFAF/ODAF and ONAN is still reachable by override.
+const coolBase = { ...E.ESSENTIALS, kva: 5000, hv: 33000, lv: 11000, application: "power" };
+const coolCase = (cooling, wantFans, wantPump) => {
+  const d = E.computeDesign(coolBase, { cooling }, E.DEFAULT_RATES, []).design;
+  const okFans = (wantFans === 0) ? d.fanCount === 0 : d.fanCount > 0;
+  const okPump = d.pumpCount === wantPump;
+  if (!okFans || !okPump) {
+    failures++;
+    console.log(`  FAIL ${cooling}: fanCount ${d.fanCount} (want ${wantFans === 0 ? "0" : ">0"}), pumpCount ${d.pumpCount} (want ${wantPump})`);
+  } else {
+    console.log(`  ok   ${cooling}: fanCount ${d.fanCount}, pumpCount ${d.pumpCount}`);
+  }
+};
+coolCase("ONAN", 0, 0);
+coolCase("ONAF", 1, 0);
+coolCase("OFAF", 1, 1);
+coolCase("ODAF", 1, 1);
+
+console.log("\ncooling equipment at zero rate warns on the BOM, ONAN stays silent");
+// CALIBRATION.md section 23: DEFAULT_RATES' coolingFan/oilPump/
+// coolingControlGear are still 0 (no reference-sheet basis), so a
+// forced-cooled BOM must warn, and an ONAN one -- which never carries
+// these rows -- must not.
+{
+  const onanBom = E.computeDesign(coolBase, { cooling: "ONAN" }, E.DEFAULT_RATES, []).bom;
+  const onafBom = E.computeDesign(coolBase, { cooling: "ONAF" }, E.DEFAULT_RATES, []).bom;
+  if (onanBom.warnings.length !== 0) { failures++; console.log(`  FAIL ONAN should carry no cooling-cost warning, got ${onanBom.warnings.length}`); }
+  else console.log("  ok   ONAN: no warning");
+  if (onafBom.warnings.length !== 1 || onafBom.warnings[0].code !== "cooling-cost-zero") { failures++; console.log(`  FAIL ONAF at zero fan rate should warn once, got ${JSON.stringify(onafBom.warnings)}`); }
+  else console.log(`  ok   ONAF at zero fan rate: "${onafBom.warnings[0].message}"`);
+}
+
+console.log("\ndual rating: fin area satisfies both the natural and forced check, not just the forced one");
+// CALIBRATION.md section 21. kva/cooling is the forced point (active part
+// sized to it, unchanged); kva2/cooling2 is the natural point. Close enough
+// in kVA (5010 forced vs 5000 natural) that the natural check's lower
+// forced multiplier, not its much-smaller loss, is what should dominate --
+// this is the "not always the higher-loss point" case CALIBRATION.md
+// section 19 predicted before this was implemented.
+{
+  const dr = E.computeDesign(
+    { ...E.ESSENTIALS, kva: 5010, hv: 33000, lv: 11000, application: "power", dualRating: true },
+    { cooling: "ONAF", kva2: 5000, cooling2: "ONAN" }, E.DEFAULT_RATES, []
+  ).design;
+  const primaryAlone = Math.max(0, (dr.totalLoss - dr.tankDissip) / (dr.kFin * dr.forcedMul * Math.pow(dr.riseTarget, 1.25)));
+  const dualAlone = Math.max(0, (dr.dualTotalLoss - dr.tankDissip) / (dr.kFin * dr.dualForced * Math.pow(dr.riseTarget, 1.25)));
+  eq("finAreaReq equals the larger of the two checks", Math.round(dr.finAreaReq), Math.round(Math.max(primaryAlone, dualAlone)));
+  if (dualAlone <= primaryAlone) { failures++; console.log(`  FAIL natural check (${dualAlone.toFixed(1)}) should exceed forced check (${primaryAlone.toFixed(1)}) at this near-equal kVA -- test no longer exercises the binding case`); }
+  else console.log(`  ok   natural check (${dualAlone.toFixed(1)} m²) binds over forced (${primaryAlone.toFixed(1)} m²), as CALIBRATION.md section 19 anticipated`);
+  // Checking the rise compliance specifically, not the bundled compliant/
+  // dualCompliant flags -- those also gate impedance, ratio and loss-limit
+  // checks this arbitrary rating was never chosen to satisfy; the fin area
+  // solve above only ever promises the thermal checks.
+  if (!dr.compliance.rise.ok || !dr.dualCompliance.rise.ok) { failures++; console.log(`  FAIL both ratings should be within the top-oil rise limit once finAreaReq covers the larger check: primary ${dr.compliance.rise.ok}, dual ${dr.dualCompliance.rise.ok}`); }
+  else console.log(`  ok   both ratings within the top-oil rise limit: ${dr.oilRise.toFixed(1)} K / ${dr.dualOilRise.toFixed(1)} K against ${dr.riseLimit} K`);
+}
+{
+  const single = E.computeDesign(E.ESSENTIALS, {}, E.DEFAULT_RATES, []).design;
+  if (single.dualCompliance !== null) { failures++; console.log("  FAIL dualCompliance should be null when dualRating is off (additive, off by default)"); }
+  else console.log("  ok   dualCompliance is null when dualRating is off");
+}
+
+console.log("\nradiator tanks get a real bank/panel layout, not a fin wall wearing a radiator's name");
+// CALIBRATION.md section 24. 2500 kVA used to be finLayout's own radiator
+// branch (fixed 320 mm depth regardless of geometry) -- confirms
+// radiatorLayout gives panels-and-banks instead, and that finLayout no
+// longer special-cases tankType at all (it is fin-tank-only now).
+{
+  const rr = E.computeDesign({ ...E.ESSENTIALS, kva: 2500, application: "power" }, { tankType: "radiator" }, E.DEFAULT_RATES, []).design;
+  const rad = E.radiatorLayout(rr);
+  if (rad.bankCount < 1 || rad.panelWidth !== 520 || rad.totalPanels < rad.panelsPerBank) {
+    failures++;
+    console.log(`  FAIL radiatorLayout at 2500 kVA radiator looks wrong: ${JSON.stringify(rad)}`);
+  } else {
+    console.log(`  ok   2500 kVA radiator: ${rad.bankCount} banks x ${rad.panelsPerBank} panels, ${rad.panelWidth}x${rad.panelHeight} mm, ${rad.totalValves} valves`);
+  }
+}
+eq("tankType stays fin at 2500 kVA (the boundary itself unmoved)",
+  E.computeDesign({ ...E.ESSENTIALS, kva: 2500, application: "power" }, {}, E.DEFAULT_RATES, []).params.tankType, "fin");
+eq("tankType crosses to radiator above 2500 kVA",
+  E.computeDesign({ ...E.ESSENTIALS, kva: 3150, application: "power" }, {}, E.DEFAULT_RATES, []).params.tankType, "radiator");
+eq("tankType unchanged at the default 1000 kVA case (no regression)",
+  E.computeDesign(E.ESSENTIALS, {}, E.DEFAULT_RATES, []).params.tankType, "fin");
+
+console.log("\nconservator sizing checked against the 630 kVA reference (330 dia x 685 long, CALIBRATION.md section 9)");
+// CALIBRATION.md section 24. conservatorSize takes fluidLitres as given --
+// fed the reference's own real 588 L directly (not this engine's own
+// generic AUTO 630 kVA tank sizing, which has no real design basis to
+// reproduce this specific job from, per card-cost.test.mjs's own header),
+// so this checks the formula itself, not an end-to-end live design.
+{
+  const consFromRef = E.conservatorSize({ p: { tankType: "radiator", conservatorPct: 10, conservatorAspect: 2.08 }, dry: false, fluidLitres: 588 });
+  eq("dia from the reference's own 588 L", Math.round(consFromRef.dia), 330, 3);
+  eq("length from the reference's own 588 L", Math.round(consFromRef.length), 685, 5);
+}
+{
+  const finTank = E.conservatorSize({ p: { tankType: "fin", conservatorPct: 10, conservatorAspect: 2.08 }, dry: false, fluidLitres: 588 });
+  if (finTank.dia !== 0 || finTank.length !== 0) { failures++; console.log(`  FAIL a sealed fin tank should have no conservator, got ${JSON.stringify(finTank)}`); }
+  else console.log("  ok   sealed fin tank has no conservator (dia 0, length 0)");
+}
 
 console.log(failures ? `\n${failures} FAILURES` : "\nall passed");
 process.exit(failures ? 1 : 0);

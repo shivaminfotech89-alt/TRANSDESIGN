@@ -8,7 +8,7 @@
  * without bumping it, or old quotations stop reproducing.
  */
 
-export const ENGINE_VERSION = "1.7.1";
+export const ENGINE_VERSION = "1.14.0";
 
 const CONDUCTORS = {
   copper: { name: "Copper, EC grade", rho20: 0.017241, alpha: 0.00393, dens: 8890, dMax: 3.6, short: "Cu", proof: 1.0 },
@@ -224,7 +224,7 @@ const rng = (v, lo, hi, st) => [Math.round(v * lo * 100) / 100, Math.round(v * h
 const ESSENTIALS = {
   application: "distribution", standard: "IS",
   kva: 1000, hv: 11000, lv: 433, freq: 50, vector: "Dyn11",
-  dualHV: false, hv2: 22000, dualLV: false, lv2: 415,
+  dualHV: false, hv2: 22000, dualLV: false, lv2: 415, dualRating: false,
   effLevel: "level2", medium: "oil", condPref: "auto",
 };
 
@@ -267,9 +267,58 @@ function deriveSpec(core, over = {}) {
     const fl = put("fluid", "mineral", null, Object.entries(FLUIDS).map(([k, v]) => [k, v.name]), "Mineral oil unless the site needs the fire point of an ester.");
     put("dryType", "castResin", null, null, null);
     put("insClass", "A", null, Object.entries(INS_CLASS).map(([k, v]) => [k, v.name]), "Liquid-immersed windings are class A.");
-    put("cooling", kva <= 5000 ? "ONAN" : "ONAF", null, [["ONAN", "ONAN"], ["ONAF", "ONAF"], ["OFAF", "OFAF"], ["ODAF", "ODAF"]], "Natural circulation is normal up to about 5 MVA.");
-    put("tankType", kva <= 2500 ? "fin" : "radiator", null, [["fin", "Corrugated fin, sealed"], ["radiator", "Radiator + conservator"]], "Fin tanks up to about 2500 kVA, radiators above that.");
+    const cool1 = put("cooling", kva <= 5000 ? "ONAN" : "ONAF", null, [["ONAN", "ONAN"], ["ONAF", "ONAF"], ["OFAF", "OFAF"], ["ODAF", "ODAF"]], "Natural circulation is normal up to about 5 MVA.");
+    /* CALIBRATION.md section 24: rating alone used to decide this. Rating
+       is a proxy for required cooling surface, not the thing itself -- a
+       design with a tight rise target or forced cooling at a modest rating
+       can need more surface than a corrugated fin wall practically carries
+       well under 2500 kVA, and rating alone would keep it on a fin wall
+       anyway. Estimated here from the loss schedule directly (this design's
+       own finAreaReq is not known yet -- it needs the full geometry solve
+       designTransformer runs later -- so this is a coarse pre-estimate off
+       nominal finDiss/50 K, not the design's own eventual figure) against a
+       practical fin-wall ceiling, itself a fitted round number, not a
+       vendor's own limit. Rating still dominates: crossing 2500 kVA always
+       forces radiator regardless of this estimate, since mechanical size
+       and service access favour radiators above that regardless of a
+       lighter loss; the estimate only ever pulls a smaller rating UP to
+       radiator, never a larger one back down to fin. */
+    const estSch = lossSchedule(kva, core.effLevel === "custom" ? "level2" : core.effLevel, dry);
+    const estForced = cool1 === "ONAF" ? 1.5 : cool1 === "OFAF" || cool1 === "ODAF" ? 2.1 : 1.0;
+    const FIN_WALL_CEILING_M2 = 90;
+    const estAreaM2 = (estSch.nll + estSch.ll) / (250 * estForced * Math.pow(50, 1.25));
+    put("tankType", kva > 2500 || estAreaM2 > FIN_WALL_CEILING_M2 ? "radiator" : "fin", null,
+      [["fin", "Corrugated fin, sealed"], ["radiator", "Radiator + conservator"]],
+      `Fin tanks up to about 2500 kVA or an estimated ${FIN_WALL_CEILING_M2} m² of required cooling surface (~${Math.round(estAreaM2)} m² estimated here), radiators above either.`);
     put("oilRiseTarget", Math.min(std.oilRise, FLUIDS[fl].riseLimit), [30, Math.min(std.oilRise, FLUIDS[fl].riseLimit), 1], null, `Design to the ${std.name} limit. Lower means more cooling surface and more cost.`);
+    put("radiatorPanelWidth", 520, [400, 650, 10], null, "Pressed-steel radiator panel width. 520 mm is typical Indian practice; override to your supplier's own panel.");
+    put("radiatorPanelPitch", 45, [30, 65, 1], null, "Centre-to-centre spacing between adjacent radiator panels in a bank. A fitted typical figure, not a specific vendor's panel.");
+    put("radiatorPanelsPerBank", 16, [6, 30, 1], null, "Panels bolted into one removable bank before another bank is started. A practical handling limit, not a physical one -- override to your works' own practice.");
+    put("conservatorPct", 10, [7, 15, 0.5], null, "Conservator volume as a percentage of total oil volume, to allow for thermal expansion. 10% is conventional practice.");
+    put("conservatorAspect", 2.08, [1.5, 3.0, 0.02], null, "Conservator length to diameter ratio. Fitted from the one reference figure on file (630 kVA sheet, 330 mm dia x 685 mm long) -- override once a second reference is available to check it against.");
+
+    /* CALIBRATION.md section 21: dual rating, e.g. 5000 kVA ONAN / 6250 kVA
+       ONAF from one tank -- routine practice at this size. Off by default,
+       additive: the active part (turns, conductor area, current density)
+       stays sized to kva/cooling alone, exactly as a single-rating design
+       always has been. kva2/cooling2 exist only to give designTransformer's
+       fin-area solve a second thermal check to satisfy (the natural point's
+       own lower loss against the forced point's own higher loss), and to
+       give the nameplate and GTP a second guaranteed-figure line -- they do
+       not resize anything the active part depends on. */
+    if (core.dualRating) {
+      const coolMul = (c) => (c === "ONAF" ? 1.5 : c === "OFAF" || c === "ODAF" ? 2.1 : 1.0);
+      const cool2 = put("cooling2", cool1 === "ONAN" ? "ONAF" : "ONAN", null,
+        [["ONAN", "ONAN"], ["ONAF", "ONAF"], ["OFAF", "OFAF"], ["ODAF", "ODAF"]],
+        "The second rating's own cooling type -- usually the natural type if the rating above is forced-cooled, or the forced type if the rating above is natural.");
+      const ratio = coolMul(cool2) > coolMul(cool1) ? 1 / 0.8 : 0.8;
+      const kva2 = put("kva2", Math.round((kva * ratio) / 25) * 25,
+        [Math.round((kva * 0.5) / 25) * 25, Math.round((kva * 1.6) / 25) * 25, 25], null,
+        "The second name-plate rating this same build is also sold at. 0.8 is the common IEC/IS natural-to-forced ratio between adjacent cooling stages; override with the declared figure.");
+      const sch2 = lossSchedule(kva2, core.effLevel === "custom" ? "level2" : core.effLevel, dry);
+      put("limitNLL2", Math.round(sch2.nll), [Math.round(sch2.nll * 0.5), Math.round(sch2.nll * 2), 5], null, `Estimated from the level formula for ${kva2} kVA. Replace it with the figure in the enquiry -- no-load loss does not change with rating, only the limit it is checked against does.`);
+      put("limitLL2", Math.round(sch2.ll), [Math.round(sch2.ll * 0.5), Math.round(sch2.ll * 2), 25], null, `Estimated for ${kva2} kVA. Load loss at this rating is the primary rating's own load loss scaled by (kva2/kva)², not a separate design.`);
+    }
   }
   put("refTemp", dry ? INS_CLASS[S.insClass].ref : 75, [55, 140, 5], null, "Temperature at which the load loss is declared.");
   const indian = ["IS", "CBIP", "ECBC"].includes(core.standard);
@@ -325,6 +374,7 @@ function deriveSpec(core, over = {}) {
   const aNetEst = etTrialSug / (4.44 * (core.freq || 50) * fluxSug);
   const dCoreEst = Math.sqrt((4 * aNetEst) / (Math.PI * 0.94 * CORE_GRADES[gk].sf)) * 1000;
   put("steps", stepsSuggest(dCoreEst), null, Object.keys(STEP_UTIL).map((k) => [+k, k + " steps"]), "More steps fill the coil circle better and save steel, but cost more to cut and stack.");
+  put("stepIncrement", 10, [5, 25, 5], null, "Lamination is slit to standard widths, not cut to a continuous optimum. Step widths round up to the nearest multiple of this.");
   put("aspect", aspectSuggest(umHV), [2.0, 3.8, 0.05], null, "Starting window shape. The final height is solved to hit the declared impedance unless you turn that off.");
   put("autoWindow", true, null, [[true, "Solve height for the declared impedance"], [false, "Use the output equation only"]], "With this on, the window height is adjusted until the calculated impedance matches the declared value, which is what a designer does by hand.");
   put("autoFit", true, null, [[true, "Fit flux and current density to the loss limits"], [false, "Use the rating-based values only"]], "With this on, the flux density and the current densities are trimmed until the calculated losses sit just inside the declared limits, the cheapest core and coil that still passes.");
@@ -414,32 +464,61 @@ function deriveSpec(core, over = {}) {
      references guess for where the crossover actually is, the same
      caveat hvLayerMaxKva/hvDiscMinKva carry for HV.
 
-     lvStripMaxMM2 and lvStripAspect are fitted jointly against both
-     sheets (together with hvDiscGap above, since the two windings share
-     one window-height solve): 630 kVA dry reaches 4 axial x 2 radial,
-     an exact match to the sheet's own "8 conductors in 4 axial by 2
-     radial," at LV radial build within 1.5% of 20 mm. 1250 kVA oil
-     reaches 9 axial x 2 radial x 4 layers (36 conductors) against the
-     sheet's 30 in 5 axial by 6 radial over two layers -- LV OD closes to
-     within 1.5% of 374 mm, but the breakdown itself does not structurally
-     match the sheet's, unlike 630's. One aspect ratio was fitted to both
-     ratings at once; a real design likely does not use the same one at
-     both, which is the most direct explanation for why 630's structure
-     matches and 1250's doesn't. */
+     lvStripMaxMM2 caps one strand's own area. The axCount x radCount split
+     itself is no longer a separate fitted ratio (ENGINE_VERSION 1.9.0):
+     axCount comes directly from how many strand-widths of hLV are on
+     offer once every turn that must share the layer is accounted for,
+     and radCount absorbs whatever n does not fit axially -- see the build()
+     closure below. Confirmed exactly at both references without any
+     per-rating tuning: 630 kVA dry reaches 4 axial x 2 radial (the sheet's
+     own "8 conductors in 4 axial by 2 radial") and 1250 kVA oil reaches
+     5 axial x 6 radial (the sheet's own arrangement, previously 9 axial x
+     2 radial x 4 layers and structurally wrong). The old aspect-ratio
+     constant that used to live here could only ever fit one rating at a
+     time, because axCount:radCount reduced to that constant regardless of
+     scale -- it has been retired, not re-fitted. */
   put("lvFoilMaxKva", 300, [50, 1000, 50], null, "Below this rating, LV is a single conductor -- full-height foil, or a thin strip if several turns share an axial pass. Above it, LV splits into parallel conductors.");
   put("lvStripMaxMM2", 40, [10, 150, 5], null, "Practical area for one LV strip conductor before it splits into more than one, arranged axial x radial.");
-  put("lvStripAspect", 3.5, [1.2, 6.0, 0.1], null, "Width to thickness ratio of one LV strip conductor.");
   put("lvStripGap", 2, [0.5, 6, 0.5], null, "Gap between LV strip conductors placed side by side axially within one turn.");
 
   /* --- construction constants --- */
   put("lvIns", 0.30, [0.10, 1.20, 0.05], null, "Interturn insulation on the LV foil or strip.");
   put("hvPaper", 0.45, [0.20, 1.50, 0.05], null, "Paper covering on the HV conductor, on diameter.");
   put("hvInterlayer", Math.round((0.3 + 0.004 * S.bilHV) * 10) / 10, [0.2, 4.0, 0.1], null, "Interlayer insulation in the HV coil, from the volts per layer.");
+  /* CALIBRATION.md, radial cooling duct thresholds. ENGINE_VERSION 1.8.0:
+     the old LV rule keyed off total radial thickness (>22 mm), which put a
+     duct inside a compact single-layer LV bundle that never had one -- the
+     1250 kVA sheet's own insulation list places its ducts outside the LV
+     coil, in the LV-HV gap this engine already models as lvHvClr; the LV
+     bundle itself is solid. A duct exists to let a strand's own heat escape
+     without conducting through every other strand radially outward from
+     it, so what matters is how many radial layers deep the stack is, not
+     how many millimetres that happens to be -- a single 6-strand radial
+     stack is 40 mm thick and cools from both faces same as a thin one;
+     four layers of the same conductor is a real barrier regardless of how
+     thin each layer is. Same reasoning applied to the HV rule, which was
+     already layer-based (floor(layers/6), capped at 2) but at a much
+     higher threshold -- not confirmed against either reference sheet
+     either way, since both references' HV layer counts (12 and 13) sit
+     at or past ductLayers2 under both the old and the new default, so
+     this change does not move either reference's HV duct count. */
+  put("ductLayers1", 2, [1, 10, 1], null, "Radial layers of the same conductor before the first cooling duct appears.");
+  put("ductLayers2", 4, [2, 20, 1], null, "Radial layers before a second cooling duct appears.");
+  put("ductWidth", 6, [3, 12, 1], null, "Width added per radial cooling duct.");
   put("insFactor", 4.5, [2.5, 7.0, 0.1], null, "Multiplier that converts the cylinder volume into total insulation mass.");
   put("topOilSpace", dry ? 300 : Math.round(150 + 0.8 * S.bilHV), [100, 500, 10], null, "Space above the core for leads, the top oil level and the cover.");
   put("bottomClr", 60, [30, 150, 5], null, "Core bottom frame to tank floor.");
   put("finDiss", 250, [180, 400, 10], null, "Fin or radiator dissipation at 50 K rise. Calibrate it from your own heat-run results.");
   put("tankDiss", 300, [200, 450, 10], null, "Plain tank wall dissipation at 50 K rise.");
+  /* CALIBRATION.md section 20: converts the extra cooling surface forcing
+     buys (finAreaReq x (forcedMul-1), the area a natural design would have
+     needed beyond what forcing actually requires) into a fan count for the
+     BOM. Not sourced from any fan manufacturer's catalogue -- there is no
+     textbook figure for this the way there is for a dissipation law -- so
+     it is fitted as a round, clearly-labelled placeholder and left in the
+     same "fitted, override with your own data" category as finDiss and
+     tankDiss above, not presented as a supplier spec. */
+  put("fanUnitArea", 3.0, [1.5, 8.0, 0.5], null, "Effective cooling surface one fan services, m². A fitted placeholder, not a catalogue figure -- override once your own fan supplier's air-delivery data is known.");
   put("airDiss", 3.2, [2.0, 5.0, 0.1], null, "Dry-type coil surface dissipation coefficient.");
 
   /* --- economics --- */
@@ -473,6 +552,17 @@ const DEFAULT_RATES = {
   cableBox: 18000, fittings: 26000, plateSet: 3500, resin: 380, enclosure: 155,
   labWind: 65, labCore: 22, labTank: 34, assembly: 42000,
   overheadPct: 12, scrapPct: 2.5, freight: 22000, marginPct: 11, gstPct: 18,
+  /* CALIBRATION.md section 20: cooling fans, oil pumps and their control
+     gear are bought components with no per-kg or per-m² basis anywhere else
+     in this rate card to anchor a starting figure on, unlike core/condCu/
+     tankMS (commodity rates) or even octc/oltc/fittings (accessory rates
+     this project's own past costing sheets gave a figure for). There is no
+     such sheet for these three. Left at 0, not a guessed market price --
+     every ONAF/OFAF/ODAF BOM will price these lines at zero until a real
+     quote is entered in the rate card, which is deliberate: a visible zero
+     is a prompt to enter the rate, a plausible-looking nonzero one would
+     not be. */
+  coolingFan: 0, oilPump: 0, coolingControlGear: 0,
 };
 
 /* ---------------- Formatting ---------------- */
@@ -577,20 +667,40 @@ function designTransformer(p) {
       }
       lvAxCount = 1; lvRadCount = 1;
     } else {
-      const aspect = p.lvStripAspect;
+      /* CALIBRATION.md: axCount is what hLV can physically hold, not a
+         fixed ratio of n -- axial strands must all fit inside the coil
+         height (times nLV, since every turn needs the same axial room if
+         they are to share one radial layer, the arrangement both
+         reference sheets actually use); radial strands are limited only
+         by build depth, so radCount simply absorbs whatever n does not
+         fit axially. This is the inversion the old aspect-ratio split
+         missed: that formula's axCount:radCount reduced algebraically to
+         the aspect constant alone, at every n, so it could never shift
+         toward more-radial as current (and so n) rises the way a real
+         designer does. No separate strand aspect ratio is needed any
+         more -- the strand is sized square from its own share of aLVreq,
+         and lvStripAspect is retired (see its own former put() note,
+         removed here, not superseded elsewhere).
+         Strand size depends on the split and the split depends on strand
+         size, so this seeds axCount from an area-only estimate (n's own
+         average strip area, ignoring the eventual axCount/radCount
+         rounding) rather than iterating to a fixed point -- confirmed
+         against both reference sheets exactly, see reference-designs.test.mjs. */
       let n = Math.max(1, Math.ceil(aLVreq / p.lvStripMaxMM2));
-      lvRadCount = Math.max(1, Math.round(Math.sqrt(n / aspect)));
-      lvAxCount = Math.max(1, Math.ceil(n / lvRadCount));
+      const sideEst = Math.sqrt(aLVreq / n);
+      lvAxCount = Math.max(1, Math.min(n, Math.floor(hLV / ((sideEst + p.lvStripGap) * nLV))));
+      lvRadCount = Math.max(1, Math.ceil(n / lvAxCount));
       n = lvAxCount * lvRadCount;
       const stripArea = aLVreq / n;
-      tLV = Math.sqrt(stripArea / aspect);
-      foilW = aspect * tLV;
+      tLV = Math.sqrt(stripArea);
+      foilW = Math.sqrt(stripArea);
       const turnAxialWidth = lvAxCount * (foilW + p.lvStripGap);
       const perAxial = Math.max(1, Math.floor(hLV / turnAxialWidth));
       lvTurnLayers = Math.ceil(nLV / perAxial);
     }
     let lvRadial = lvTurnLayers * lvRadCount * (tLV + p.lvIns);
-    lvRadial += (lvRadial > 22 ? 2 : 1) * 6;
+    const lvDucts = lvTurnLayers >= p.ductLayers2 ? 2 : lvTurnLayers >= p.ductLayers1 ? 1 : 0;
+    lvRadial += lvDucts * p.ductWidth;
 
     /* HV: layer, crossover or disc winding, selected by p.hvConstruction
        (MANUFACTURING.md section 5). Conductor size (axHV, rdHV) does not
@@ -644,8 +754,8 @@ function designTransformer(p) {
     }
     const turnsPerLayer = groupTurns;
     const layers = Math.max(1, Math.ceil(nHVmax / (numGroups * groupTurns)));
-    const hvDucts = Math.min(2, Math.floor(layers / 6));
-    const hvRadial = layers * (rdHV + p.hvPaper) + (layers - 1) * p.hvInterlayer + hvDucts * 6;
+    const hvDucts = layers >= p.ductLayers2 ? 2 : layers >= p.ductLayers1 ? 1 : 0;
+    const hvRadial = layers * (rdHV + p.hvPaper) + (layers - 1) * p.hvInterlayer + hvDucts * p.ductWidth;
 
     const tLVin = clr.coreLvClr, tLVout = tLVin + lvRadial;
     const tHVin = tLVout + clr.lvHvClr, tHVout = tHVin + hvRadial;
@@ -721,7 +831,28 @@ function designTransformer(p) {
   const wLVCovered = wLV + 3 * nLV * g.lmtLV * (g.lvAxCount * g.lvRadCount * g.foilW * p.lvIns) * 1e-6 * 1150;
   const wHVCovered = wHV + 3 * nHVmax * g.lmtHV * ((g.axHV + p.hvPaper) * (g.rdHV + p.hvPaper) - aHVreq) * 1e-6 * 1150;
   const yokeDepth = shape === "circ" ? 0.86 * dCore : coreD;
-  const wCore = aGross * (3 * (Hw / 1000) + 2 * ((2 * g.cc + (shape === "circ" ? dCore : coreD)) / 1000)) * 7650;
+  /* CALIBRATION.md section 15: the limb term used to be aGross x 3 x Hw,
+     treating every lamination as if it ran the full window height
+     regardless of step -- but a mitred-both-ends limb lamination's own
+     length is 2 x width (coreCuttingChart's own Plate A, drawing 22,
+     validated against a real cut plate to -1.4%), not Hw. This is not two
+     separate models: it is the same per-step, snapped-width computation
+     Plate A already does (same stepWidths call, same p.stepIncrement real
+     slit stock uses), so wCore and the cutting chart agree on the limb by
+     construction, not by coincidence. The yoke term is untouched -- it
+     already matched Plate B + Plate C to within 0.5 kg on the one
+     reference checked, so there was nothing there to fix. */
+  const coreSteps = stepWidths(p.steps, dCore, p.stepIncrement);
+  const lamThk = grade.thk || 0.27;
+  let wLimb = 0;
+  coreSteps.rows.forEach((s, i) => {
+    const stack = i === 0 ? s.t : 2 * s.t;
+    const nSheets = Math.max(2, Math.round(stack / lamThk));
+    const lenA = 2 * s.w;
+    wLimb += ((s.w * lenA * lamThk) / 1e9) * 7650 * nSheets * 3; // 3 limbs
+  });
+  const wYoke = aGross * 2 * ((2 * g.cc + (shape === "circ" ? dCore : coreD)) / 1000) * 7650;
+  const wCore = wLimb + wYoke;
   const coreHeight = Hw + 2 * yokeDepth;
   const coreWidth = 2 * g.cc + (shape === "circ" ? dCore : coreD);
 
@@ -747,6 +878,8 @@ function designTransformer(p) {
   let tankL = 0, tankW = 0, tankH = 0, tankArea = 0, finAreaReq = 0, wTank = 0, wFin = 0;
   let fluidLitres = 0, oilRise = 0, windRise = 0, coilArea = 0, wEnclosure = 0;
   let kTank = 0, kFin = 0, tankDissip = 0, riseTarget = 0, forcedMul = 1;
+  let fanCount = 0, pumpCount = 0;
+  let dualForced = 0, dualLoadLoss = 0, dualTotalLoss = 0, dualAreaReq = 0, dualOilRise = 0, dualWindRise = 0;
 
   /* Tank length must clear the outer limbs' own coil envelope, not their
      bare core. coreWidth (2*cc + dCore) stops at the core surface, so
@@ -770,6 +903,11 @@ function designTransformer(p) {
     const capArea = (2 * tankL * tankW) / 1e6;
     kTank = (p.tankDiss * fluid.dissMul) / Math.pow(50, 1.25);
     kFin = (p.finDiss * fluid.dissMul) / Math.pow(50, 1.25);
+    // ODAF is given OFAF's 2.1 multiplier as a known simplification: directed
+    // oil flow raises the film coefficient at the winding surface, which this
+    // engine does not model separately from the forced-air-over-radiator
+    // effect that already drives OFAF's figure. Revisit if a directed-flow
+    // design is ever actually costed, not just declared.
     const forced = p.cooling === "ONAF" ? 1.5 : p.cooling === "OFAF" || p.cooling === "ODAF" ? 2.1 : 1.0;
     forcedMul = forced;
     /* the cooling surface must satisfy the top-oil limit AND the winding limit */
@@ -777,6 +915,29 @@ function designTransformer(p) {
     riseTarget = target;
     tankDissip = kTank * tankArea * Math.pow(target, 1.25);
     finAreaReq = Math.max(0, (totalLoss - tankDissip) / (kFin * forced * Math.pow(target, 1.25)));
+
+    /* CALIBRATION.md section 21: dual rating (optional, off by default).
+       The active part above (turns, conductor area, current density) is
+       sized to p.kva/p.cooling alone, unchanged. Only the fin area changes:
+       it must satisfy BOTH points' own rise limit at BOTH points' own loss
+       and forced multiplier, not just the primary's -- tankDissip and
+       target are shared (same tank, same standard, same fluid), only the
+       loss and forced multiplier differ between the two checks. Load loss
+       scales with current squared for the same winding; no-load loss does
+       not change, the core and flux are the same core regardless of which
+       name-plate figure is being carried. This is not always the
+       higher-loss point that binds -- a lower forced multiplier can need
+       more raw area even at a lower loss -- so both are actually computed,
+       not assumed. */
+    dualForced = p.dualRating && p.kva2 > 0
+      ? (p.cooling2 === "ONAF" ? 1.5 : p.cooling2 === "OFAF" || p.cooling2 === "ODAF" ? 2.1 : 1.0) : 0;
+    if (p.dualRating && p.kva2 > 0) {
+      dualLoadLoss = loadLoss * Math.pow(p.kva2 / p.kva, 2);
+      dualTotalLoss = noLoad + dualLoadLoss;
+      dualAreaReq = Math.max(0, (dualTotalLoss - tankDissip) / (kFin * dualForced * Math.pow(target, 1.25)));
+      finAreaReq = Math.max(finAreaReq, dualAreaReq);
+    }
+
     oilRise = Math.pow(totalLoss / (kTank * tankArea + kFin * forced * finAreaReq), 1 / 1.25);
     wFin = (finAreaReq / 2) * 0.0012 * 7850 * (p.tankType === "fin" ? 1.18 : 1.55);
     const tPlate = p.kva > 2500 ? 0.006 : 0.005;
@@ -785,6 +946,22 @@ function designTransformer(p) {
     const activeVol = wCore / 7650 + wLV / cLV.dens + wHV / cHV.dens + wIns / 1150 + wFrame / 7850;
     fluidLitres = Math.max(30, (tankVol - activeVol) * 1000 * (p.tankType === "fin" ? 1.10 : 1.22));
     windRise = 0.8 * oilRise + grad;
+    if (p.dualRating && p.kva2 > 0) {
+      dualOilRise = Math.pow(dualTotalLoss / (kTank * tankArea + kFin * dualForced * finAreaReq), 1 / 1.25);
+      dualWindRise = 0.8 * dualOilRise + grad;
+    }
+
+    /* CALIBRATION.md section 20: fan count from the cooling surface actually
+       required and the forced multiplier, not a fixed number -- forcedMul-1
+       is the fraction of finAreaReq's dissipation that forcing itself is
+       contributing (at forcedMul=1, ONAN, this is 0 and fanCount is 0).
+       p.fanUnitArea is a fitted placeholder (see its own put() note above),
+       not a catalogue figure. ONAF, OFAF and ODAF are all air-forced (the
+       "AF" in each name) and so all carry fans; OFAF and ODAF additionally
+       direct/force the oil itself and so also carry a pump -- fans and pump
+       are independent lines, not alternatives. */
+    fanCount = forced > 1 ? Math.max(1, Math.ceil((finAreaReq * (forced - 1)) / p.fanUnitArea)) : 0;
+    pumpCount = p.cooling === "OFAF" || p.cooling === "ODAF" ? 1 : 0;
   } else {
     const t1 = clr.coreLvClr, t2 = t1 + g.lvRadial, t3 = t2 + clr.lvHvClr, t4 = t3 + g.hvRadial;
     coilArea = 3 * ((perim(t1) + perim(t2)) * g.hLV + (perim(t3) + perim(t4)) * g.hHV) / 1e6;
@@ -823,6 +1000,16 @@ function designTransformer(p) {
      compliance.nll/ll.ok checks inherit this fix for free, since both read
      it from here rather than re-deriving it themselves. */
   const sch = { nll: p.limitNLL, ll: p.limitLL };
+  /* g.pctZ (impedance as designed, %) is referenced to p.kva's own current
+     -- %Z = I_rated x Z_ohms / V_rated, and I_rated scales with kVA at
+     fixed voltage, so the SAME winding genuinely has a different %Z figure
+     at a different rating, not just a different loss. For a dual-rated
+     design this means there is a second, real impedance value at kva2's
+     own current that this engine does not compute -- unlike the fin-area
+     solve, this was never asked for and is not implemented (CALIBRATION.md
+     section 22, recorded as a known gap, not silently absent). Do not
+     read dualCompliance as covering this: it only carries the thermal and
+     loss checks the fin-area solve actually produces. */
   const compliance = {
     nll: { val: noLoad, lim: sch.nll, ok: noLoad <= sch.nll },
     ll: { val: loadLoss, lim: sch.ll, ok: loadLoss <= sch.ll },
@@ -835,6 +1022,24 @@ function designTransformer(p) {
   };
   const compliant = Object.values(compliance).every((x) => x.ok);
 
+  /* Second rating's own compliance, reported alongside the primary's for
+     the nameplate and GTP -- a real dual-rated unit is guaranteed at both
+     points, not just the one the active part happens to be sized to.
+     limitNLL2/limitLL2 are put() the same overridable way as the primary's
+     own limits (see deriveSpec). No-load loss is the same core, so it is
+     checked against a different limit, not a different value. */
+  let dualCompliance = null, dualCompliant = null;
+  if (p.dualRating && p.kva2 > 0) {
+    dualCompliance = {
+      nll: { val: noLoad, lim: p.limitNLL2, ok: noLoad <= p.limitNLL2 },
+      ll: { val: dualLoadLoss, lim: p.limitLL2, ok: dualLoadLoss <= p.limitLL2 },
+      total: { val: dualTotalLoss, lim: p.limitNLL2 + p.limitLL2, ok: dualTotalLoss <= p.limitNLL2 + p.limitLL2 },
+      rise: { val: dualOilRise, lim: riseLimit, ok: dualOilRise <= riseLimit + 0.5 },
+      wRise: { val: dualWindRise, lim: wRiseLimit, ok: dualWindRise <= wRiseLimit + 0.5 },
+    };
+    dualCompliant = Object.values(dualCompliance).every((x) => x.ok);
+  }
+
   return {
     p, grade, ct, std, fluid, dryT, cls, dry, B, cLV, cHV, dLV, dHV, clr, refT, shape, solvedZ,
     hvConn, lvConn, hvPh, lvPh, hvDesign, lvDesign, iLineHV, iLineLV, iHV, iLV,
@@ -844,12 +1049,14 @@ function designTransformer(p) {
     layers: g.layers, turnsPerLayer: g.turnsPerLayer, axHV: g.axHV, rdHV: g.rdHV, voltsPerLayer: g.voltsPerLayer,
     numGroups: g.numGroups, groupGap: g.groupGap, hvConstruction: p.hvConstruction,
     lvID: g.lvID, lvOD: g.lvOD, hvID: g.hvID, hvOD: g.hvOD, lmtLV: g.lmtLV, lmtHV: g.lmtHV, hLV: g.hLV, hHV: g.hHV,
-    wLV, wHV, wLVCovered, wHVCovered, wCore, wIns, wFrame, wTank, wFin, wEnclosure, fluidLitres, coilArea,
+    wLV, wHV, wLVCovered, wHVCovered, wCore, wLimb, wYoke, wIns, wFrame, wTank, wFin, wEnclosure, fluidLitres, coilArea,
     coreHeight, coreWidth, yokeDepth, tankL, tankW, tankH, tankArea, finAreaReq,
     wPerKg, noLoad, loadLoss, totalLoss, i0pct, i2rLV: g.i2rLV, i2rHV: g.i2rHV, rLV: g.rLV, rHV: g.rHV,
     pctX: g.pctX, pctR: g.pctR, pctZ: g.pctZ, regFull, oilRise, windRise, grad, hotspot, hotspotAvg, lifeFactor,
     riseLimit, wRiseLimit, eff100: effAt(1), eff75: effAt(0.75), eff50: effAt(0.5), maxEffLoad,
     iscLV: iLV * iscMult, iscHV: iHV * iscMult, iscMult, noise, sch, compliance, compliant,
+    fanCount, pumpCount,
+    dualForced, dualLoadLoss, dualTotalLoss, dualOilRise, dualWindRise, dualCompliance, dualCompliant,
     Kw, aWin, Hw0, util: shape === "circ" ? (STEP_UTIL[p.steps] || 0.94) : ct.aspect, sf: grade.sf,
     kTank, kFin, tankDissip, riseTarget, forcedMul, vaPerKg,
     rhoLV: rho(cLV), rhoHV: rho(cHV), dEff: g.dEff, hEff: g.hEff, X: g.X, lmtMean: g.lmtMean,
@@ -893,6 +1100,17 @@ function buildBOM(d, r, extras = []) {
       { code: "TK-02", desc: `${p.tankType === "fin" ? "Corrugated fin wall" : "Pressed-steel radiators"} \u2013 ${f1(d.finAreaReq)} m\u00B2 surface`, qty: d.wFin, unit: "kg", rate: p.tankType === "fin" ? r.fin : r.radiator, rk: p.tankType === "fin" ? "fin" : "radiator" },
       { code: "OL-01", desc: d.fluid.name, qty: d.fluidLitres, unit: "L", rate: r.fluid, rk: "fluid" },
       { code: "PT-01", desc: "Surface treatment and painting", qty: d.tankArea + (2 * d.tankL * d.tankW) / 1e6 + d.finAreaReq * 0.35, unit: "m\u00B2", rate: r.paint, rk: "paint" },
+      /* CALIBRATION.md section 20: fans on ONAF/OFAF/ODAF (all three are
+         air-forced), an oil pump additionally on OFAF/ODAF (oil-forced), a
+         control-gear-and-wiring lump whenever either is fitted. Rates
+         default to 0 -- see DEFAULT_RATES's own comment -- so these rows
+         price at zero, visibly, until a real rate is entered; they are not
+         omitted, because a missing row is a missing row whether or not its
+         rate has been filled in yet, and omitting it would hide that the
+         quantity itself (d.fanCount) is real. */
+      ...(d.fanCount > 0 ? [{ code: "CF-01", desc: `Cooling fans, ${p.cooling}${r.coolingFan ? "" : " \u2013 enter fan unit rate"}`, qty: d.fanCount, unit: "no", rate: r.coolingFan, rk: "coolingFan" }] : []),
+      ...(d.pumpCount > 0 ? [{ code: "CP-01", desc: `Oil circulation pump, ${p.cooling}${r.oilPump ? "" : " \u2013 enter pump unit rate"}`, qty: d.pumpCount, unit: "no", rate: r.oilPump, rk: "oilPump" }] : []),
+      ...(d.fanCount > 0 || d.pumpCount > 0 ? [{ code: "CG-01", desc: `Cooling control gear and wiring${r.coolingControlGear ? "" : " \u2013 enter control gear rate"}`, qty: 1, unit: "lot", rate: r.coolingControlGear, rk: "coolingControlGear" }] : []),
     ];
 
   const Cseg = [
@@ -932,6 +1150,20 @@ function buildBOM(d, r, extras = []) {
   const gst = (exFactory * r.gstPct) / 100;
   const energy = ownershipCost(d, p);
 
+  /* CALIBRATION.md section 20/22: coolingFan, oilPump and coolingControlGear
+     have no basis to default to a nonzero rate, so a forced-cooled design
+     can silently quote real fan/pump hardware at ₹0 if the rate card was
+     never filled in -- exactly the "quoting one by accident" a zero-cost
+     BOM row invites. Flagged explicitly here, once, rather than relying on
+     a reader noticing a ₹0 rate column among dozens of rows. */
+  const zeroCoolingRows = Bseg.filter((x) => ["coolingFan", "oilPump", "coolingControlGear"].includes(x.rk) && x.rate === 0);
+  const warnings = zeroCoolingRows.length
+    ? [{
+      code: "cooling-cost-zero",
+      message: `${p.cooling} is a forced-cooled design carrying ${zeroCoolingRows.map((x) => x.code).join(", ")} at ₹0 -- enter the fan/pump/control-gear rate before quoting, or this design is being priced without its own cooling equipment.`,
+    }]
+    : [];
+
   return {
     segments: [
       { title: "A: Core & coil assembly", rows: A, total: matA },
@@ -941,7 +1173,7 @@ function buildBOM(d, r, extras = []) {
     ],
     labour, material, labourCost, scrap, overhead, freight: r.freight,
     factory, works, margin, exFactory, gst, withGst: exFactory + gst, energy,
-    tco: exFactory + energy.total,
+    tco: exFactory + energy.total, warnings,
   };
 }
 
@@ -1044,7 +1276,20 @@ function searchDesigns(base, rates, band, opts) {
   const tapTypes = opts.tapTypes && opts.tapTypes.length ? opts.tapTypes : [base.tapType];
   const dScales = [0.72, 0.80, 0.88, 0.95, 1.03, 1.12, 1.22, 1.32];
   const gapScales = [0.9, 1.0, 1.12];
-  const riseTargets = opts.allowHotter ? [45, 50] : [base.oilRiseTarget];
+  /* Cooling and top-oil rise target are wired the same opt-in way as etK,
+     steps and tapType above: absent, they collapse to the design's own
+     current value, so an existing call site is unaffected. Rise target is
+     the one worth sweeping by default when the caller wants a real budget
+     search, because it is a genuine cost lever a designer can pull that the
+     grid otherwise never reaches -- a hotter design needs less tank and fin
+     steel for the same loss, trading tank cost against active-part cost, not
+     just re-picking material or grade at a fixed rise. `allowHotter` is kept
+     as a convenience for existing call sites: it only widens riseTargets when
+     the caller hasn't supplied its own array, it is not a second lever. */
+  const coolings = opts.coolings && opts.coolings.length ? opts.coolings : [base.cooling];
+  const riseTargets = opts.riseTargets && opts.riseTargets.length
+    ? opts.riseTargets
+    : opts.allowHotter ? [45, 50] : [base.oilRiseTarget];
 
   for (const core of cores) {
     const ctd = CORE_TYPES[core];
@@ -1060,30 +1305,32 @@ function searchDesigns(base, rates, band, opts) {
           for (const ds of dScales) {
             for (const tk of tanks) {
               for (const gs of gapScales) {
-                for (const rt of riseTargets) {
-                  for (const ek of etKs) {
-                    for (const st of stepsList) {
-                      for (const tt of tapTypes) {
-                        const cand = {
-                          ...base, coreType: core, buildFactor: ctd.bf, coreGrade: g, flux: B,
-                          condLV: cond, condHV: cond,
-                          deltaLV: Math.min(anchLV * ds, CONDUCTORS[cond].dMax),
-                          deltaHV: Math.min(anchHV * ds, CONDUCTORS[cond].dMax),
-                          autoClearance: false, tankType: tk, oilRiseTarget: rt,
-                          lvHvClr: Math.round(base.lvHvClr * gs),
-                          etK: ek, steps: st, tapType: tt,
-                        };
-                        const d = designTransformer(cand);
-                        if (!isFinite(d.wCore) || d.wCore <= 0) continue;
-                        const bom = buildBOM(d, rates);
-                        const zOk = Math.abs(d.pctZ - base.targetZ) / base.targetZ <= opts.zTol / 100;
-                        const thermalOk = d.compliance.rise.ok && d.compliance.wRise.ok;
-                        const lossOk = !opts.enforceLimits || (d.compliance.nll.ok && d.compliance.ll.ok);
-                        results.push({
-                          inputs: cand, d, bom, price: bom.exFactory, tco: bom.tco,
-                          zOk, thermalOk, lossOk, feasible: zOk && thermalOk && lossOk,
-                          withinBudget: bom.exFactory >= (band.min || 0) && bom.exFactory <= (band.max ?? Infinity),
-                        });
+                for (const cl of coolings) {
+                  for (const rt of riseTargets) {
+                    for (const ek of etKs) {
+                      for (const st of stepsList) {
+                        for (const tt of tapTypes) {
+                          const cand = {
+                            ...base, coreType: core, buildFactor: ctd.bf, coreGrade: g, flux: B,
+                            condLV: cond, condHV: cond,
+                            deltaLV: Math.min(anchLV * ds, CONDUCTORS[cond].dMax),
+                            deltaHV: Math.min(anchHV * ds, CONDUCTORS[cond].dMax),
+                            autoClearance: false, tankType: tk, cooling: cl, oilRiseTarget: rt,
+                            lvHvClr: Math.round(base.lvHvClr * gs),
+                            etK: ek, steps: st, tapType: tt,
+                          };
+                          const d = designTransformer(cand);
+                          if (!isFinite(d.wCore) || d.wCore <= 0) continue;
+                          const bom = buildBOM(d, rates);
+                          const zOk = Math.abs(d.pctZ - base.targetZ) / base.targetZ <= opts.zTol / 100;
+                          const thermalOk = d.compliance.rise.ok && d.compliance.wRise.ok;
+                          const lossOk = !opts.enforceLimits || (d.compliance.nll.ok && d.compliance.ll.ok);
+                          results.push({
+                            inputs: cand, d, bom, price: bom.exFactory, tco: bom.tco,
+                            zOk, thermalOk, lossOk, feasible: zOk && thermalOk && lossOk,
+                            withinBudget: bom.exFactory >= (band.min || 0) && bom.exFactory <= (band.max ?? Infinity),
+                          });
+                        }
                       }
                     }
                   }
@@ -1098,6 +1345,7 @@ function searchDesigns(base, rates, band, opts) {
   const best = new Map();
   for (const x of results) {
     const k = [x.inputs.coreType, x.inputs.coreGrade, x.inputs.condLV, x.inputs.tankType,
+      x.inputs.cooling, x.inputs.oilRiseTarget,
       x.d.B.toFixed(2), x.d.dLV.toFixed(2), x.d.dHV.toFixed(2),
       x.inputs.etK.toFixed(2), x.inputs.steps, x.inputs.tapType].join("|");
     const prev = best.get(k);
@@ -1424,7 +1672,9 @@ function calcSheet(d, bom) {
 
   sec("6. Core weight, no-load loss and exciting current", REFS.K, [
     row("Specific core loss", "w", "w = w\u1D63\u2091\u1da0 (B/B\u1D63\u2091\u1da0)^1.9 \u00D7 building factor", `= ${n(d.grade.wRef)} \u00D7 (${n(d.B)}/${n(d.grade.bRef)})^1.9 \u00D7 ${n(p.buildFactor)}`, `${n(d.wPerKg, 3)} W/kg`, REFS.K + " \u00B7 " + REFS.B, "grade, flux density, joint type"),
-    row("Core weight", "W\u1da0\u2091", "W = \u03C1\u1da0\u2091 A\u1D4D [3H\u1D65\u1D65 + 2(2C + d)]", `= 7650 \u00D7 ${n(d.aGross / 1e4, 5)} \u00D7 [3\u00D7${n(d.Hw / 1000, 3)} + 2(2\u00D7${n(d.cc / 1000, 3)} + ${n(d.dCore / 1000, 3)})]`, `${n(d.wCore, 1)} kg`, REFS.S, "core area, window height, limb spacing"),
+    row("Core weight, limb", "W\u2097\u1D62\u2098\u1D47", "per step, mitred both ends: length = 2 \u00D7 width (drawing 22, Plate A)", "see drawing 22, core cutting chart", `${n(d.wLimb, 1)} kg`, REFS.B, "stepped widths, lamination thickness"),
+    row("Core weight, yoke", "W\u1D67\u2092\u2096\u2091", "W = \u03C1\u1da0\u2091 A\u1D4D \u00D7 2(2C + d)", `= 7650 \u00D7 ${n(d.aGross / 1e4, 5)} \u00D7 2(2\u00D7${n(d.cc / 1000, 3)} + ${n(d.dCore / 1000, 3)})`, `${n(d.wYoke, 1)} kg`, REFS.S, "core area, limb spacing"),
+    row("Core weight, total", "W\u1da0\u2091", "W = W\u2097\u1D62\u2098\u1D47 + W\u1D67\u2092\u2096\u2091", `= ${n(d.wLimb, 1)} + ${n(d.wYoke, 1)}`, `${n(d.wCore, 1)} kg`, REFS.S, "limb weight, yoke weight"),
     row("No-load loss", "P\u2080", "P\u2080 = w \u00D7 W\u1da0\u2091", `= ${n(d.wPerKg, 3)} \u00D7 ${n(d.wCore, 1)}`, `${n(d.noLoad, 0)} W`, REFS.IS1180, "specific loss, core weight"),
     row("Exciting volt-amperes", "VA/kg", "VA/kg = va\u1D63\u2091\u1da0 (B/B\u1D63\u2091\u1da0)\u2074 \u00D7 joint factor", `joint factor = ${n(d.ct.exc, 2)} for ${d.ct.name.split(",")[0]}`, `${n(d.vaPerKg, 2)} VA/kg`, REFS.K, "grade, flux density, joint type"),
     row("No-load current", "I\u2080", "I\u2080% = VA/kg \u00D7 W\u1da0\u2091 / (S\u00D710\u00B3) \u00D7 100", `= ${n(d.vaPerKg, 2)} \u00D7 ${n(d.wCore, 1)} / ${p.kva}000 \u00D7 100`, `${n(d.i0pct)} %`, REFS.K, "exciting VA, core weight"),
@@ -1471,8 +1721,22 @@ function calcSheet(d, bom) {
     row("Sound level estimate", "L\u1D65\u2090", "empirical from rating, flux density and grade", `39 + 12.5\u00B7log(${p.kva}/100) + (${n(d.B)}\u22121.6)\u00D728`, `${n(d.noise, 0)} dB(A)`, REFS.B, "rating, flux density"),
   ]);
 
+  /* The small end of the range is dominated by tank and oil, not the active
+     part -- these three ratios are where that shows up, and where a wrong
+     tank/fin/oil formula would be hardest to notice from the absolute
+     numbers alone (a 100 kVA tank looks "small" in kg either way). Reported
+     per kVA or per kW of total loss rather than as absolute weights so a
+     design at one rating can be sanity-checked against another without
+     doing the division by hand every time. Not gated on bom: none of the
+     three need a rate card, only the design's own geometry. */
+  sec("10. Outer design proportions", REFS.B, [
+    row("Fluid per rating", "V\u2092/S", d.dry ? "not applicable" : "V\u2092 / kVA", d.dry ? "n/a" : `= ${n(d.fluidLitres, 0)} / ${p.kva}`, d.dry ? "n/a" : `${n(d.fluidLitres / p.kva, 2)} L/kVA`, REFS.B, "fluid volume, rating"),
+    row("Tank and cooling mass per rating", "(W\u209C\u2090\u2099\u2096+W\u1DA0\u1D62\u2099)/S", d.dry ? "W\u2091\u2099\u1D9C\u2097\u1D52\u02E2\u1D58\u02B3\u1D49 / kVA" : "(W\u209C\u2090\u2099\u2096 + W\u1DA0\u1D62\u2099) / kVA", d.dry ? `= ${n(d.wEnclosure, 0)} / ${p.kva}` : `= (${n(d.wTank, 0)} + ${n(d.wFin, 0)}) / ${p.kva}`, `${n((d.dry ? d.wEnclosure : d.wTank + d.wFin) / p.kva, 2)} kg/kVA`, REFS.B, "tank/enclosure mass, fin mass, rating"),
+    row("Cooling surface per kW total loss", "A\u1D9C\u2092\u2092\u2097/P\u209C\u2092\u209C", d.dry ? "A\u1D04 / (P\u209C\u2092\u209C/1000)" : "(A\u209C + A\u1DA0\u1D62\u2099) / (P\u209C\u2092\u209C/1000)", d.dry ? `= ${n(d.coilArea)} / (${n(d.totalLoss, 0)}/1000)` : `= (${n(d.tankArea)} + ${n(d.finAreaReq)}) / (${n(d.totalLoss, 0)}/1000)`, `${n((d.dry ? d.coilArea : d.tankArea + d.finAreaReq) / (d.totalLoss / 1000), 2)} m\u00B2/kW`, REFS.B, "cooling surface, total loss"),
+  ]);
+
   if (bom) {
-    sec("10. Materials and cost build-up", "Works costing practice \u00B7 rates are yours to set", [
+    sec("11. Materials and cost build-up", "Works costing practice \u00B7 rates are yours to set", [
       row("Fluid volume", "V\u2092", d.dry ? "not applicable" : "V = tank volume \u2212 active part volume, \u00D7 fittings factor", d.dry ? "n/a" : `tank ${n((d.tankL * d.tankW * d.tankH) / 1e9, 3)} m\u00B3`, d.dry ? "n/a" : `${n(d.fluidLitres, 0)} L`, REFS.B, "tank size, active part"),
       row("Raw material", "n/a", "\u03A3 (quantity \u00D7 rate) over segments A, B, C", "see the costing tab", inr(bom.material), "Your rates", "weights, rates"),
       row("Factory cost", "n/a", "material + conversion + scrap", `= ${inr(bom.material)} + ${inr(bom.labourCost)} + ${inr(bom.scrap)}`, inr(bom.factory), "Your rates", "material, labour"),
@@ -1484,7 +1748,25 @@ function calcSheet(d, bom) {
 }
 
 
-function stepWidths(n, d) {
+/* DRAWINGS.md drawing 22, CALIBRATION.md: lamination is slit to standard
+   widths, not cut to whatever a continuous circle-packing optimum happens
+   to land on -- the 1250 kVA core cutting chart runs 270 down to 50 in
+   10 mm steps where the unsnapped optimum for this diameter and step count
+   ends at 42. `increment` (default 10, 0 disables snapping -- used by
+   engine.test.mjs's own classical-utilisation check, which is deliberately
+   testing the pure continuous packing formula against Sawhney's textbook
+   table, a different question from what real slit stock gives) rounds
+   every width UP to the next multiple, never down or to nearest: a step
+   narrower than its standard width would leave the circle under-filled at
+   that radius, which a real core never does -- it always slightly
+   overfills each pocket's corner instead. Only width is snapped; the
+   stack depth (t/halfH) stays exactly what the continuous optimisation
+   found, since standardising width is a slitting-stock decision, not a
+   lamination-count one, and the two are independent. Utilisation and area
+   are recomputed from the snapped widths, per CALIBRATION.md, so they
+   reflect real material use (always >= the continuous ideal, since every
+   width only ever moves up) rather than the geometric target. */
+function stepWidths(n, d, increment = 10) {
   const R = d / 2;
   let a = Array.from({ length: n }, (_, i) => (Math.PI / 2) * ((i + 1) / (n + 1)));
   const area = (al) => {
@@ -1508,25 +1790,64 @@ function stepWidths(n, d) {
   const rows = [];
   let prevH = 0, total = 0;
   for (let i = 0; i < n; i++) {
-    const w = 2 * R * Math.cos(a[i]);
+    const wIdeal = 2 * R * Math.cos(a[i]);
+    const w = increment > 0 ? Math.ceil(wIdeal / increment) * increment : wIdeal;
     const h = R * Math.sin(a[i]);
     const t = i === 0 ? 2 * h : h - prevH;      // centre pocket is full depth, others are per side
-    rows.push({ w, t, halfH: h, perSide: i > 0 });
+    rows.push({ w, wIdeal, t, halfH: h, perSide: i > 0 });
     total += w * (i === 0 ? 2 * h : 2 * (h - prevH));
     prevH = h;
   }
   return { rows, util: total / (Math.PI * R * R), area: total };
 }
 
+/* CALIBRATION.md section 16: two independent fixes, found together because
+   fixing the first exposed the second -- they had been compensating for
+   each other in the total, which is exactly why "the total looks close"
+   was never proof either half was right.
+
+   Limb: the edges used to be Hw + 2w (long) and Hw (short) -- window
+   height as the short edge, the same Hw-based shortcut wCore's own limb
+   term used and no longer does (section 15). Rebuilt on the one
+   relationship wCore's fix and drawing 22's Plate A both already
+   established: a mitred-both-ends limb lamination's average length is 2w
+   (validated against a real cut plate to -1.4%), and a 45 degree mitre at
+   each end changes the edge length by w per end, so long - short = 2w
+   independent of what the average turns out to be. Solving both together
+   gives short = w, long = 3w -- not a second fit, the one average
+   combined with the mitre angle, which is geometry, not curve-fitting.
+
+   Yoke: the edges were 2C + w (long) and 2C - w (short) -- averaging to
+   2C exactly, missing the +dCore term wCore's own yoke span
+   (2*cc + dCore) always carried, the same "outside-to-outside" allowance
+   for the outer limbs' own width DRAWINGS.md's universal requirements
+   assume everywhere else a yoke length is dimensioned. Checked, not
+   assumed: with the old 2C-only average, this schedule's yoke total ran
+   888.8 kg against wCore's own 1093.3 kg on the 1250 kVA reference --
+   18.7% short, previously invisible because the old limb term's own
+   overstatement (+18.5%) landed the COMBINED total close to wCore's old
+   (also inflated) figure by coincidence, not because either half agreed
+   with anything. Now 2C + dCore + w / 2C + dCore - w, average
+   2C + dCore, matching wCore's own yoke term (and so drawing 22's
+   Plate B + Plate C) to within rounding -- same 45 degree, both-ends
+   mitre relationship (long - short = 2w) preserved, only the anchor
+   corrected.
+
+   The mass formula itself is untouched throughout (average edge x width x
+   stack x density, the shape it always was) -- only what the two
+   averages resolve to changed, so wCore, drawing 21 and drawing 22 now
+   all derive limb and yoke from the same two figures instead of three
+   sets of numbers that used to land close by coincidence of this
+   reference's own proportions, not by agreement. */
 function stampingSchedule(d, steps) {
   const thk = d.grade.thk || 0.27;
-  const Hw = d.Hw, C = d.cc;
+  const C = d.cc, dC = d.dCore;
   let wt = 0, sheets = 0;
   const rows = steps.rows.map((s, i) => {
     const stack = i === 0 ? s.t : 2 * s.t;
     const nSheets = Math.max(2, Math.round(stack / thk));
-    const limbLong = Hw + 2 * s.w, limbShort = Hw;
-    const yokeLong = 2 * C + s.w, yokeShort = 2 * C - s.w;
+    const limbLong = 3 * s.w, limbShort = s.w;
+    const yokeLong = 2 * C + dC + s.w, yokeShort = 2 * C + dC - s.w;
     const aLimb = (((limbLong + limbShort) / 2) * s.w) / 1e6;
     const aYoke = (((yokeLong + yokeShort) / 2) * s.w) / 1e6;
     const mass = (3 * aLimb + 2 * aYoke) * (stack / 1000) * 7650;
@@ -1536,9 +1857,96 @@ function stampingSchedule(d, steps) {
   return { rows, totalMass: wt, totalSheets: sheets, thk };
 }
 
+/* DRAWINGS.md drawing 22, CALIBRATION.md section 12: the core CUTTING
+   CHART, a different document from stampingSchedule's cutting SCHEDULE
+   above -- that one models two plate types (limb, yoke) from the
+   long/short mitred-edge average; this one models three (limb, half yoke,
+   full yoke) because that is what the one real chart checked against
+   actually shows, and the two are not meant to reconcile line for line.
+   stampingSchedule is untouched.
+
+   All three lengths are fitted to the one 1250 kVA chart available
+   (CALIBRATION.md), each against the cleanest formula that reproduced its
+   own plate total without a free intercept, not the closest arbitrary fit:
+
+   - Plate A (limb, mitred both ends): length = 2 x width exactly, no
+     offset -- a symmetric double 45 degree mitre with no straight run
+     between the two cuts. Reproduces the chart's 621.09 kg to -1.4%.
+   - Plate C (full yoke, mitred one end): length = 2*cc + width -- this
+     engine's own existing yokeLong edge (stampingSchedule above), not a
+     new formula, just applied with only the one mitre this plate actually
+     has, not averaged against a short edge that does not exist here.
+   - Plate B (half yoke, step-lap): the SAME steel as Plate C's formula
+     would give for the same sheet count, cut as two half-length pieces
+     per layer instead of one -- mass-conserving by construction, so its
+     weight is computed directly from Plate C's own length x its own 25%
+     share of the yoke sheet count, not a separate formula. Reported
+     length is that half, for the drawing.
+   - The 75/25 split between Plate C and Plate B reproduces the chart's own
+     788.84/263.822 kg split almost exactly (263.822/(263.822+788.84) =
+     0.2506). The 50/25/25 split of Plate B's own sheets across the 0, 10
+     and 20 mm step-lap shifts is stated directly, not fitted.
+   - Confirms C minus A grows across the steps, as stated: at this
+     reference, C - A runs from 738.6 mm at step 1 to 958.6 mm at step 15,
+     monotonically, because A shrinks (2w) while C barely moves (2cc + w
+     against a cc roughly double any single step's width).
+
+   Combined chart total against this one reference: 2% over 1672.8 kg --
+   good agreement for a reconstruction from stated relationships and two
+   aggregate totals, not the source chart's own per-step table, which this
+   engine has never seen. Ask for a second real chart, at a different
+   rating, before trusting any of these three formulas away from ratings
+   near 1250 kVA -- exactly the caveat every other single-chart-fitted
+   constant in this engine already carries. */
+function coreCuttingChart(d, p) {
+  const steps = stepWidths(p.steps, d.dCore, p.stepIncrement);
+  const thk = d.grade.thk || 0.27;
+  const dens = 7650;
+  const cc = d.cc;
+  const rows = steps.rows.map((s, i) => {
+    const stack = i === 0 ? s.t : 2 * s.t;
+    const nSheets = Math.max(2, Math.round(stack / thk));
+
+    const lenA = 2 * s.w;
+    const massA = ((s.w * lenA * thk) / 1e9) * dens * nSheets * 3; // 3 limbs
+
+    const lenYoke = 2 * cc + s.w; // Plate C's own full length
+    const yokeSheets = nSheets * 2; // top + bottom yoke positions
+    const cSheets = Math.round(yokeSheets * 0.75);
+    const bSheets = yokeSheets - cSheets; // sums exactly, never drifts
+    const shift0 = Math.round(bSheets * 0.5);
+    const shift10 = Math.round((bSheets - shift0) / 2);
+    const shift20 = bSheets - shift0 - shift10;
+
+    const massC = ((s.w * lenYoke * thk) / 1e9) * dens * cSheets;
+    const massB = ((s.w * lenYoke * thk) / 1e9) * dens * bSheets; // full-length steel, cut in half
+
+    return {
+      i: i + 1, w: s.w, stack, nSheets,
+      A: { length: +lenA.toFixed(1), weight: massA },
+      B: { length: +(lenYoke / 2).toFixed(1), weight: massB, sheets: bSheets, shift0, shift10, shift20 },
+      C: { length: +lenYoke.toFixed(1), weight: massC, sheets: cSheets },
+    };
+  });
+  const totalA = rows.reduce((s, r) => s + r.A.weight, 0);
+  const totalB = rows.reduce((s, r) => s + r.B.weight, 0);
+  const totalC = rows.reduce((s, r) => s + r.C.weight, 0);
+  return { rows, thk, totalA, totalB, totalC, chartTotal: totalA + totalB + totalC };
+}
+
+/* CALIBRATION.md section 24: finLayout is now the corrugated-fin-wall
+   layout only -- it used to also stand in for radiator tanks (fed
+   `finAreaReq` through the same "2 x height x depth" per-fin area at a
+   flat 320 mm depth regardless of rating), which is a fin wall's own
+   geometry, not a radiator's: at 2500 kVA with tankType radiator this
+   returned 158 "fins" 320 mm deep, a corrugated fin wall wearing a
+   radiator's name, not an actual bank-and-header radiator layout.
+   Called only for p.tankType === "fin" designs now; radiatorLayout()
+   below is the tankType === "radiator" equivalent, on its own real
+   geometry (panels and banks, not fins). */
 function finLayout(d) {
-  if (d.dry || d.finAreaReq <= 0) return { n: 0, depth: 0, height: 0, perSide: 0, lvEnd: 0, hvEnd: 0 };
-  const depth = d.p.tankType === "fin" ? Math.min(400, Math.max(150, Math.round((d.tankH * 0.22) / 10) * 10)) : 320;
+  if (d.dry || d.finAreaReq <= 0) return { n: 0, depth: 0, height: 0, perSide: 0, pitch: 0, lvEnd: 0, hvEnd: 0 };
+  const depth = Math.min(400, Math.max(150, Math.round((d.tankH * 0.22) / 10) * 10));
   const height = Math.max(200, d.tankH - 240);
   const per = (2 * height * depth) / 1e6;
   const n = Math.max(4, Math.ceil(d.finAreaReq / per));
@@ -1555,7 +1963,88 @@ function finLayout(d) {
      arrangement. */
   const hvEnd = n <= 1 ? n : Math.max(1, Math.round((n * 2) / 3));
   const lvEnd = n - hvEnd;
-  return { n, depth, height, perSide: Math.ceil(n / 2), per, lvEnd, hvEnd };
+  const perSide = Math.ceil(n / 2);
+  /* Same 85%-of-tankL usable wall length and even-spacing formula
+     src/components/cad/geometry.ts's finPlacements() already draws from,
+     kept in step by hand rather than imported (the engine takes no
+     imports, invariant 1) so this pitch and the 3D/2D drawings' own pitch
+     cannot read differently for the same design. */
+  const pitch = (d.tankL * 0.85) / Math.max(1, perSide - 1 || 1);
+  return { n, depth, height, perSide, pitch, per, lvEnd, hvEnd };
+}
+
+/* CALIBRATION.md section 24: radiator-tank equivalent of finLayout above,
+   on a radiator's own geometry -- panels bolted into removable banks
+   between top and bottom header pipes, not fins on a wall. Panel width
+   (p.radiatorPanelWidth, default 520 mm, typical Indian pressed-steel
+   practice) and pitch (p.radiatorPanelPitch) are both editable inputs,
+   not derived, since they are a specific vendor's panel dimensions, the
+   same way lamination width is a real slitting-stock decision rather
+   than a continuous optimum (stepWidths' own increment). Panel height is
+   the one dimension actually derived here: real pressed-steel elements
+   come in a small set of standard heights, so the largest that clears
+   the tank's own available vertical space is chosen, not a continuous
+   figure -- the list itself is typical practice, not one vendor's
+   specific catalogue. Bank count and panels-per-bank both come from the
+   same finAreaReq every other cooling-surface figure in this engine
+   already uses (CALIBRATION.md section 20's fan count and finLayout's
+   own fin count both read it the same way) against one panel's own
+   developed area, capped at p.radiatorPanelsPerBank panels before a
+   second bank starts -- a handling/structural practicality, not a
+   physical limit, and overridable. */
+const RADIATOR_STANDARD_HEIGHTS = [600, 900, 1200, 1500, 1800, 2100];
+function radiatorLayout(d) {
+  const p = d.p;
+  if (d.dry || d.finAreaReq <= 0) {
+    return {
+      totalPanels: 0, bankCount: 0, panelsPerBank: 0, panelWidth: p.radiatorPanelWidth, panelHeight: 0,
+      panelPitch: p.radiatorPanelPitch, headerCentres: 0, valvesPerBank: 2, totalValves: 0, per: 0, lvBanks: 0, hvBanks: 0,
+    };
+  }
+  const avail = Math.max(200, d.tankH - 240);
+  const panelHeight = [...RADIATOR_STANDARD_HEIGHTS].reverse().find((h) => h <= avail) || RADIATOR_STANDARD_HEIGHTS[0];
+  const panelWidth = p.radiatorPanelWidth;
+  const per = (2 * panelHeight * panelWidth) / 1e6;
+  const rawPanels = Math.max(2, Math.ceil(d.finAreaReq / per));
+  const bankCount = Math.max(1, Math.ceil(rawPanels / p.radiatorPanelsPerBank));
+  const panelsPerBank = Math.ceil(rawPanels / bankCount);
+  const totalPanels = panelsPerBank * bankCount;
+  /* Same LV/HV bank split as finLayout's own fin split, same reason
+     (bushings, cable box and tap-changer linkage crowd the LV end) and
+     the same 1250 kVA sheet's own 2:1 fitted ratio, one level up: banks
+     instead of individual fins, since a radiator bank is what actually
+     gets mounted and removed as a unit. */
+  const hvBanks = bankCount <= 1 ? bankCount : Math.max(1, Math.round((bankCount * 2) / 3));
+  const lvBanks = bankCount - hvBanks;
+  return {
+    totalPanels, bankCount, panelsPerBank, panelWidth, panelHeight,
+    panelPitch: p.radiatorPanelPitch, headerCentres: panelHeight,
+    valvesPerBank: 2, totalValves: bankCount * 2, per, lvBanks, hvBanks,
+  };
+}
+
+/* CALIBRATION.md section 24: conservator sizing. Previously a BOM cost
+   line (folded into the AC-01 fittings lump) with no dimensions at all --
+   CostCardTab.tsx's own "Conservator Dimensions" card said as much ("the
+   engine does not size a conservator... enter the works' own figures").
+   Conventional practice sizes the conservator at about 10% of total oil
+   volume (p.conservatorPct) to allow for thermal expansion across the
+   rise range, mounted above the tank on its own brackets -- a horizontal
+   cylinder, diameter and length solved from that volume at a fitted
+   length-to-diameter ratio (p.conservatorAspect, 2.08, the one reference
+   figure on file: the 630 kVA sheet's own 330 mm dia x 685 mm long,
+   685/330 = 2.076). Only meaningful on a radiator tank -- a sealed fin
+   tank has no conservator, per this engine's own existing "sealed fin
+   tank... drops the conservator and breather maintenance" reasoning
+   (impacts()). V = (pi/4) D^2 L, L = aspect x D, solved for D. */
+function conservatorSize(d) {
+  const p = d.p;
+  if (d.dry || p.tankType !== "radiator") return { volumeL: 0, dia: 0, length: 0 };
+  const volumeL = d.fluidLitres * (p.conservatorPct / 100);
+  const volumeM3 = volumeL / 1000;
+  const dia = Math.cbrt((4 * volumeM3) / (Math.PI * p.conservatorAspect)) * 1000;
+  const length = dia * p.conservatorAspect;
+  return { volumeL, dia, length };
 }
 
 /* MANUFACTURING.md section 1: real practice states taps as turn numbers
@@ -1851,8 +2340,8 @@ function documentRegister(core, d, bom, project) {
       "Foundation plan, wheel and rail gauge, and the approval signature block are not drawn"),
     r(5, "Internal Assembly Drawing", "part", "Drawing 10 and the 3D section view",
       "A dimensioned exploded 2D assembly is not produced; the 3D exploded view is the substitute"),
-    r(6, "Core Manufacturing Drawing", "done", "Drawing 6 with the cutting schedule",
-      "Clamp bolt positions are indicative, not from your clamping standard"),
+    r(6, "Core Manufacturing Drawing", "done", "Drawing 6, with the cutting schedule (21) and the cutting chart (22)",
+      "Clamp bolt positions are indicative, not from your clamping standard. Drawing 22's three plate lengths are fitted to one reference chart, unconfirmed at other ratings"),
     r(7, "Winding Manufacturing Drawing", "part", "Drawings 7 and 8, LV and HV coils",
       "Disc and interleaved-disc constructions are not modelled; the engine builds foil LV and layer HV only"),
     r(8, "Insulation Schedule", "part", "Clearances panel and the coil drawings",
@@ -1885,26 +2374,69 @@ function documentRegister(core, d, bom, project) {
       "Revisions are stored and browsable (TASKS.md item 5) -- a formatted revision-history report (what changed, between which revisions, by whom) is not generated as a document, though the data to build it from now exists"),
     r(27, "Compliance Report", "part", "Compliance block on the design sheet",
       "Losses, impedance, temperature rise and ratio error are checked. A clause-by-clause report needs the licensed standard text"),
-    r(28, "PDF Generation", "part", "PDF report button on the drawings tab",
-      "Bookmarks, clickable index, QR code, digital signature and watermark need a server-side PDF pipeline"),
+    // TASKS.md item 10: server-side pipeline landed -- generateReportPdf
+    // (functions/src/reportPdf.ts) renders src/report/PrintReport.tsx
+    // headlessly with a signed Firebase custom token, uploads to Storage,
+    // records the document, all triggered from the "PDF Report" panel on
+    // this tab, not the old client-side window.print() button. Bookmarks,
+    // page numbers, revision and QR code are all real now (CLAUDE.md
+    // invariant 7 -- this row's own "missing" text was the thing that made
+    // that check necessary here). Digital signature is the one item from
+    // the original gap list still genuinely absent -- cryptographic PDF
+    // signing is a distinct capability TASKS.md item 10 itself never asked
+    // for, not an oversight in this pass.
+    r(28, "PDF Generation", "part", "PDF Report panel, Reports & Docs tab",
+      "Digital signature is not applied -- cryptographic PDF signing, not built"),
   ];
 }
 
 function routineTestSchedule(d) {
   const p = d.p;
-  return [
+  const rows = [
     { t: "Voltage ratio at all taps", ref: "IEC 60076-1", exp: `${f3((d.nHV / d.nLV))} turns ratio, error ${f3(d.ratioErr)} %`, lim: "\u00B10.5 % of declared" },
     { t: "Vector group and polarity", ref: "IEC 60076-1", exp: p.vector, lim: "As declared" },
     { t: "Winding resistance HV", ref: "IEC 60076-1", exp: `${f3(d.rHV)} \u03A9 per phase at ${d.refT} \u00B0C`, lim: "Record, correct to reference temperature" },
     { t: "Winding resistance LV", ref: "IEC 60076-1", exp: `${d.rLV.toExponential(3)} \u03A9 per phase at ${d.refT} \u00B0C`, lim: "Record" },
     { t: "No-load loss and current at rated voltage", ref: "IEC 60076-1", exp: `${f0(d.noLoad)} W, ${f2(d.i0pct)} %`, lim: `${f0(d.sch.nll)} W guaranteed, +${d.std.lossTolPart} % on test` },
-    { t: "Load loss and impedance at principal tap", ref: "IEC 60076-1", exp: `${f0(d.loadLoss)} W, ${f2(d.pctZ)} %`, lim: `${f0(d.sch.ll)} W guaranteed, impedance \u00B1${p.zTol} %` },
+    {
+      t: `Load loss and impedance at principal tap${p.dualRating && p.kva2 > 0 ? `, stated at ${p.kva} kVA (${p.cooling}) only` : ""}`,
+      ref: "IEC 60076-1", exp: `${f0(d.loadLoss)} W, ${f2(d.pctZ)} %`, lim: `${f0(d.sch.ll)} W guaranteed, impedance \u00B1${p.zTol} %`,
+    },
     { t: "Separate source AC withstand, HV", ref: "IEC 60076-3", exp: `${p.acHV} kV for 60 s`, lim: "No breakdown" },
     { t: "Separate source AC withstand, LV", ref: "IEC 60076-3", exp: `${p.acLV} kV for 60 s`, lim: "No breakdown" },
     { t: "Induced overvoltage withstand", ref: "IEC 60076-3", exp: "Twice rated voltage, duration per clause", lim: "No breakdown" },
     { t: "Insulation resistance", ref: "Works practice", exp: "Record HV-E, LV-E, HV-LV", lim: "Record" },
     { t: "Oil dielectric strength", ref: "IEC 60296", exp: d.dry ? "Not applicable" : "Sample before and after filling", lim: d.dry ? "n/a" : "60 kV minimum" },
   ];
+  /* CALIBRATION.md section 21: dual rating is not a second independent
+     load-loss test -- IEC 60076-1 practice is one measurement, at the
+     principal tap and the rating the row above is already taken at; the
+     second rating's figure is a calculated derating of that one
+     measurement, load loss scaling with current squared, not a separately
+     guaranteed test point. Reported here as "calculated", not "guaranteed
+     on test", so the GTP does not overstate what routine test actually
+     covers for a dual-rated unit. */
+  if (p.dualRating && p.kva2 > 0 && d.dualCompliance) {
+    rows.push({
+      t: `Load loss at second rating, ${p.kva2} kVA (${p.cooling2}) -- calculated, not separately tested`,
+      ref: "IEC 60076-1", exp: `${f0(d.dualLoadLoss)} W`, lim: `${f0(p.limitLL2)} W guaranteed`,
+    });
+    /* CALIBRATION.md section 22: %Z is referenced to whichever rating's
+       current the design was built to (p.kva) -- a real dual-rated unit
+       has a second, genuinely different %Z at kva2's own current (%Z
+       scales with rated current at fixed voltage), and a protection
+       engineer sizing relays or fault studies off the second rating needs
+       that figure. Not computed here -- flagged on the GTP rather than
+       left unstated, since a blank would read as "no second impedance
+       exists" rather than "not yet built". */
+    rows.push({
+      t: `Impedance at second rating, ${p.kva2} kVA (${p.cooling2}) -- not stated`,
+      ref: "Known gap, CALIBRATION.md section 22",
+      exp: "Not calculated by this engine",
+      lim: `Referenced to ${p.kva2} kVA's own current, not ${p.kva} kVA's; do not use the ${f2(d.pctZ)} % above for protection studies at the ${p.kva2} kVA point`,
+    });
+  }
+  return rows;
 }
 
 
@@ -1919,12 +2451,12 @@ export {
   lossSchedule, clearancesFrom, umFor, zSuggest, gradeSuggest, fluxSuggest,
   stepsSuggest, densitySuggest, aspectSuggest,
   deriveSpec, designTransformer, buildBOM, ownershipCost, searchDesigns,
-  impacts, calcSheet, stepWidths, stampingSchedule, finLayout,
+  impacts, calcSheet, stepWidths, stampingSchedule, finLayout, radiatorLayout, conservatorSize,
   documentRegister, routineTestSchedule, DOC_STATUS, REFS,
   inr, lakhs, bushMul, condRate, rkCond, fluxRange, bushHeight, parseVectorGroup,
   etkCurve, fitEtkToCost, ETK_RANGE,
   tappingSchedule, conductorSchedule, hardwareSchedule, insulationPieceList, windingSchedule,
-  cardCostModel, DEFAULT_CARD_RATES,
+  cardCostModel, DEFAULT_CARD_RATES, coreCuttingChart,
 };
 
 export function computeDesign(core, over = {}, rates = DEFAULT_RATES, extras = []) {

@@ -1,5 +1,5 @@
 import React, { useId } from 'react';
-import { finLayout } from '@/packages/engine';
+import { finLayout, radiatorLayout } from '@/packages/engine';
 import { hvBushingSpec, lvBushingSpec } from '../cad/geometry';
 import { Card } from '../ui';
 import {
@@ -87,7 +87,24 @@ export function OrthographicDrawing({ design, params, project, view }: Props) {
 
   const hvBush = hvBushingSpec(params.umHV);
   const lvBush = lvBushingSpec(params.umLV);
-  const fins = design.dry ? { n: 0, depth: 0, height: 0, perSide: 0, per: 0 } : finLayout(design);
+  // CALIBRATION.md section 24: finLayout is fin-tank-only -- a radiator
+  // design reads radiatorLayout instead, not finLayout wearing a
+  // radiator's name. radiatorLayout's own panelWidth is each panel's
+  // projection OUT from the tank wall (the role finLayout's depth plays
+  // for a fin), not the bank's along-wall extent -- so it is exactly what
+  // projectionDepth (view framing, side-view fin/radiator projection)
+  // needs.
+  const isRadiator = !design.dry && params.tankType === 'radiator';
+  const coolingSummary = design.dry ? null : isRadiator
+    ? (() => {
+      const r = radiatorLayout(design);
+      return { count: r.totalPanels, perSide: r.panelsPerBank, panelDesc: `${r.panelWidth} x ${Math.round(r.panelHeight)} mm`, surface: r.totalPanels * r.per, depth: r.panelWidth };
+    })()
+    : (() => {
+      const r = finLayout(design);
+      return { count: r.n, perSide: r.perSide, panelDesc: `${r.depth} x ${Math.round(r.height)} mm`, surface: r.n * r.per, depth: r.depth };
+    })();
+  const projectionDepth = design.dry ? 0 : coolingSummary!.depth;
 
   const tank = tankExtents(view, design);
   const env = envelopeExtents(view, design);
@@ -95,7 +112,7 @@ export function OrthographicDrawing({ design, params, project, view }: Props) {
   const box = { w: 420, h: isGa ? 420 : 320 };
   const margin = { side: 48, top: 22, bottom: 56 };
   const topExtra = (isGa || view === 'front') ? hvBush.height : 0; // room for bushings projecting above the tank
-  const sideExtra = isSide && !design.dry ? fins.depth : 0; // fin/radiator projection, side view only
+  const sideExtra = isSide && !design.dry ? projectionDepth : 0; // fin/radiator projection, side view only
   const fit = fitToViewBox(
     tank.w + 2 * sideExtra, tank.h + topExtra,
     box.w - 2 * margin.side, box.h - margin.top - margin.bottom, 10,
@@ -142,7 +159,7 @@ export function OrthographicDrawing({ design, params, project, view }: Props) {
           <DimensionArrow id={arrowId} />
 
           {/* Side view: fin/radiator projection either side of the tank body. */}
-          {isSide && !design.dry && fins.depth > 0 && (
+          {isSide && !design.dry && projectionDepth > 0 && (
             <>
               <rect x={tx - finDepthPx} y={ty + tankHpx * 0.08} width={finDepthPx} height={tankHpx * 0.8} fill="none" stroke="var(--color-steel)" strokeWidth={0.6} />
               <rect x={tx + tankWpx} y={ty + tankHpx * 0.08} width={finDepthPx} height={tankHpx * 0.8} fill="none" stroke="var(--color-steel)" strokeWidth={0.6} />
@@ -256,10 +273,10 @@ export function OrthographicDrawing({ design, params, project, view }: Props) {
           )}
 
           {/* Side: overall width including the fin/radiator projection. */}
-          {isSide && !design.dry && fins.depth > 0 && (
+          {isSide && !design.dry && projectionDepth > 0 && (
             <DimensionHorizontal
               x1={tx - finDepthPx} x2={tx + tankWpx + finDepthPx} featureY={ty} dimY={ty - 14}
-              label={dimText(design.tankW + 2 * fins.depth)} arrowId={arrowId}
+              label={dimText(design.tankW + 2 * projectionDepth)} arrowId={arrowId}
             />
           )}
 
@@ -293,9 +310,9 @@ export function OrthographicDrawing({ design, params, project, view }: Props) {
               </p>
               <table className="w-full text-[10px]">
                 <tbody>
-                  <tr><td className="py-0.5 text-ink2">Fin/radiator count, per side</td><td className="text-right font-mono text-ink">{fins.n} total, {fins.perSide} per side</td></tr>
-                  <tr><td className="py-0.5 text-ink2">Fin panel, depth x height</td><td className="text-right font-mono text-ink">{design.dry ? 'n/a, dry type' : `${fins.depth} x ${Math.round(fins.height)} mm`}</td></tr>
-                  <tr><td className="py-0.5 text-ink2">Cooling surface provided</td><td className="text-right font-mono text-ink">{design.dry ? 'n/a' : `${(fins.n * fins.per).toFixed(1)} m²`}</td></tr>
+                  <tr><td className="py-0.5 text-ink2">{isRadiator ? 'Radiator panel' : 'Fin'} count, per {isRadiator ? 'bank' : 'side'}</td><td className="text-right font-mono text-ink">{design.dry ? 'n/a, dry type' : `${coolingSummary!.count} total, ${coolingSummary!.perSide} per ${isRadiator ? 'bank' : 'side'}`}</td></tr>
+                  <tr><td className="py-0.5 text-ink2">{isRadiator ? 'Radiator panel' : 'Fin'} size</td><td className="text-right font-mono text-ink">{design.dry ? 'n/a, dry type' : coolingSummary!.panelDesc}</td></tr>
+                  <tr><td className="py-0.5 text-ink2">Cooling surface provided</td><td className="text-right font-mono text-ink">{design.dry ? 'n/a' : `${coolingSummary!.surface.toFixed(1)} m²`}</td></tr>
                   <tr><td className="py-0.5 text-ink2">HV / LV bushing voltage class</td><td className="text-right font-mono text-ink">{params.umHV} / {params.umLV} kV</td></tr>
                   <tr><td className="py-0.5 text-ink2">Total mass</td><td className="text-right font-mono text-ink">{Math.round(totalMass)} kg</td></tr>
                   <tr><td className="py-0.5 text-ink2">Fluid volume</td><td className="text-right font-mono text-ink">{design.dry ? 'n/a, dry type' : `${Math.round(design.fluidLitres)} L`}</td></tr>

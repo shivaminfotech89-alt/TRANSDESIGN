@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import {
-  tappingSchedule, conductorSchedule, hardwareSchedule, insulationPieceList, finLayout, windingSchedule,
+  tappingSchedule, conductorSchedule, hardwareSchedule, insulationPieceList, finLayout, radiatorLayout,
+  conservatorSize, windingSchedule,
 } from '@/packages/engine';
 import { Card, Button, thCls, tdCls, inputCls, labelCls } from '../ui';
 import { useAuth } from '../AuthContext';
@@ -40,33 +41,65 @@ export function ManufacturingTab({ design: d, params: p }: ManufacturingTabProps
   const cond = conductorSchedule(d, p);
   const hw = hardwareSchedule(d, p);
   const ins = insulationPieceList(d, p);
-  const fins = finLayout(d);
+  // CALIBRATION.md section 24: finLayout is fin-tank-only -- a radiator
+  // design reads radiatorLayout, not finLayout wearing a radiator's name.
+  const isRadiator = !d.dry && p.tankType === 'radiator';
+  const fins = d.dry ? null : (isRadiator ? radiatorLayout(d) : finLayout(d));
+  const cons = isRadiator ? conservatorSize(d) : null;
   const wind = windingSchedule(d, p);
 
   return (
     <div className="space-y-4">
-      <Card title="Cooling Arrangement" subtitle={d.dry ? 'Dry type, no fin or radiator tank' : `${p.tankType === 'fin' ? 'Fin' : 'Radiator'} tank`}>
+      <Card title="Cooling Arrangement" subtitle={d.dry ? 'Dry type, no fin or radiator tank' : `${isRadiator ? 'Radiator' : 'Fin'} tank`}>
         {d.dry ? (
           <p className="text-[11px] text-steel px-1 py-2">Dry-type enclosure -- no fin or radiator layout applies.</p>
+        ) : isRadiator ? (
+          <div className="px-1 space-y-2">
+            <p className="text-[11px] text-ink2">
+              {fins!.totalPanels} radiator panels total, {fins!.panelWidth} mm wide, {Math.round(fins!.panelHeight)} mm tall,
+              {' '}in {fins!.bankCount} bank{fins!.bankCount === 1 ? '' : 's'} of {fins!.panelsPerBank}.
+            </p>
+            <table className="w-full max-w-md">
+              <thead>
+                <tr><th className={thCls}>End of tank</th><th className={`${thCls} text-right`}>Banks</th></tr>
+              </thead>
+              <tbody>
+                <tr><td className={tdCls}>LV end</td><td className={`${tdCls} text-right font-mono`}>{fins!.lvBanks}</td></tr>
+                <tr><td className={tdCls}>HV end</td><td className={`${tdCls} text-right font-mono`}>{fins!.hvBanks}</td></tr>
+              </tbody>
+            </table>
+            <p className="text-[10px] text-steel">
+              Split 1:2 toward the HV end, fitted from the 1250 kVA reference sheet (2 LV / 4 HV) -- the LV end
+              carries the bushings, cable box and tap changer linkage and has less wall space. Check against the
+              works' own tank layout before mounting banks. Header pipe centres {fins!.headerCentres} mm apart,
+              {' '}{fins!.totalValves} isolating valves total (2 per bank, top and bottom).
+            </p>
+            {cons && cons.dia > 0 && (
+              <p className="text-[10px] text-steel">
+                Conservator: {Math.round(cons.dia)} mm dia x {Math.round(cons.length)} mm long, {Math.round(cons.volumeL)} L
+                {' '}({p.conservatorPct}% of {Math.round(d.fluidLitres)} L total oil), mounted on brackets above the tank
+                with the breather pipe.
+              </p>
+            )}
+          </div>
         ) : (
           <div className="px-1 space-y-2">
             <p className="text-[11px] text-ink2">
-              {fins.n} {p.tankType === 'fin' ? 'fins' : 'radiator panels'} total, {fins.depth} mm deep,
-              {' '}{Math.round(fins.height)} mm tall.
+              {fins!.n} fins total, {fins!.depth} mm deep, {Math.round(fins!.height)} mm tall.
             </p>
             <table className="w-full max-w-md">
               <thead>
                 <tr><th className={thCls}>End of tank</th><th className={`${thCls} text-right`}>Count</th></tr>
               </thead>
               <tbody>
-                <tr><td className={tdCls}>LV end</td><td className={`${tdCls} text-right font-mono`}>{fins.lvEnd}</td></tr>
-                <tr><td className={tdCls}>HV end</td><td className={`${tdCls} text-right font-mono`}>{fins.hvEnd}</td></tr>
+                <tr><td className={tdCls}>LV end</td><td className={`${tdCls} text-right font-mono`}>{fins!.lvEnd}</td></tr>
+                <tr><td className={tdCls}>HV end</td><td className={`${tdCls} text-right font-mono`}>{fins!.hvEnd}</td></tr>
               </tbody>
             </table>
             <p className="text-[10px] text-steel">
               Split 1:2 toward the HV end, fitted from the 1250 kVA reference sheet (2 LV / 4 HV) -- the LV end
               carries the bushings, cable box and tap changer linkage and has less wall space. Check against the
-              works' own tank layout before cutting panels.
+              works' own tank layout before cutting fins.
             </p>
           </div>
         )}
