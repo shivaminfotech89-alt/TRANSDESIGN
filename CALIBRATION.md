@@ -1653,3 +1653,109 @@ visibility toggle, off entirely on a fin tank or a dry design.
 No engine change in this pass (no formula moved, `ENGINE_VERSION`
 unchanged) -- every fix here was in what a UI-layer consumer calls, not
 in what the engine computes.
+
+## 25. Fit to Budget: staged search, a web worker, and the cardCostModel gap section 24 missed
+
+Three fixes, reported and built in the order asked for.
+
+**The Firestore database wiring was checked first and turned out not to
+be the live fault it looked like** (this section records the correction,
+not a new finding): src/lib/firebase.ts called getFirestore(app) with no
+database ID, which is a real bug, but every consumer that actually
+matters -- lib/projects.ts and everything built on it (the entire
+project list/load/save/revision path), lib/firebase.ts's own consumers
+-- was already correctly wired to the named database. The only
+consumers of the broken file (ProjectsModal.tsx and the four
+src/components/db/ files) were unreachable from App.tsx, confirmed by
+grep and by git history (src/lib/firebase.ts dates to the original
+scaffold commit, untouched since). Fixed anyway (a real latent bug is
+still a bug), and the dead subtree deleted -- a second, un-database-
+scoped copy of the Firebase client sitting in the tree is exactly the
+kind of trap that caused this investigation in the first place.
+
+**Fit to Budget: the search was never crashing.** Confirmed directly:
+buildBOM and designTransformer -- everything searchDesigns calls -- never
+call finLayout or radiatorLayout at all, so the tank-type split could not
+be throwing inside the search the way it first looked like it might. The
+actual fault, measured directly rather than assumed: the full grid for a
+typical BudgetTab search is **179,712 candidates** (exact count, grades x
+flux x conds x dScales x tanks x gapScales x coolings x riseTargets x
+etKs), and a single designTransformer + buildBOM call costs ~10-13 ms
+(ten individual calls timed directly) -- 30 to 39 minutes, synchronous,
+on the tab's own main thread. That is indistinguishable from "does not
+work": nothing throws, so the console is empty, and the tab is simply
+frozen for half an hour. The grid was not new -- it was already ~57,600
+candidates (10+ minutes) before section 20 added riseTargets as a 3-way
+sweep, which tripled an already-unusable search to fully dead.
+
+**Fix 1 -- staged search** (`stagedSearchDesigns`, alongside the existing
+`searchDesigns`, which is unchanged in what it computes -- dScales and
+gapScales are now opt-in overridable the same way etKs/riseTargets/
+coolings already were, defaulting to the exact same fixed ladders, so no
+existing call site's output changes). Two stages, both built on the same
+`searchDesigns` rather than a forked copy of its inner loop:
+
+- Stage 1 screens every structural combination (core type, grade,
+  conductor, tank type, cooling) at reduced resolution on the continuous
+  levers -- 3 dScale points instead of 8, 1 gapScale instead of 3, the
+  caller's own first/current rise target instead of the full list, ~4 etK
+  points instead of 16. Flux is left full resolution (fluxRange() is
+  already only 4-7 points per grade). Ranks structural combinations
+  against each other, keeps the top few (opts.stagedTopN, default 5).
+- Stage 2 re-runs `searchDesigns` restricted to each winning structural
+  combination alone, at full flux/gapScale/riseTarget resolution and a
+  dScale/etK window (`windowAround`) centred on wherever that
+  combination's own stage-1 winner landed -- full resolution, but only in
+  the region already known to be competitive.
+
+This is a heuristic, not an exhaustive search, and is documented as one
+in the function's own comment: a structural combination stage 1's coarse
+sampling made look uncompetitive is never revisited in stage 2, even if
+its true optimum (at some point stage 1 never happened to sample) would
+have beaten the kept winners. Measured, not estimated, on the exact
+opts BudgetTab builds:
+
+| | Before | After |
+|---|---|---|
+| Candidates | 179,712 (exact) | 1,872 (stage 1) + ~9,000 (5 refinements) |
+| Wall time | 30.0-38.9 min (measured per-candidate cost, extrapolated) | 76.46 s, measured for real |
+
+A new engine.test.mjs case checks staged search correctness (not the
+full-scale timing, which would make the test suite itself take half an
+hour) at a deliberately smaller grid sized so the one dimension that
+matters for coarsening (etKs, 8 points) actually exceeds its own coarse
+threshold: staged best tco landed within 0.00% of the true full-grid
+minimum at that scale, stage 2 correctly refined only stagedTopN
+structural combinations, and cancelling after stage 1 correctly stops
+before stage 2 while still returning stage 1's own candidates.
+
+**Fix 2 -- a web worker** (new `src/workers/searchWorker.ts`). Staging
+cut the typical case to under 90 seconds, but "typical" is not "every
+case" -- a synchronous multi-minute run on the main thread was the actual
+bug report, not merely a slow one, so the fix is not "make it fast",
+it is "make it unable to freeze the tab regardless of how large the grid
+ever gets again". The worker imports `stagedSearchDesigns` directly (the
+engine has no framework dependency, so it runs in a worker exactly as it
+runs anywhere else) and relays `{stage, phase, ...}` progress messages
+back to the main thread. BudgetTab.tsx spawns one per search, shows a
+progress line (`progressText()` turns the raw stage/phase shape into one
+sentence a designer would read), and a Cancel button that calls
+`worker.terminate()` directly for an immediate hard stop rather than
+waiting on the next `shouldCancel` checkpoint inside the search itself.
+
+**Fix 3 -- cardCostModel's own finLayout call**, the one consumer the
+"rewire every consumer" pass in section 24 missed, because it lives in
+the engine itself (`cardCostModel`, the per-kg costing model) rather than
+a UI file the earlier `src/` grep ever covered. Same bug, same fix: reads
+`radiatorLayout(d).totalPanels` on a radiator design instead of
+`finLayout(d).n`. A new engine.test.mjs case checks this directly: a
+2500 kVA radiator design's panel row now differs from what finLayout
+alone would have given it (45 vs 53 in the checked case), not silently
+matching it under a "PSR (pressed-steel radiator)" label.
+
+No ENGINE_VERSION bump for any of the three -- none changes what a
+single evaluated design computes (searchDesigns/stagedSearchDesigns are
+a what-if search, not part of how a saved revision reprices on read,
+the same reasoning section 20 already recorded; cardCostModel's fix only
+changes which count a radiator design's panel row reads, not any
+formula).
