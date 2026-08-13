@@ -151,18 +151,33 @@ firebase use tendermaster-ai
 firebase deploy --only firestore:rules,firestore:indexes,storage
 ```
 
-5. `.env.local` in `apps/web`:
+5. `.env.local` at the repo root (this is a Vite app, `src/`, not the
+   Next.js `apps/web` layout an earlier plan called for — see `.env.example`
+   for the current, correct list):
 
 ```
-NEXT_PUBLIC_FIREBASE_API_KEY=...
-NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=ai-studio-transdesignengin-41442703-2634-4bab-af2b-b96345bc6846.firebaseapp.com
-NEXT_PUBLIC_FIREBASE_PROJECT_ID=ai-studio-transdesignengin-41442703-2634-4bab-af2b-b96345bc6846
-NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=ai-studio-transdesignengin-41442703-2634-4bab-af2b-b96345bc6846.appspot.com
-NEXT_PUBLIC_FIREBASE_MSG_SENDER_ID=...
-NEXT_PUBLIC_FIREBASE_APP_ID=...
+VITE_FIREBASE_API_KEY=...
+VITE_FIREBASE_AUTH_DOMAIN=ai-studio-transdesignengin-41442703-2634-4bab-af2b-b96345bc6846.firebaseapp.com
+VITE_FIREBASE_PROJECT_ID=ai-studio-transdesignengin-41442703-2634-4bab-af2b-b96345bc6846
+VITE_FIREBASE_STORAGE_BUCKET=ai-studio-transdesignengin-41442703-2634-4bab-af2b-b96345bc6846.appspot.com
+VITE_FIREBASE_MESSAGING_SENDER_ID=...
+VITE_FIREBASE_APP_ID=...
 ```
 
 Take the values from Project settings → Your apps → Web app.
+
+**Vercel specifically:** Vite inlines every `VITE_*` value into the built
+JS bundle at build time — it does not read them at runtime the way a
+server framework would. `.env.local` is gitignored and never reaches
+Vercel's build environment, so these six variables must be entered directly
+in the Vercel project's own Settings → Environment Variables, for every
+environment (Production, Preview, Development) the app is expected to run
+in. A build that succeeds with these unset is not evidence they are
+configured correctly — Vite does not require them to complete a build, it
+just bakes in `undefined`, and the app fails at runtime in the browser
+(Firebase initialising with an incomplete config) rather than at build
+time. Re-deploy after adding or changing any of them; Vercel does not
+retroactively rebuild an existing deployment when project settings change.
 
 ---
 
