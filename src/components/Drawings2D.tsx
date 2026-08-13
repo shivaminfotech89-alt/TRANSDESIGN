@@ -311,6 +311,12 @@ export function StampingSchedule({ design, params, project }: Drawings2DProps) {
       <p className="text-[10px] text-steel mt-1">
         Centre limb V notch shown schematically on the yoke's inner edge -- its profile is not held by the engine.
       </p>
+      <p className="text-[10px] text-steel mt-1">
+        Mass below is from the continuous stack depth per step -- use this schedule for estimating. Drawing 22's
+        cutting chart totals mass from whole sheet counts, the physical quantity to order steel against; the two
+        totals differ by about 2 percent for that reason (real integer sheets vs. a continuous approximation), not
+        because either is wrong.
+      </p>
       <table className="w-full mt-3">
         <thead>
           <tr>
@@ -456,6 +462,12 @@ export function CoreCuttingChart({ design, params, project }: Drawings2DProps) {
           </tr>
         </tbody>
       </table>
+      <p className="text-[10px] text-steel mt-2">
+        Mass above is from whole sheet counts -- the physical quantity. Use this chart for ordering steel. Drawing
+        21's stamping schedule totals mass from the continuous stack depth per step instead, for estimating; the
+        two totals differ by about 2 percent for that reason (real integer sheets vs. a continuous approximation),
+        not because either is wrong.
+      </p>
       <p className="text-[10px] text-steel mt-2">
         Fitted to the one 1250 kVA core cutting chart on file (CALIBRATION.md section 12) -- not confirmed at any
         other rating. A second chart, at a different rating, would let these three plate formulas be checked

@@ -398,6 +398,23 @@ total close to `wCore`'s old, also-inflated figure. Fixed the same way:
 `2C + dCore + w` / `2C + dCore - w`, average `2C + dCore`, matching `wCore`'s
 yoke term, same mitre relationship preserved.
 
+**Verified again directly** (all four of `design.wCore`, the BOM's own
+core line, drawing 21 and drawing 22, side by side on the 1250 kVA
+reference): `wCore`, the BOM line and drawing 22 agree to within 0.03%;
+drawing 21 sits 2.00% above them, exactly the residual described below,
+not a regression. `stepIncrement` snapping confirmed reaching
+`stepWidths` at the same time -- the narrowest step lands on the chart's
+own 50 mm, not the unsnapped continuous ideal near 42 mm.
+
+**Basis is now printed on both sheets, not only here.** A shop reading
+drawing 21 and drawing 22 together, seeing their totals differ by about
+two per cent, has no way to know from the sheets alone whether that is
+expected or an error -- this note lived only in the source repository,
+not on either drawing. Both now state their own basis directly: drawing
+21 says its mass is from the continuous stack depth per step, for
+estimating; drawing 22 says its mass is from whole sheet counts, the
+physical quantity to order steel against. Order against drawing 22.
+
 **All three -- `wCore`, drawing 21, drawing 22 -- now derive limb and yoke
 from the same two edge-length formulas**, checked directly against each
 other, not just against the one real reference chart (`reference-designs.test.mjs`,
