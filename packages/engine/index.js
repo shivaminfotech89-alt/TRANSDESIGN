@@ -974,6 +974,16 @@ function designTransformer(p) {
      compliance.nll/ll.ok checks inherit this fix for free, since both read
      it from here rather than re-deriving it themselves. */
   const sch = { nll: p.limitNLL, ll: p.limitLL };
+  /* g.pctZ (impedance as designed, %) is referenced to p.kva's own current
+     -- %Z = I_rated x Z_ohms / V_rated, and I_rated scales with kVA at
+     fixed voltage, so the SAME winding genuinely has a different %Z figure
+     at a different rating, not just a different loss. For a dual-rated
+     design this means there is a second, real impedance value at kva2's
+     own current that this engine does not compute -- unlike the fin-area
+     solve, this was never asked for and is not implemented (CALIBRATION.md
+     section 22, recorded as a known gap, not silently absent). Do not
+     read dualCompliance as covering this: it only carries the thermal and
+     loss checks the fin-area solve actually produces. */
   const compliance = {
     nll: { val: noLoad, lim: sch.nll, ok: noLoad <= sch.nll },
     ll: { val: loadLoss, lim: sch.ll, ok: loadLoss <= sch.ll },
@@ -1114,6 +1124,20 @@ function buildBOM(d, r, extras = []) {
   const gst = (exFactory * r.gstPct) / 100;
   const energy = ownershipCost(d, p);
 
+  /* CALIBRATION.md section 20/22: coolingFan, oilPump and coolingControlGear
+     have no basis to default to a nonzero rate, so a forced-cooled design
+     can silently quote real fan/pump hardware at ₹0 if the rate card was
+     never filled in -- exactly the "quoting one by accident" a zero-cost
+     BOM row invites. Flagged explicitly here, once, rather than relying on
+     a reader noticing a ₹0 rate column among dozens of rows. */
+  const zeroCoolingRows = Bseg.filter((x) => ["coolingFan", "oilPump", "coolingControlGear"].includes(x.rk) && x.rate === 0);
+  const warnings = zeroCoolingRows.length
+    ? [{
+      code: "cooling-cost-zero",
+      message: `${p.cooling} is a forced-cooled design carrying ${zeroCoolingRows.map((x) => x.code).join(", ")} at ₹0 -- enter the fan/pump/control-gear rate before quoting, or this design is being priced without its own cooling equipment.`,
+    }]
+    : [];
+
   return {
     segments: [
       { title: "A: Core & coil assembly", rows: A, total: matA },
@@ -1123,7 +1147,7 @@ function buildBOM(d, r, extras = []) {
     ],
     labour, material, labourCost, scrap, overhead, freight: r.freight,
     factory, works, margin, exFactory, gst, withGst: exFactory + gst, energy,
-    tco: exFactory + energy.total,
+    tco: exFactory + energy.total, warnings,
   };
 }
 
@@ -2257,7 +2281,10 @@ function routineTestSchedule(d) {
     { t: "Winding resistance HV", ref: "IEC 60076-1", exp: `${f3(d.rHV)} \u03A9 per phase at ${d.refT} \u00B0C`, lim: "Record, correct to reference temperature" },
     { t: "Winding resistance LV", ref: "IEC 60076-1", exp: `${d.rLV.toExponential(3)} \u03A9 per phase at ${d.refT} \u00B0C`, lim: "Record" },
     { t: "No-load loss and current at rated voltage", ref: "IEC 60076-1", exp: `${f0(d.noLoad)} W, ${f2(d.i0pct)} %`, lim: `${f0(d.sch.nll)} W guaranteed, +${d.std.lossTolPart} % on test` },
-    { t: "Load loss and impedance at principal tap", ref: "IEC 60076-1", exp: `${f0(d.loadLoss)} W, ${f2(d.pctZ)} %`, lim: `${f0(d.sch.ll)} W guaranteed, impedance \u00B1${p.zTol} %` },
+    {
+      t: `Load loss and impedance at principal tap${p.dualRating && p.kva2 > 0 ? `, stated at ${p.kva} kVA (${p.cooling}) only` : ""}`,
+      ref: "IEC 60076-1", exp: `${f0(d.loadLoss)} W, ${f2(d.pctZ)} %`, lim: `${f0(d.sch.ll)} W guaranteed, impedance \u00B1${p.zTol} %`,
+    },
     { t: "Separate source AC withstand, HV", ref: "IEC 60076-3", exp: `${p.acHV} kV for 60 s`, lim: "No breakdown" },
     { t: "Separate source AC withstand, LV", ref: "IEC 60076-3", exp: `${p.acLV} kV for 60 s`, lim: "No breakdown" },
     { t: "Induced overvoltage withstand", ref: "IEC 60076-3", exp: "Twice rated voltage, duration per clause", lim: "No breakdown" },
@@ -2276,6 +2303,20 @@ function routineTestSchedule(d) {
     rows.push({
       t: `Load loss at second rating, ${p.kva2} kVA (${p.cooling2}) -- calculated, not separately tested`,
       ref: "IEC 60076-1", exp: `${f0(d.dualLoadLoss)} W`, lim: `${f0(p.limitLL2)} W guaranteed`,
+    });
+    /* CALIBRATION.md section 22: %Z is referenced to whichever rating's
+       current the design was built to (p.kva) -- a real dual-rated unit
+       has a second, genuinely different %Z at kva2's own current (%Z
+       scales with rated current at fixed voltage), and a protection
+       engineer sizing relays or fault studies off the second rating needs
+       that figure. Not computed here -- flagged on the GTP rather than
+       left unstated, since a blank would read as "no second impedance
+       exists" rather than "not yet built". */
+    rows.push({
+      t: `Impedance at second rating, ${p.kva2} kVA (${p.cooling2}) -- not stated`,
+      ref: "Known gap, CALIBRATION.md section 22",
+      exp: "Not calculated by this engine",
+      lim: `Referenced to ${p.kva2} kVA's own current, not ${p.kva} kVA's; do not use the ${f2(d.pctZ)} % above for protection studies at the ${p.kva2} kVA point`,
     });
   }
   return rows;

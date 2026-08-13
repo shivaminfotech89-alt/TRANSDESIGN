@@ -367,6 +367,14 @@ export function ResultsDisplay({
           {/* BOM & COST */}
           {activeTab === 'bom' && (
             <div className="space-y-4">
+              {bom.warnings?.map((w: any) => (
+                <div key={w.code} className="bg-white border border-alert rounded-[2px] px-4 py-3 print:hidden">
+                  <div className="text-[11px] font-display uppercase tracking-[0.14em] text-alert mb-1">
+                    Cooling Equipment Priced At Zero
+                  </div>
+                  <p className="text-[11px] text-ink2">{w.message}</p>
+                </div>
+              ))}
               {bom.segments.map((seg: any) => (
                 <Card key={seg.title} title={seg.title} subtitle={inr(seg.total)}>
                   <table className="w-full">

@@ -193,6 +193,12 @@ export function PrintReport({ project, revision, result }: PrintReportProps) {
       {/* Bill of materials */}
       <div className="report-page-break p-6 max-w-[1000px] mx-auto" data-section="bom">
         <div className="text-[11px] font-display uppercase tracking-[0.18em] text-copper mb-3">Bill of Materials &amp; Cost</div>
+        {bom.warnings?.map((w: any) => (
+          <div key={w.code} className="bg-white border border-alert rounded-[2px] px-4 py-3 mb-3">
+            <div className="text-[11px] font-display uppercase tracking-[0.14em] text-alert mb-1">Cooling Equipment Priced At Zero</div>
+            <p className="text-[11px] text-ink2">{w.message}</p>
+          </div>
+        ))}
         {bom.segments.map((seg: any) => (
           <Section key={seg.title} title={seg.title} subtitle={inr(seg.total)}>
             <table className="w-full">

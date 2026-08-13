@@ -310,6 +310,20 @@ coolCase("ONAF", 1, 0);
 coolCase("OFAF", 1, 1);
 coolCase("ODAF", 1, 1);
 
+console.log("\ncooling equipment at zero rate warns on the BOM, ONAN stays silent");
+// CALIBRATION.md section 23: DEFAULT_RATES' coolingFan/oilPump/
+// coolingControlGear are still 0 (no reference-sheet basis), so a
+// forced-cooled BOM must warn, and an ONAN one -- which never carries
+// these rows -- must not.
+{
+  const onanBom = E.computeDesign(coolBase, { cooling: "ONAN" }, E.DEFAULT_RATES, []).bom;
+  const onafBom = E.computeDesign(coolBase, { cooling: "ONAF" }, E.DEFAULT_RATES, []).bom;
+  if (onanBom.warnings.length !== 0) { failures++; console.log(`  FAIL ONAN should carry no cooling-cost warning, got ${onanBom.warnings.length}`); }
+  else console.log("  ok   ONAN: no warning");
+  if (onafBom.warnings.length !== 1 || onafBom.warnings[0].code !== "cooling-cost-zero") { failures++; console.log(`  FAIL ONAF at zero fan rate should warn once, got ${JSON.stringify(onafBom.warnings)}`); }
+  else console.log(`  ok   ONAF at zero fan rate: "${onafBom.warnings[0].message}"`);
+}
+
 console.log("\ndual rating: fin area satisfies both the natural and forced check, not just the forced one");
 // CALIBRATION.md section 21. kva/cooling is the forced point (active part
 // sized to it, unchanged); kva2/cooling2 is the natural point. Close enough

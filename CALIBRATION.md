@@ -1405,3 +1405,84 @@ the active part's current/turns basis for a second current) were not
 part of this request and are not implemented; only the thermal check
 (item 3) was asked for and is what is built. A real dual-rated GTP
 conventionally quotes %Z on one base for this same reason.
+
+## 22. Known gap: dual-rated impedance is stated at the primary rating only
+
+%Z = I_rated x Z_ohms / V_rated x 100. I_rated scales with kVA at fixed
+voltage, so the same winding genuinely has a different %Z figure at a
+different rating, not just a different loss -- unlike no-load loss
+(same core, same flux, rating-independent) or load loss (a clean
+current-squared scaling this engine already applies for the second
+rating), impedance does not reduce to a scaling of the primary figure;
+it would need its own calculation at kva2's own current.
+
+Section 21's dual rating implementation does not compute it. This was a
+deliberate scope boundary at the time (recorded there as "not done"),
+but a boundary stated once in a markdown file a customer never sees is
+not the same as the gap being visible where it matters -- a protection
+engineer sizing relays or running a fault study off the second rating
+needs this figure and would have no way to know it was never
+calculated. Now surfaced in three places rather than left to this
+document alone:
+
+- **The engine** (packages/engine/index.js, designTransformer's
+  compliance object): a comment at g.pctZ's own compliance check names
+  the gap directly, so the next person reading dualCompliance does not
+  assume it covers impedance the way it covers loss and rise.
+- **The nameplate** (NamePlate.tsx): the Impedance field reads "X %
+  (at Y kVA only)" when dual rating is active, instead of a bare
+  percentage that would silently read as applying to both ratings.
+- **The GTP / routine test schedule** (routineTestSchedule): the
+  existing impedance row now names which rating it is stated at, and a
+  new row explicitly states the second rating's impedance is not
+  calculated, with a warning not to use the primary figure for
+  protection studies at the second rating's point.
+
+Not implemented, because it was not asked for and doing it honestly is
+more than a scaling: it needs pctZ recomputed at kva2's own current,
+which is g's own reactance/resistance geometry evaluated against a
+different rated current -- not a trivial addition, and not attempted
+here on the strength of "it would be nice to have" alone. A real
+dual-rated GTP conventionally quotes %Z on one base for this same
+reason (it is normal practice to declare which base an impedance figure
+is on, not to avoid the question entirely) -- so stating the gap
+honestly, rather than computing a second figure under time pressure, is
+the more defensible choice today.
+
+## 23. Cooling equipment rates: still zero, and why, plus a BOM warning
+
+Section 20 left coolingFan, oilPump and coolingControlGear at ₹0 in
+DEFAULT_RATES because there was no basis to set them from. Checked
+again directly against this project's three reference sheets (1250 kVA
+oil OLTC, both 630 kVA dry and 630 KVA CU Level 1 costing) before
+writing this section: none of the three is a forced-cooled design --
+all default to ONAN or are dry-type -- so none of them carries a fan,
+pump or control-gear cost line to read a figure from. There is no
+reference-sheet basis for these three rates, and none has been invented
+in its place. They remain at ₹0, and a real quote from a fan/pump/
+control-gear supplier -- or the figures already used on a past works
+costing sheet for a forced-cooled unit, if one exists outside the three
+sheets referenced so far -- is what should replace them, not an
+estimate.
+
+**BOM warning added** (buildBOM's new `warnings` array, ENGINE_VERSION
+unchanged -- this is a reporting addition, not a formula change): when a
+forced-cooled design carries any of the three cooling rows at ₹0, the
+BOM now returns a warning naming which rows and which cooling type,
+surfaced as a banner above the BOM tab (ResultsDisplay.tsx) and above
+the printed report's Bill of Materials section (PrintReport.tsx) --
+the two places a design actually gets quoted from. This is what CLAUDE.md
+invariant 5 asks for directly: the dependent output (the BOM total on a
+forced-cooled design) is marked, by name, as resting on a missing
+parameter, rather than a ₹0 line sitting quietly among dozens of others
+until someone notices.
+
+One consequence not yet addressed: BudgetTab.tsx's default live search
+(section 20) sweeps ONAN against ONAF on the reasoning that forced
+cooling now carries real cost. That is only true once a real rate is
+entered -- until then, an ONAF candidate in that search is still priced
+without its own fan cost, so it will show up looking cheaper than it
+actually would be. The sweep itself has not been changed, since nothing
+in this section was asked to touch it; recorded here so the ONAN vs
+ONAF comparison in the live search is not mistaken for a fair one before
+the rate card actually has a fan price in it.

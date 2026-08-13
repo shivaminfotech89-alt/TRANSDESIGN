@@ -71,7 +71,15 @@ export function NamePlate({ design, params, project, docNo }: NamePlateProps) {
     ['HV Line Current', `${design.iLineHV.toFixed(1)} A`],
     ['LV Line Current', `${design.iLineLV.toFixed(1)} A`],
     ['Vector Group', params.vector],
-    ['Impedance', `${design.pctZ.toFixed(2)} %`],
+    [
+      'Impedance',
+      // %Z scales with rated current at fixed voltage, so a second rating
+      // genuinely has a different %Z, not just a different loss -- this
+      // engine does not calculate it (known gap, CALIBRATION.md section
+      // 22), so the base it IS stated on must be named rather than left
+      // implicit, per CLAUDE.md invariant 5.
+      dual ? `${design.pctZ.toFixed(2)} % (at ${params.kva} kVA only)` : `${design.pctZ.toFixed(2)} %`,
+    ],
     ['No-Load Loss', `${Math.round(design.noLoad)} W`],
     ['Load Loss', dual ? `${Math.round(dual[0].loadLoss)} W (${dual[0].cooling}) / ${Math.round(dual[1].loadLoss)} W (${dual[1].cooling})` : `${Math.round(design.loadLoss)} W`],
     ['Temperature Rise', dual ? `${dual[0].rise.toFixed(1)} K (${dual[0].cooling}) / ${dual[1].rise.toFixed(1)} K (${dual[1].cooling})` : `${rise.toFixed(1)} K`],
