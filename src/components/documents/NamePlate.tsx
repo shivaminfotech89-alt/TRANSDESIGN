@@ -48,8 +48,22 @@ export function NamePlate({ design, params, project, docNo }: NamePlateProps) {
   const hvVolts = params.dualHV ? `${params.hv / 1000} / ${params.hv2 / 1000} kV` : `${params.hv / 1000} kV`;
   const lvVolts = params.dualLV ? `${params.lv} / ${params.lv2} V` : `${params.lv} V`;
 
+  /* A real dual-rated unit's nameplate carries both name-plate points --
+     the active part is sized to one (params.kva/cooling), but the fin area
+     is sized to satisfy both (packages/engine's dualCompliance), so both
+     are guaranteed and both belong here, not just the one the windings
+     were sized to. Ordered by ascending kVA for the conventional
+     "natural / forced" reading, regardless of which one params.kva itself
+     is. No-load loss is not split: it is the same core and the same flux
+     either way, only the limit it is checked against differs by rating. */
+  const dual = design.dualCompliance
+    ? [{ kva: params.kva, cooling: params.cooling, loadLoss: design.loadLoss, rise: design.dry ? design.windRise : design.oilRise },
+      { kva: params.kva2, cooling: params.cooling2, loadLoss: design.dualLoadLoss, rise: design.dry ? design.dualWindRise : design.dualOilRise }]
+      .sort((a, b) => a.kva - b.kva)
+    : null;
+
   const ratingCells: [string, string][] = [
-    ['Rated Power', `${params.kva} kVA`],
+    ['Rated Power', dual ? `${dual[0].kva} / ${dual[1].kva} kVA` : `${params.kva} kVA`],
     ['Phases', '3'],
     ['Frequency', `${params.freq} Hz`],
     ['HV Voltage', hvVolts],
@@ -59,12 +73,12 @@ export function NamePlate({ design, params, project, docNo }: NamePlateProps) {
     ['Vector Group', params.vector],
     ['Impedance', `${design.pctZ.toFixed(2)} %`],
     ['No-Load Loss', `${Math.round(design.noLoad)} W`],
-    ['Load Loss', `${Math.round(design.loadLoss)} W`],
-    ['Temperature Rise', `${rise.toFixed(1)} K`],
+    ['Load Loss', dual ? `${Math.round(dual[0].loadLoss)} W (${dual[0].cooling}) / ${Math.round(dual[1].loadLoss)} W (${dual[1].cooling})` : `${Math.round(design.loadLoss)} W`],
+    ['Temperature Rise', dual ? `${dual[0].rise.toFixed(1)} K (${dual[0].cooling}) / ${dual[1].rise.toFixed(1)} K (${dual[1].cooling})` : `${rise.toFixed(1)} K`],
     ['HV Insulation Level', `${params.bilHV} kVp LI / ${params.acHV} kV AC`],
     ['LV Insulation Level', `${params.bilLV} kVp LI / ${params.acLV} kV AC`],
     ['Tappings', tapLabel],
-    ['Cooling', params.cooling],
+    ['Cooling', dual ? `${dual[0].cooling} / ${dual[1].cooling}` : params.cooling],
     ['Total Mass', `${Math.round(totalMass)} kg`],
     [design.dry ? 'Insulation Medium' : 'Oil Quantity', design.dry ? 'Dry type, no oil' : `${Math.round(design.fluidLitres)} L, ${design.fluid.name}`],
     ['Standard', std],
@@ -85,7 +99,7 @@ export function NamePlate({ design, params, project, docNo }: NamePlateProps) {
           {app} Transformer &middot; {std}
         </div>
         <div className="text-[20px] font-display uppercase mt-1" style={{ color: '#E8B887' }}>
-          {params.kva} kVA &middot; {params.hv / 1000} kV to {params.lv} V
+          {dual ? `${dual[0].kva} / ${dual[1].kva} kVA` : `${params.kva} kVA`} &middot; {params.hv / 1000} kV to {params.lv} V
         </div>
       </div>
 

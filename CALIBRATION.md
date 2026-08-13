@@ -1261,3 +1261,147 @@ constraint) and item 4 (fan/pump cost) together, since neither is honest
 without the other -- a fin area sized for two points but costed as if
 forced cooling were free is not actually costed for the design being
 sold.
+
+## 20. Cooling equipment cost: fans, oil pump and control gear
+
+ENGINE_VERSION 1.13.0. Section 17 found buildBOM had no fan or pump line
+item at all, so a forced-cooling candidate looked cheaper in a cost
+search purely because that cost was missing. Closed directly: three new
+buildBOM rows, gated on cooling type, computed from the design's own
+geometry rather than a fixed count.
+
+**Fan count** (CF-01, ONAF/OFAF/ODAF -- all three are air-forced, the
+"AF" in each name): derived from finAreaReq (the cooling surface the
+design actually needs) and forcedMul (1.5 ONAF, 2.1 OFAF/ODAF), not a
+fixed number. finAreaReq x (forcedMul - 1) is the fraction of that
+surface's dissipation forcing itself is contributing -- at forcedMul = 1
+(ONAN) this is zero and fanCount is zero. Divided by a new fitted
+parameter, p.fanUnitArea (default 3.0 m², range 1.5-8.0, deriveSpec's own
+"Construction Constants" section, same as finDiss and tankDiss next to
+it): the effective cooling surface one fan is assumed to service. This is
+not sourced from any fan manufacturer's catalogue -- there is no textbook
+or reference-sheet figure for it the way there is for the dissipation law
+itself -- so it is fitted as a round, clearly-labelled placeholder in the
+same category as the engine's other fitted-not-derived constants, meant
+to be overridden once real fan air-delivery data is available. It only
+ever affects a BOM quantity, never a compliance check, which limits what
+a wrong value can actually do.
+
+**Pump count** (CP-01, OFAF/ODAF only -- the oil-forced types): fixed at
+1, one circulation pump set per cooling bank. Not derived from anything,
+since there was no basis offered to derive it from and a single pump set
+is the simplest defensible default; revisit if a specific rating is ever
+shown to need more than one.
+
+**Control gear and wiring** (CG-01, whenever either fans or a pump are
+fitted): a lump, qty 1, per the request that this be a lump if that is
+how the rate card works elsewhere -- it does, r.assembly and r.freight
+are already lump rates.
+
+**Rates**: DEFAULT_RATES gets coolingFan, oilPump and coolingControlGear,
+all left at 0. Unlike core/condCu/tankMS (commodity rates) or even octc/
+oltc/fittings/cableBox (accessory rates a real Mehir costing sheet gave a
+figure for), there is no sheet and no commodity index behind a fan or
+pump's rupee price -- it is a specific bought component whose price
+depends on the vendor and spec chosen, not something to estimate from
+first principles or borrow from an unrelated line. Left at 0 rather than
+guessed: every ONAF/OFAF/ODAF BOM prices these rows at zero, visibly,
+until a real quote is entered in the rate card (new "Cooling Equipment"
+group in src/lib/rateKeys.ts, so the rate-card editor and item-master
+picker both surface it the same way every other rate is surfaced). A
+visible zero prompts entry; a plausible-looking nonzero figure would not
+have, and would have been exactly the fabricated-looking value CLAUDE.md
+invariant 5 rules out.
+
+Verified: ONAN at 5000 kVA gets zero fan/pump rows (forcedMul = 1, no
+behaviour change from before this section). ONAF gets fans only. OFAF and
+ODAF get fans and a pump. All three forced types get the control-gear
+lump. Default 1000 kVA golden case is ONAN, so none of engine.test.mjs's
+existing goldens moved -- ENGINE_VERSION is bumped anyway (1.12.0 to
+1.13.0) because this changes buildBOM's output shape and, once a real
+rate is entered, its price, for every forced-cooled design: CLAUDE.md
+invariant 4 is about what the formula can now produce, not only about
+whether today's specific golden numbers happen to move.
+
+With real cost now on these lines, section 17's reason for excluding
+cooling from BudgetTab.tsx's default live sweep no longer holds. Cooling
+is now swept there too, ONAN vs ONAF (not the full four -- OFAF/ODAF are
+rarely the live cost question at the ratings this search normally runs
+at, and each added cooling multiplies the whole grid, the same tradeoff
+steps and tapType were already left out of).
+
+## 21. Dual rating (natural + forced) as an optional second point
+
+ENGINE_VERSION 1.13.0. Section 19 scoped this to the fin-area solve
+specifically: the active part (turns, conductor area, current density)
+stays sized to p.kva/p.cooling alone, exactly as a single-rating design
+always has been; only the cooling surface needs to satisfy a second
+point. Implemented as scoped, additive, off by default.
+
+**core.dualRating** (boolean, false by default, alongside dualHV/dualLV
+in the same "Rating & Enquiry" style -- a structural toggle, not a
+derived parameter). When true, deriveSpec put()s three more fields, only
+then, so a plain single-rating call site sees no new parameters at all:
+
+- **cooling2**: the second rating's own cooling type. Auto-suggested as
+  the natural type (ONAN) if the primary is forced-cooled, or the forced
+  type (ONAF) if the primary is natural -- covers the dominant real case
+  (X kVA ONAN / Y kVA ONAF) regardless of which one the user set as the
+  primary rating.
+- **kva2**: the second name-plate rating. Auto-suggested from kva by the
+  0.8 IEC/IS natural-to-forced ratio between adjacent cooling stages, in
+  whichever direction cooling2 implies (kva2 = kva x 0.8 if cooling2 is
+  more natural than cooling, kva2 = kva / 0.8 if more forced), rounded to
+  the nearest 25 kVA. Override with the declared figure.
+- **limitNLL2 / limitLL2**: the second rating's own guaranteed-loss
+  limits, auto-suggested from lossSchedule(kva2, ...) and overridable the
+  same way limitNLL/limitLL already are (CLAUDE.md invariant 6).
+
+**The fin-area solve** (designTransformer, oil branch): finAreaReq is now
+the larger of two evaluations of the same dissipation law -- the primary
+point's own loss and forced multiplier, and, when dualRating is on, the
+second point's own loss (noLoad unchanged, loadLoss scaled by
+(kva2/kva)^2 -- the same winding carrying less or more current) and
+forced multiplier. tankDissip and the target rise are shared between both
+checks: same tank, same standard, same fluid, only the loss and forced
+multiplier differ. Whichever needs more area sets what is actually built.
+oilRise/windRise (the primary point's own figures, used everywhere else
+in the design) are recomputed against the FINAL finAreaReq, so if the
+second point was the binding one, the primary point correctly shows up
+running cooler than its own target, not at it -- the tank was not built
+for the primary point alone. dualOilRise/dualWindRise are the second
+point's own figures against that same final area.
+
+engine.test.mjs adds a case at 5010/5000 kVA (deliberately close in kVA,
+so the natural point's lower forced multiplier -- not a much smaller
+loss -- is what has to win) confirming the natural check does bind over
+the forced one there, and that both points land within the top-oil rise
+limit once finAreaReq covers the larger of the two: exactly the "not
+always the higher-loss point" case section 19 flagged before this was
+built, now exercised on every test run rather than asserted from a
+single hand check.
+
+**Compliance and reporting**: a new dualCompliance object (nll/ll/total/
+rise/wRise, null when dualRating is off) reports the second point's own
+checks against limitNLL2/limitLL2 and the shared rise limits -- a
+separate object, not folded into compliance/compliant, so no existing
+caller of those (searchDesigns, fitEtkToCost) changes behaviour. The
+nameplate (NamePlate.tsx) prints both ratings, both cooling types and
+both load-loss/rise figures when dualCompliance exists, ordered by
+ascending kVA for the conventional natural/forced reading regardless of
+which one is params.kva. The routine test schedule
+(routineTestSchedule) adds one row for the second rating's load loss,
+explicitly labelled "calculated, not separately tested" -- IEC 60076-1
+practice is one load-loss measurement, at the rating the existing row
+already covers; the second rating's figure is a derating of that
+measurement, not an independent guarantee, and the GTP should not claim
+otherwise. ResultsDisplay.tsx adds a second Compliance card for the same
+reason NamePlate does.
+
+**Not done, deliberately out of the scope this was asked for**: no
+second impedance figure. %Z is expressed on whichever rating's current
+the design was built to (p.kva) -- section 19's item 1 and 2 (resizing
+the active part's current/turns basis for a second current) were not
+part of this request and are not implemented; only the thermal check
+(item 3) was asked for and is what is built. A real dual-rated GTP
+conventionally quotes %Z on one base for this same reason.

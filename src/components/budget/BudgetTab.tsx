@@ -188,11 +188,18 @@ export function BudgetTab({ design, bom, params, rates, activePreviewKey, onSele
       // deriveSpec or the user has already set it to that ceiling). This is
       // a fair trade because both ends are held to the same compliance
       // check (d.compliance.rise/wRise.ok) that gates feasible either way.
-      // Cooling type is deliberately NOT swept here: buildBOM has no line
-      // item for fans or oil pumps, so a forced-cooling candidate would look
-      // cheaper only because its fan/pump cost is missing, not because it
-      // actually is cheaper. Sweep it once that cost exists.
       riseTargets: [params.oilRiseTarget, Math.max(30, params.oilRiseTarget - 5), Math.max(30, params.oilRiseTarget - 10)],
+      // CALIBRATION.md section 20: cooling type is now swept too. buildBOM
+      // prices fans (ONAF/OFAF/ODAF) and a pump (OFAF/ODAF) as real BOM
+      // lines, so a forced-cooling candidate no longer looks cheaper only
+      // because that cost was missing -- it is a fair trade now, the same
+      // way tank type already was. ONAN vs ONAF only, not the full four:
+      // OFAF/ODAF are rarely the live cost question at the ratings this
+      // search is normally run at, and each added cooling multiplies the
+      // whole grid, the same tradeoff steps and tapType were left out of
+      // above. Dry designs have no fan/pump costing (oil-only geometry), so
+      // stay at their single current cooling as before.
+      coolings: params.dry ? [params.cooling] : ['ONAN', 'ONAF'],
     };
     // Deferred one tick so the "Searching" state actually paints before the
     // synchronous grid search (a few thousand designTransformer + buildBOM

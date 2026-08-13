@@ -8,7 +8,7 @@
  * without bumping it, or old quotations stop reproducing.
  */
 
-export const ENGINE_VERSION = "1.12.0";
+export const ENGINE_VERSION = "1.13.0";
 
 const CONDUCTORS = {
   copper: { name: "Copper, EC grade", rho20: 0.017241, alpha: 0.00393, dens: 8890, dMax: 3.6, short: "Cu", proof: 1.0 },
@@ -224,7 +224,7 @@ const rng = (v, lo, hi, st) => [Math.round(v * lo * 100) / 100, Math.round(v * h
 const ESSENTIALS = {
   application: "distribution", standard: "IS",
   kva: 1000, hv: 11000, lv: 433, freq: 50, vector: "Dyn11",
-  dualHV: false, hv2: 22000, dualLV: false, lv2: 415,
+  dualHV: false, hv2: 22000, dualLV: false, lv2: 415, dualRating: false,
   effLevel: "level2", medium: "oil", condPref: "auto",
 };
 
@@ -267,9 +267,32 @@ function deriveSpec(core, over = {}) {
     const fl = put("fluid", "mineral", null, Object.entries(FLUIDS).map(([k, v]) => [k, v.name]), "Mineral oil unless the site needs the fire point of an ester.");
     put("dryType", "castResin", null, null, null);
     put("insClass", "A", null, Object.entries(INS_CLASS).map(([k, v]) => [k, v.name]), "Liquid-immersed windings are class A.");
-    put("cooling", kva <= 5000 ? "ONAN" : "ONAF", null, [["ONAN", "ONAN"], ["ONAF", "ONAF"], ["OFAF", "OFAF"], ["ODAF", "ODAF"]], "Natural circulation is normal up to about 5 MVA.");
+    const cool1 = put("cooling", kva <= 5000 ? "ONAN" : "ONAF", null, [["ONAN", "ONAN"], ["ONAF", "ONAF"], ["OFAF", "OFAF"], ["ODAF", "ODAF"]], "Natural circulation is normal up to about 5 MVA.");
     put("tankType", kva <= 2500 ? "fin" : "radiator", null, [["fin", "Corrugated fin, sealed"], ["radiator", "Radiator + conservator"]], "Fin tanks up to about 2500 kVA, radiators above that.");
     put("oilRiseTarget", Math.min(std.oilRise, FLUIDS[fl].riseLimit), [30, Math.min(std.oilRise, FLUIDS[fl].riseLimit), 1], null, `Design to the ${std.name} limit. Lower means more cooling surface and more cost.`);
+
+    /* CALIBRATION.md section 21: dual rating, e.g. 5000 kVA ONAN / 6250 kVA
+       ONAF from one tank -- routine practice at this size. Off by default,
+       additive: the active part (turns, conductor area, current density)
+       stays sized to kva/cooling alone, exactly as a single-rating design
+       always has been. kva2/cooling2 exist only to give designTransformer's
+       fin-area solve a second thermal check to satisfy (the natural point's
+       own lower loss against the forced point's own higher loss), and to
+       give the nameplate and GTP a second guaranteed-figure line -- they do
+       not resize anything the active part depends on. */
+    if (core.dualRating) {
+      const coolMul = (c) => (c === "ONAF" ? 1.5 : c === "OFAF" || c === "ODAF" ? 2.1 : 1.0);
+      const cool2 = put("cooling2", cool1 === "ONAN" ? "ONAF" : "ONAN", null,
+        [["ONAN", "ONAN"], ["ONAF", "ONAF"], ["OFAF", "OFAF"], ["ODAF", "ODAF"]],
+        "The second rating's own cooling type -- usually the natural type if the rating above is forced-cooled, or the forced type if the rating above is natural.");
+      const ratio = coolMul(cool2) > coolMul(cool1) ? 1 / 0.8 : 0.8;
+      const kva2 = put("kva2", Math.round((kva * ratio) / 25) * 25,
+        [Math.round((kva * 0.5) / 25) * 25, Math.round((kva * 1.6) / 25) * 25, 25], null,
+        "The second name-plate rating this same build is also sold at. 0.8 is the common IEC/IS natural-to-forced ratio between adjacent cooling stages; override with the declared figure.");
+      const sch2 = lossSchedule(kva2, core.effLevel === "custom" ? "level2" : core.effLevel, dry);
+      put("limitNLL2", Math.round(sch2.nll), [Math.round(sch2.nll * 0.5), Math.round(sch2.nll * 2), 5], null, `Estimated from the level formula for ${kva2} kVA. Replace it with the figure in the enquiry -- no-load loss does not change with rating, only the limit it is checked against does.`);
+      put("limitLL2", Math.round(sch2.ll), [Math.round(sch2.ll * 0.5), Math.round(sch2.ll * 2), 25], null, `Estimated for ${kva2} kVA. Load loss at this rating is the primary rating's own load loss scaled by (kva2/kva)², not a separate design.`);
+    }
   }
   put("refTemp", dry ? INS_CLASS[S.insClass].ref : 75, [55, 140, 5], null, "Temperature at which the load loss is declared.");
   const indian = ["IS", "CBIP", "ECBC"].includes(core.standard);
@@ -461,6 +484,15 @@ function deriveSpec(core, over = {}) {
   put("bottomClr", 60, [30, 150, 5], null, "Core bottom frame to tank floor.");
   put("finDiss", 250, [180, 400, 10], null, "Fin or radiator dissipation at 50 K rise. Calibrate it from your own heat-run results.");
   put("tankDiss", 300, [200, 450, 10], null, "Plain tank wall dissipation at 50 K rise.");
+  /* CALIBRATION.md section 20: converts the extra cooling surface forcing
+     buys (finAreaReq x (forcedMul-1), the area a natural design would have
+     needed beyond what forcing actually requires) into a fan count for the
+     BOM. Not sourced from any fan manufacturer's catalogue -- there is no
+     textbook figure for this the way there is for a dissipation law -- so
+     it is fitted as a round, clearly-labelled placeholder and left in the
+     same "fitted, override with your own data" category as finDiss and
+     tankDiss above, not presented as a supplier spec. */
+  put("fanUnitArea", 3.0, [1.5, 8.0, 0.5], null, "Effective cooling surface one fan services, m². A fitted placeholder, not a catalogue figure -- override once your own fan supplier's air-delivery data is known.");
   put("airDiss", 3.2, [2.0, 5.0, 0.1], null, "Dry-type coil surface dissipation coefficient.");
 
   /* --- economics --- */
@@ -494,6 +526,17 @@ const DEFAULT_RATES = {
   cableBox: 18000, fittings: 26000, plateSet: 3500, resin: 380, enclosure: 155,
   labWind: 65, labCore: 22, labTank: 34, assembly: 42000,
   overheadPct: 12, scrapPct: 2.5, freight: 22000, marginPct: 11, gstPct: 18,
+  /* CALIBRATION.md section 20: cooling fans, oil pumps and their control
+     gear are bought components with no per-kg or per-m² basis anywhere else
+     in this rate card to anchor a starting figure on, unlike core/condCu/
+     tankMS (commodity rates) or even octc/oltc/fittings (accessory rates
+     this project's own past costing sheets gave a figure for). There is no
+     such sheet for these three. Left at 0, not a guessed market price --
+     every ONAF/OFAF/ODAF BOM will price these lines at zero until a real
+     quote is entered in the rate card, which is deliberate: a visible zero
+     is a prompt to enter the rate, a plausible-looking nonzero one would
+     not be. */
+  coolingFan: 0, oilPump: 0, coolingControlGear: 0,
 };
 
 /* ---------------- Formatting ---------------- */
@@ -809,6 +852,8 @@ function designTransformer(p) {
   let tankL = 0, tankW = 0, tankH = 0, tankArea = 0, finAreaReq = 0, wTank = 0, wFin = 0;
   let fluidLitres = 0, oilRise = 0, windRise = 0, coilArea = 0, wEnclosure = 0;
   let kTank = 0, kFin = 0, tankDissip = 0, riseTarget = 0, forcedMul = 1;
+  let fanCount = 0, pumpCount = 0;
+  let dualForced = 0, dualLoadLoss = 0, dualTotalLoss = 0, dualAreaReq = 0, dualOilRise = 0, dualWindRise = 0;
 
   /* Tank length must clear the outer limbs' own coil envelope, not their
      bare core. coreWidth (2*cc + dCore) stops at the core surface, so
@@ -844,6 +889,29 @@ function designTransformer(p) {
     riseTarget = target;
     tankDissip = kTank * tankArea * Math.pow(target, 1.25);
     finAreaReq = Math.max(0, (totalLoss - tankDissip) / (kFin * forced * Math.pow(target, 1.25)));
+
+    /* CALIBRATION.md section 21: dual rating (optional, off by default).
+       The active part above (turns, conductor area, current density) is
+       sized to p.kva/p.cooling alone, unchanged. Only the fin area changes:
+       it must satisfy BOTH points' own rise limit at BOTH points' own loss
+       and forced multiplier, not just the primary's -- tankDissip and
+       target are shared (same tank, same standard, same fluid), only the
+       loss and forced multiplier differ between the two checks. Load loss
+       scales with current squared for the same winding; no-load loss does
+       not change, the core and flux are the same core regardless of which
+       name-plate figure is being carried. This is not always the
+       higher-loss point that binds -- a lower forced multiplier can need
+       more raw area even at a lower loss -- so both are actually computed,
+       not assumed. */
+    dualForced = p.dualRating && p.kva2 > 0
+      ? (p.cooling2 === "ONAF" ? 1.5 : p.cooling2 === "OFAF" || p.cooling2 === "ODAF" ? 2.1 : 1.0) : 0;
+    if (p.dualRating && p.kva2 > 0) {
+      dualLoadLoss = loadLoss * Math.pow(p.kva2 / p.kva, 2);
+      dualTotalLoss = noLoad + dualLoadLoss;
+      dualAreaReq = Math.max(0, (dualTotalLoss - tankDissip) / (kFin * dualForced * Math.pow(target, 1.25)));
+      finAreaReq = Math.max(finAreaReq, dualAreaReq);
+    }
+
     oilRise = Math.pow(totalLoss / (kTank * tankArea + kFin * forced * finAreaReq), 1 / 1.25);
     wFin = (finAreaReq / 2) * 0.0012 * 7850 * (p.tankType === "fin" ? 1.18 : 1.55);
     const tPlate = p.kva > 2500 ? 0.006 : 0.005;
@@ -852,6 +920,22 @@ function designTransformer(p) {
     const activeVol = wCore / 7650 + wLV / cLV.dens + wHV / cHV.dens + wIns / 1150 + wFrame / 7850;
     fluidLitres = Math.max(30, (tankVol - activeVol) * 1000 * (p.tankType === "fin" ? 1.10 : 1.22));
     windRise = 0.8 * oilRise + grad;
+    if (p.dualRating && p.kva2 > 0) {
+      dualOilRise = Math.pow(dualTotalLoss / (kTank * tankArea + kFin * dualForced * finAreaReq), 1 / 1.25);
+      dualWindRise = 0.8 * dualOilRise + grad;
+    }
+
+    /* CALIBRATION.md section 20: fan count from the cooling surface actually
+       required and the forced multiplier, not a fixed number -- forcedMul-1
+       is the fraction of finAreaReq's dissipation that forcing itself is
+       contributing (at forcedMul=1, ONAN, this is 0 and fanCount is 0).
+       p.fanUnitArea is a fitted placeholder (see its own put() note above),
+       not a catalogue figure. ONAF, OFAF and ODAF are all air-forced (the
+       "AF" in each name) and so all carry fans; OFAF and ODAF additionally
+       direct/force the oil itself and so also carry a pump -- fans and pump
+       are independent lines, not alternatives. */
+    fanCount = forced > 1 ? Math.max(1, Math.ceil((finAreaReq * (forced - 1)) / p.fanUnitArea)) : 0;
+    pumpCount = p.cooling === "OFAF" || p.cooling === "ODAF" ? 1 : 0;
   } else {
     const t1 = clr.coreLvClr, t2 = t1 + g.lvRadial, t3 = t2 + clr.lvHvClr, t4 = t3 + g.hvRadial;
     coilArea = 3 * ((perim(t1) + perim(t2)) * g.hLV + (perim(t3) + perim(t4)) * g.hHV) / 1e6;
@@ -902,6 +986,24 @@ function designTransformer(p) {
   };
   const compliant = Object.values(compliance).every((x) => x.ok);
 
+  /* Second rating's own compliance, reported alongside the primary's for
+     the nameplate and GTP -- a real dual-rated unit is guaranteed at both
+     points, not just the one the active part happens to be sized to.
+     limitNLL2/limitLL2 are put() the same overridable way as the primary's
+     own limits (see deriveSpec). No-load loss is the same core, so it is
+     checked against a different limit, not a different value. */
+  let dualCompliance = null, dualCompliant = null;
+  if (p.dualRating && p.kva2 > 0) {
+    dualCompliance = {
+      nll: { val: noLoad, lim: p.limitNLL2, ok: noLoad <= p.limitNLL2 },
+      ll: { val: dualLoadLoss, lim: p.limitLL2, ok: dualLoadLoss <= p.limitLL2 },
+      total: { val: dualTotalLoss, lim: p.limitNLL2 + p.limitLL2, ok: dualTotalLoss <= p.limitNLL2 + p.limitLL2 },
+      rise: { val: dualOilRise, lim: riseLimit, ok: dualOilRise <= riseLimit + 0.5 },
+      wRise: { val: dualWindRise, lim: wRiseLimit, ok: dualWindRise <= wRiseLimit + 0.5 },
+    };
+    dualCompliant = Object.values(dualCompliance).every((x) => x.ok);
+  }
+
   return {
     p, grade, ct, std, fluid, dryT, cls, dry, B, cLV, cHV, dLV, dHV, clr, refT, shape, solvedZ,
     hvConn, lvConn, hvPh, lvPh, hvDesign, lvDesign, iLineHV, iLineLV, iHV, iLV,
@@ -917,6 +1019,8 @@ function designTransformer(p) {
     pctX: g.pctX, pctR: g.pctR, pctZ: g.pctZ, regFull, oilRise, windRise, grad, hotspot, hotspotAvg, lifeFactor,
     riseLimit, wRiseLimit, eff100: effAt(1), eff75: effAt(0.75), eff50: effAt(0.5), maxEffLoad,
     iscLV: iLV * iscMult, iscHV: iHV * iscMult, iscMult, noise, sch, compliance, compliant,
+    fanCount, pumpCount,
+    dualForced, dualLoadLoss, dualTotalLoss, dualOilRise, dualWindRise, dualCompliance, dualCompliant,
     Kw, aWin, Hw0, util: shape === "circ" ? (STEP_UTIL[p.steps] || 0.94) : ct.aspect, sf: grade.sf,
     kTank, kFin, tankDissip, riseTarget, forcedMul, vaPerKg,
     rhoLV: rho(cLV), rhoHV: rho(cHV), dEff: g.dEff, hEff: g.hEff, X: g.X, lmtMean: g.lmtMean,
@@ -960,6 +1064,17 @@ function buildBOM(d, r, extras = []) {
       { code: "TK-02", desc: `${p.tankType === "fin" ? "Corrugated fin wall" : "Pressed-steel radiators"} \u2013 ${f1(d.finAreaReq)} m\u00B2 surface`, qty: d.wFin, unit: "kg", rate: p.tankType === "fin" ? r.fin : r.radiator, rk: p.tankType === "fin" ? "fin" : "radiator" },
       { code: "OL-01", desc: d.fluid.name, qty: d.fluidLitres, unit: "L", rate: r.fluid, rk: "fluid" },
       { code: "PT-01", desc: "Surface treatment and painting", qty: d.tankArea + (2 * d.tankL * d.tankW) / 1e6 + d.finAreaReq * 0.35, unit: "m\u00B2", rate: r.paint, rk: "paint" },
+      /* CALIBRATION.md section 20: fans on ONAF/OFAF/ODAF (all three are
+         air-forced), an oil pump additionally on OFAF/ODAF (oil-forced), a
+         control-gear-and-wiring lump whenever either is fitted. Rates
+         default to 0 -- see DEFAULT_RATES's own comment -- so these rows
+         price at zero, visibly, until a real rate is entered; they are not
+         omitted, because a missing row is a missing row whether or not its
+         rate has been filled in yet, and omitting it would hide that the
+         quantity itself (d.fanCount) is real. */
+      ...(d.fanCount > 0 ? [{ code: "CF-01", desc: `Cooling fans, ${p.cooling}${r.coolingFan ? "" : " \u2013 enter fan unit rate"}`, qty: d.fanCount, unit: "no", rate: r.coolingFan, rk: "coolingFan" }] : []),
+      ...(d.pumpCount > 0 ? [{ code: "CP-01", desc: `Oil circulation pump, ${p.cooling}${r.oilPump ? "" : " \u2013 enter pump unit rate"}`, qty: d.pumpCount, unit: "no", rate: r.oilPump, rk: "oilPump" }] : []),
+      ...(d.fanCount > 0 || d.pumpCount > 0 ? [{ code: "CG-01", desc: `Cooling control gear and wiring${r.coolingControlGear ? "" : " \u2013 enter control gear rate"}`, qty: 1, unit: "lot", rate: r.coolingControlGear, rk: "coolingControlGear" }] : []),
     ];
 
   const Cseg = [
@@ -2136,7 +2251,7 @@ function documentRegister(core, d, bom, project) {
 
 function routineTestSchedule(d) {
   const p = d.p;
-  return [
+  const rows = [
     { t: "Voltage ratio at all taps", ref: "IEC 60076-1", exp: `${f3((d.nHV / d.nLV))} turns ratio, error ${f3(d.ratioErr)} %`, lim: "\u00B10.5 % of declared" },
     { t: "Vector group and polarity", ref: "IEC 60076-1", exp: p.vector, lim: "As declared" },
     { t: "Winding resistance HV", ref: "IEC 60076-1", exp: `${f3(d.rHV)} \u03A9 per phase at ${d.refT} \u00B0C`, lim: "Record, correct to reference temperature" },
@@ -2149,6 +2264,21 @@ function routineTestSchedule(d) {
     { t: "Insulation resistance", ref: "Works practice", exp: "Record HV-E, LV-E, HV-LV", lim: "Record" },
     { t: "Oil dielectric strength", ref: "IEC 60296", exp: d.dry ? "Not applicable" : "Sample before and after filling", lim: d.dry ? "n/a" : "60 kV minimum" },
   ];
+  /* CALIBRATION.md section 21: dual rating is not a second independent
+     load-loss test -- IEC 60076-1 practice is one measurement, at the
+     principal tap and the rating the row above is already taken at; the
+     second rating's figure is a calculated derating of that one
+     measurement, load loss scaling with current squared, not a separately
+     guaranteed test point. Reported here as "calculated", not "guaranteed
+     on test", so the GTP does not overstate what routine test actually
+     covers for a dual-rated unit. */
+  if (p.dualRating && p.kva2 > 0 && d.dualCompliance) {
+    rows.push({
+      t: `Load loss at second rating, ${p.kva2} kVA (${p.cooling2}) -- calculated, not separately tested`,
+      ref: "IEC 60076-1", exp: `${f0(d.dualLoadLoss)} W`, lim: `${f0(p.limitLL2)} W guaranteed`,
+    });
+  }
+  return rows;
 }
 
 

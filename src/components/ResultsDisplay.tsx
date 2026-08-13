@@ -297,6 +297,37 @@ export function ResultsDisplay({
                   </tbody>
                 </table>
               </Card>
+
+              {design.dualCompliance && (
+                <Card title="Compliance, Second Rating" subtitle={`${params.kva2} kVA, ${params.cooling2}`}>
+                  <table className="w-full">
+                    <thead>
+                      <tr><th className={thCls}>Check</th><th className={`${thCls} text-right`}>Value</th><th className={`${thCls} text-right`}>Limit</th><th className={`${thCls} text-right`}>OK</th></tr>
+                    </thead>
+                    <tbody>
+                      {[
+                        ['No-Load Loss (W)', design.dualCompliance.nll],
+                        ['Load Loss (W)', design.dualCompliance.ll],
+                        ['Total Loss (W)', design.dualCompliance.total],
+                        [design.dry ? 'Winding Rise (K)' : 'Top Rise (K)', design.dualCompliance.rise],
+                        ['Winding Rise (K)', design.dualCompliance.wRise],
+                      ].map(([label, c]: [string, any]) => (
+                        <tr key={label}>
+                          <td className={`${tdCls} text-ink2 text-[11px]`}>{label}</td>
+                          <td className={`${tdCls} text-right font-mono text-[11px] ${c.ok ? 'text-ink' : 'text-alert'}`}>{c.val.toFixed(2)}</td>
+                          <td className={`${tdCls} text-right font-mono text-[11px] text-steel`}>{c.lim.toFixed(2)}</td>
+                          <td className={`${tdCls} text-right font-mono text-[11px]`}><CheckMark ok={c.ok} /></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  <p className="text-[10px] text-steel px-1 pt-2">
+                    The fin area above is sized so both ratings pass at once (packages/engine's
+                    designTransformer, CALIBRATION.md section 21) -- this table is the second
+                    rating's own check, not a duplicate of the first.
+                  </p>
+                </Card>
+              )}
             </div>
           )}
 

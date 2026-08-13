@@ -290,5 +290,55 @@ impedanceDev(630, -5.91);
 impedanceDev(2000, 0.00);
 impedanceDev(2500, 0.00);
 
+console.log("\ncooling equipment: fan and pump count follow cooling type, not a fixed number");
+// CALIBRATION.md section 20. 5000 kVA, 33/11 kV power duty so ONAF is the
+// AUTO default at ONAF/OFAF/ODAF and ONAN is still reachable by override.
+const coolBase = { ...E.ESSENTIALS, kva: 5000, hv: 33000, lv: 11000, application: "power" };
+const coolCase = (cooling, wantFans, wantPump) => {
+  const d = E.computeDesign(coolBase, { cooling }, E.DEFAULT_RATES, []).design;
+  const okFans = (wantFans === 0) ? d.fanCount === 0 : d.fanCount > 0;
+  const okPump = d.pumpCount === wantPump;
+  if (!okFans || !okPump) {
+    failures++;
+    console.log(`  FAIL ${cooling}: fanCount ${d.fanCount} (want ${wantFans === 0 ? "0" : ">0"}), pumpCount ${d.pumpCount} (want ${wantPump})`);
+  } else {
+    console.log(`  ok   ${cooling}: fanCount ${d.fanCount}, pumpCount ${d.pumpCount}`);
+  }
+};
+coolCase("ONAN", 0, 0);
+coolCase("ONAF", 1, 0);
+coolCase("OFAF", 1, 1);
+coolCase("ODAF", 1, 1);
+
+console.log("\ndual rating: fin area satisfies both the natural and forced check, not just the forced one");
+// CALIBRATION.md section 21. kva/cooling is the forced point (active part
+// sized to it, unchanged); kva2/cooling2 is the natural point. Close enough
+// in kVA (5010 forced vs 5000 natural) that the natural check's lower
+// forced multiplier, not its much-smaller loss, is what should dominate --
+// this is the "not always the higher-loss point" case CALIBRATION.md
+// section 19 predicted before this was implemented.
+{
+  const dr = E.computeDesign(
+    { ...E.ESSENTIALS, kva: 5010, hv: 33000, lv: 11000, application: "power", dualRating: true },
+    { cooling: "ONAF", kva2: 5000, cooling2: "ONAN" }, E.DEFAULT_RATES, []
+  ).design;
+  const primaryAlone = Math.max(0, (dr.totalLoss - dr.tankDissip) / (dr.kFin * dr.forcedMul * Math.pow(dr.riseTarget, 1.25)));
+  const dualAlone = Math.max(0, (dr.dualTotalLoss - dr.tankDissip) / (dr.kFin * dr.dualForced * Math.pow(dr.riseTarget, 1.25)));
+  eq("finAreaReq equals the larger of the two checks", Math.round(dr.finAreaReq), Math.round(Math.max(primaryAlone, dualAlone)));
+  if (dualAlone <= primaryAlone) { failures++; console.log(`  FAIL natural check (${dualAlone.toFixed(1)}) should exceed forced check (${primaryAlone.toFixed(1)}) at this near-equal kVA -- test no longer exercises the binding case`); }
+  else console.log(`  ok   natural check (${dualAlone.toFixed(1)} m²) binds over forced (${primaryAlone.toFixed(1)} m²), as CALIBRATION.md section 19 anticipated`);
+  // Checking the rise compliance specifically, not the bundled compliant/
+  // dualCompliant flags -- those also gate impedance, ratio and loss-limit
+  // checks this arbitrary rating was never chosen to satisfy; the fin area
+  // solve above only ever promises the thermal checks.
+  if (!dr.compliance.rise.ok || !dr.dualCompliance.rise.ok) { failures++; console.log(`  FAIL both ratings should be within the top-oil rise limit once finAreaReq covers the larger check: primary ${dr.compliance.rise.ok}, dual ${dr.dualCompliance.rise.ok}`); }
+  else console.log(`  ok   both ratings within the top-oil rise limit: ${dr.oilRise.toFixed(1)} K / ${dr.dualOilRise.toFixed(1)} K against ${dr.riseLimit} K`);
+}
+{
+  const single = E.computeDesign(E.ESSENTIALS, {}, E.DEFAULT_RATES, []).design;
+  if (single.dualCompliance !== null) { failures++; console.log("  FAIL dualCompliance should be null when dualRating is off (additive, off by default)"); }
+  else console.log("  ok   dualCompliance is null when dualRating is off");
+}
+
 console.log(failures ? `\n${failures} FAILURES` : "\nall passed");
 process.exit(failures ? 1 : 0);
