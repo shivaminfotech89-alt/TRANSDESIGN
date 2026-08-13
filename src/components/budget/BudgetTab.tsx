@@ -189,17 +189,25 @@ export function BudgetTab({ design, bom, params, rates, activePreviewKey, onSele
       // a fair trade because both ends are held to the same compliance
       // check (d.compliance.rise/wRise.ok) that gates feasible either way.
       riseTargets: [params.oilRiseTarget, Math.max(30, params.oilRiseTarget - 5), Math.max(30, params.oilRiseTarget - 10)],
-      // CALIBRATION.md section 20: cooling type is now swept too. buildBOM
-      // prices fans (ONAF/OFAF/ODAF) and a pump (OFAF/ODAF) as real BOM
-      // lines, so a forced-cooling candidate no longer looks cheaper only
-      // because that cost was missing -- it is a fair trade now, the same
-      // way tank type already was. ONAN vs ONAF only, not the full four:
-      // OFAF/ODAF are rarely the live cost question at the ratings this
-      // search is normally run at, and each added cooling multiplies the
-      // whole grid, the same tradeoff steps and tapType were left out of
-      // above. Dry designs have no fan/pump costing (oil-only geometry), so
-      // stay at their single current cooling as before.
-      coolings: params.dry ? [params.cooling] : ['ONAN', 'ONAF'],
+      // CALIBRATION.md section 23: cooling is only swept once fan, pump and
+      // control-gear rates are all actually priced -- DEFAULT_RATES ships
+      // them at 0 (no reference-sheet basis, section 20/23), and a search
+      // is a ranked recommendation, not a banner someone can notice and
+      // dismiss: at a zero rate it would rank a forced-cooled candidate
+      // first for looking cheaper than it really is, every time, silently.
+      // Better the lever is unavailable than available and wrong. Once all
+      // three are priced this is a fair trade (buildBOM's fan/pump/
+      // control-gear rows are real cost by then), and sweeps ONAN vs ONAF
+      // only, not the full four -- OFAF/ODAF are rarely the live cost
+      // question at the ratings this search is normally run at, and each
+      // added cooling multiplies the whole grid, the same tradeoff steps
+      // and tapType were left out of above. Dry designs have no fan/pump
+      // costing (oil-only geometry), so stay at their single current
+      // cooling regardless.
+      coolings: (() => {
+        const coolingPriced = rates.coolingFan > 0 && rates.oilPump > 0 && rates.coolingControlGear > 0;
+        return params.dry || !coolingPriced ? [params.cooling] : ['ONAN', 'ONAF'];
+      })(),
     };
     // Deferred one tick so the "Searching" state actually paints before the
     // synchronous grid search (a few thousand designTransformer + buildBOM

@@ -1477,12 +1477,17 @@ forced-cooled design) is marked, by name, as resting on a missing
 parameter, rather than a ₹0 line sitting quietly among dozens of others
 until someone notices.
 
-One consequence not yet addressed: BudgetTab.tsx's default live search
-(section 20) sweeps ONAN against ONAF on the reasoning that forced
-cooling now carries real cost. That is only true once a real rate is
-entered -- until then, an ONAF candidate in that search is still priced
-without its own fan cost, so it will show up looking cheaper than it
-actually would be. The sweep itself has not been changed, since nothing
-in this section was asked to touch it; recorded here so the ONAN vs
-ONAF comparison in the live search is not mistaken for a fair one before
-the rate card actually has a fan price in it.
+**Fixed**: BudgetTab.tsx's default live search originally sequenced
+this the wrong way round -- section 20 turned on the ONAN/ONAF sweep
+as soon as buildBOM had cooling-cost rows to sweep over, before any
+rate existed to put in them, so an ONAF candidate ranked in that
+search was still priced without its own fan cost. A search is a
+ranked recommendation, not a banner someone can notice and dismiss --
+at a zero rate it would rank the forced-cooled candidate first for
+looking cheaper than it really is, every time, silently, which
+carries more weight than the BOM warning above catches. The sweep is
+now gated directly on the rate card: coolings only becomes
+['ONAN','ONAF'] when rates.coolingFan, rates.oilPump and
+rates.coolingControlGear are all nonzero; otherwise it stays at the
+design's own single current cooling, the same as before section 20
+existed. Better the lever unavailable than available and wrong.
