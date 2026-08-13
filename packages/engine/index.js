@@ -8,7 +8,7 @@
  * without bumping it, or old quotations stop reproducing.
  */
 
-export const ENGINE_VERSION = "1.13.0";
+export const ENGINE_VERSION = "1.14.0";
 
 const CONDUCTORS = {
   copper: { name: "Copper, EC grade", rho20: 0.017241, alpha: 0.00393, dens: 8890, dMax: 3.6, short: "Cu", proof: 1.0 },
@@ -268,8 +268,34 @@ function deriveSpec(core, over = {}) {
     put("dryType", "castResin", null, null, null);
     put("insClass", "A", null, Object.entries(INS_CLASS).map(([k, v]) => [k, v.name]), "Liquid-immersed windings are class A.");
     const cool1 = put("cooling", kva <= 5000 ? "ONAN" : "ONAF", null, [["ONAN", "ONAN"], ["ONAF", "ONAF"], ["OFAF", "OFAF"], ["ODAF", "ODAF"]], "Natural circulation is normal up to about 5 MVA.");
-    put("tankType", kva <= 2500 ? "fin" : "radiator", null, [["fin", "Corrugated fin, sealed"], ["radiator", "Radiator + conservator"]], "Fin tanks up to about 2500 kVA, radiators above that.");
+    /* CALIBRATION.md section 24: rating alone used to decide this. Rating
+       is a proxy for required cooling surface, not the thing itself -- a
+       design with a tight rise target or forced cooling at a modest rating
+       can need more surface than a corrugated fin wall practically carries
+       well under 2500 kVA, and rating alone would keep it on a fin wall
+       anyway. Estimated here from the loss schedule directly (this design's
+       own finAreaReq is not known yet -- it needs the full geometry solve
+       designTransformer runs later -- so this is a coarse pre-estimate off
+       nominal finDiss/50 K, not the design's own eventual figure) against a
+       practical fin-wall ceiling, itself a fitted round number, not a
+       vendor's own limit. Rating still dominates: crossing 2500 kVA always
+       forces radiator regardless of this estimate, since mechanical size
+       and service access favour radiators above that regardless of a
+       lighter loss; the estimate only ever pulls a smaller rating UP to
+       radiator, never a larger one back down to fin. */
+    const estSch = lossSchedule(kva, core.effLevel === "custom" ? "level2" : core.effLevel, dry);
+    const estForced = cool1 === "ONAF" ? 1.5 : cool1 === "OFAF" || cool1 === "ODAF" ? 2.1 : 1.0;
+    const FIN_WALL_CEILING_M2 = 90;
+    const estAreaM2 = (estSch.nll + estSch.ll) / (250 * estForced * Math.pow(50, 1.25));
+    put("tankType", kva > 2500 || estAreaM2 > FIN_WALL_CEILING_M2 ? "radiator" : "fin", null,
+      [["fin", "Corrugated fin, sealed"], ["radiator", "Radiator + conservator"]],
+      `Fin tanks up to about 2500 kVA or an estimated ${FIN_WALL_CEILING_M2} m² of required cooling surface (~${Math.round(estAreaM2)} m² estimated here), radiators above either.`);
     put("oilRiseTarget", Math.min(std.oilRise, FLUIDS[fl].riseLimit), [30, Math.min(std.oilRise, FLUIDS[fl].riseLimit), 1], null, `Design to the ${std.name} limit. Lower means more cooling surface and more cost.`);
+    put("radiatorPanelWidth", 520, [400, 650, 10], null, "Pressed-steel radiator panel width. 520 mm is typical Indian practice; override to your supplier's own panel.");
+    put("radiatorPanelPitch", 45, [30, 65, 1], null, "Centre-to-centre spacing between adjacent radiator panels in a bank. A fitted typical figure, not a specific vendor's panel.");
+    put("radiatorPanelsPerBank", 16, [6, 30, 1], null, "Panels bolted into one removable bank before another bank is started. A practical handling limit, not a physical one -- override to your works' own practice.");
+    put("conservatorPct", 10, [7, 15, 0.5], null, "Conservator volume as a percentage of total oil volume, to allow for thermal expansion. 10% is conventional practice.");
+    put("conservatorAspect", 2.08, [1.5, 3.0, 0.02], null, "Conservator length to diameter ratio. Fitted from the one reference figure on file (630 kVA sheet, 330 mm dia x 685 mm long) -- override once a second reference is available to check it against.");
 
     /* CALIBRATION.md section 21: dual rating, e.g. 5000 kVA ONAN / 6250 kVA
        ONAF from one tank -- routine practice at this size. Off by default,
@@ -1908,9 +1934,19 @@ function coreCuttingChart(d, p) {
   return { rows, thk, totalA, totalB, totalC, chartTotal: totalA + totalB + totalC };
 }
 
+/* CALIBRATION.md section 24: finLayout is now the corrugated-fin-wall
+   layout only -- it used to also stand in for radiator tanks (fed
+   `finAreaReq` through the same "2 x height x depth" per-fin area at a
+   flat 320 mm depth regardless of rating), which is a fin wall's own
+   geometry, not a radiator's: at 2500 kVA with tankType radiator this
+   returned 158 "fins" 320 mm deep, a corrugated fin wall wearing a
+   radiator's name, not an actual bank-and-header radiator layout.
+   Called only for p.tankType === "fin" designs now; radiatorLayout()
+   below is the tankType === "radiator" equivalent, on its own real
+   geometry (panels and banks, not fins). */
 function finLayout(d) {
-  if (d.dry || d.finAreaReq <= 0) return { n: 0, depth: 0, height: 0, perSide: 0, lvEnd: 0, hvEnd: 0 };
-  const depth = d.p.tankType === "fin" ? Math.min(400, Math.max(150, Math.round((d.tankH * 0.22) / 10) * 10)) : 320;
+  if (d.dry || d.finAreaReq <= 0) return { n: 0, depth: 0, height: 0, perSide: 0, pitch: 0, lvEnd: 0, hvEnd: 0 };
+  const depth = Math.min(400, Math.max(150, Math.round((d.tankH * 0.22) / 10) * 10));
   const height = Math.max(200, d.tankH - 240);
   const per = (2 * height * depth) / 1e6;
   const n = Math.max(4, Math.ceil(d.finAreaReq / per));
@@ -1927,7 +1963,88 @@ function finLayout(d) {
      arrangement. */
   const hvEnd = n <= 1 ? n : Math.max(1, Math.round((n * 2) / 3));
   const lvEnd = n - hvEnd;
-  return { n, depth, height, perSide: Math.ceil(n / 2), per, lvEnd, hvEnd };
+  const perSide = Math.ceil(n / 2);
+  /* Same 85%-of-tankL usable wall length and even-spacing formula
+     src/components/cad/geometry.ts's finPlacements() already draws from,
+     kept in step by hand rather than imported (the engine takes no
+     imports, invariant 1) so this pitch and the 3D/2D drawings' own pitch
+     cannot read differently for the same design. */
+  const pitch = (d.tankL * 0.85) / Math.max(1, perSide - 1 || 1);
+  return { n, depth, height, perSide, pitch, per, lvEnd, hvEnd };
+}
+
+/* CALIBRATION.md section 24: radiator-tank equivalent of finLayout above,
+   on a radiator's own geometry -- panels bolted into removable banks
+   between top and bottom header pipes, not fins on a wall. Panel width
+   (p.radiatorPanelWidth, default 520 mm, typical Indian pressed-steel
+   practice) and pitch (p.radiatorPanelPitch) are both editable inputs,
+   not derived, since they are a specific vendor's panel dimensions, the
+   same way lamination width is a real slitting-stock decision rather
+   than a continuous optimum (stepWidths' own increment). Panel height is
+   the one dimension actually derived here: real pressed-steel elements
+   come in a small set of standard heights, so the largest that clears
+   the tank's own available vertical space is chosen, not a continuous
+   figure -- the list itself is typical practice, not one vendor's
+   specific catalogue. Bank count and panels-per-bank both come from the
+   same finAreaReq every other cooling-surface figure in this engine
+   already uses (CALIBRATION.md section 20's fan count and finLayout's
+   own fin count both read it the same way) against one panel's own
+   developed area, capped at p.radiatorPanelsPerBank panels before a
+   second bank starts -- a handling/structural practicality, not a
+   physical limit, and overridable. */
+const RADIATOR_STANDARD_HEIGHTS = [600, 900, 1200, 1500, 1800, 2100];
+function radiatorLayout(d) {
+  const p = d.p;
+  if (d.dry || d.finAreaReq <= 0) {
+    return {
+      totalPanels: 0, bankCount: 0, panelsPerBank: 0, panelWidth: p.radiatorPanelWidth, panelHeight: 0,
+      panelPitch: p.radiatorPanelPitch, headerCentres: 0, valvesPerBank: 2, totalValves: 0, per: 0, lvBanks: 0, hvBanks: 0,
+    };
+  }
+  const avail = Math.max(200, d.tankH - 240);
+  const panelHeight = [...RADIATOR_STANDARD_HEIGHTS].reverse().find((h) => h <= avail) || RADIATOR_STANDARD_HEIGHTS[0];
+  const panelWidth = p.radiatorPanelWidth;
+  const per = (2 * panelHeight * panelWidth) / 1e6;
+  const rawPanels = Math.max(2, Math.ceil(d.finAreaReq / per));
+  const bankCount = Math.max(1, Math.ceil(rawPanels / p.radiatorPanelsPerBank));
+  const panelsPerBank = Math.ceil(rawPanels / bankCount);
+  const totalPanels = panelsPerBank * bankCount;
+  /* Same LV/HV bank split as finLayout's own fin split, same reason
+     (bushings, cable box and tap-changer linkage crowd the LV end) and
+     the same 1250 kVA sheet's own 2:1 fitted ratio, one level up: banks
+     instead of individual fins, since a radiator bank is what actually
+     gets mounted and removed as a unit. */
+  const hvBanks = bankCount <= 1 ? bankCount : Math.max(1, Math.round((bankCount * 2) / 3));
+  const lvBanks = bankCount - hvBanks;
+  return {
+    totalPanels, bankCount, panelsPerBank, panelWidth, panelHeight,
+    panelPitch: p.radiatorPanelPitch, headerCentres: panelHeight,
+    valvesPerBank: 2, totalValves: bankCount * 2, per, lvBanks, hvBanks,
+  };
+}
+
+/* CALIBRATION.md section 24: conservator sizing. Previously a BOM cost
+   line (folded into the AC-01 fittings lump) with no dimensions at all --
+   CostCardTab.tsx's own "Conservator Dimensions" card said as much ("the
+   engine does not size a conservator... enter the works' own figures").
+   Conventional practice sizes the conservator at about 10% of total oil
+   volume (p.conservatorPct) to allow for thermal expansion across the
+   rise range, mounted above the tank on its own brackets -- a horizontal
+   cylinder, diameter and length solved from that volume at a fitted
+   length-to-diameter ratio (p.conservatorAspect, 2.08, the one reference
+   figure on file: the 630 kVA sheet's own 330 mm dia x 685 mm long,
+   685/330 = 2.076). Only meaningful on a radiator tank -- a sealed fin
+   tank has no conservator, per this engine's own existing "sealed fin
+   tank... drops the conservator and breather maintenance" reasoning
+   (impacts()). V = (pi/4) D^2 L, L = aspect x D, solved for D. */
+function conservatorSize(d) {
+  const p = d.p;
+  if (d.dry || p.tankType !== "radiator") return { volumeL: 0, dia: 0, length: 0 };
+  const volumeL = d.fluidLitres * (p.conservatorPct / 100);
+  const volumeM3 = volumeL / 1000;
+  const dia = Math.cbrt((4 * volumeM3) / (Math.PI * p.conservatorAspect)) * 1000;
+  const length = dia * p.conservatorAspect;
+  return { volumeL, dia, length };
 }
 
 /* MANUFACTURING.md section 1: real practice states taps as turn numbers
@@ -2334,7 +2451,7 @@ export {
   lossSchedule, clearancesFrom, umFor, zSuggest, gradeSuggest, fluxSuggest,
   stepsSuggest, densitySuggest, aspectSuggest,
   deriveSpec, designTransformer, buildBOM, ownershipCost, searchDesigns,
-  impacts, calcSheet, stepWidths, stampingSchedule, finLayout,
+  impacts, calcSheet, stepWidths, stampingSchedule, finLayout, radiatorLayout, conservatorSize,
   documentRegister, routineTestSchedule, DOC_STATUS, REFS,
   inr, lakhs, bushMul, condRate, rkCond, fluxRange, bushHeight, parseVectorGroup,
   etkCurve, fitEtkToCost, ETK_RANGE,

@@ -354,5 +354,44 @@ console.log("\ndual rating: fin area satisfies both the natural and forced check
   else console.log("  ok   dualCompliance is null when dualRating is off");
 }
 
+console.log("\nradiator tanks get a real bank/panel layout, not a fin wall wearing a radiator's name");
+// CALIBRATION.md section 24. 2500 kVA used to be finLayout's own radiator
+// branch (fixed 320 mm depth regardless of geometry) -- confirms
+// radiatorLayout gives panels-and-banks instead, and that finLayout no
+// longer special-cases tankType at all (it is fin-tank-only now).
+{
+  const rr = E.computeDesign({ ...E.ESSENTIALS, kva: 2500, application: "power" }, { tankType: "radiator" }, E.DEFAULT_RATES, []).design;
+  const rad = E.radiatorLayout(rr);
+  if (rad.bankCount < 1 || rad.panelWidth !== 520 || rad.totalPanels < rad.panelsPerBank) {
+    failures++;
+    console.log(`  FAIL radiatorLayout at 2500 kVA radiator looks wrong: ${JSON.stringify(rad)}`);
+  } else {
+    console.log(`  ok   2500 kVA radiator: ${rad.bankCount} banks x ${rad.panelsPerBank} panels, ${rad.panelWidth}x${rad.panelHeight} mm, ${rad.totalValves} valves`);
+  }
+}
+eq("tankType stays fin at 2500 kVA (the boundary itself unmoved)",
+  E.computeDesign({ ...E.ESSENTIALS, kva: 2500, application: "power" }, {}, E.DEFAULT_RATES, []).params.tankType, "fin");
+eq("tankType crosses to radiator above 2500 kVA",
+  E.computeDesign({ ...E.ESSENTIALS, kva: 3150, application: "power" }, {}, E.DEFAULT_RATES, []).params.tankType, "radiator");
+eq("tankType unchanged at the default 1000 kVA case (no regression)",
+  E.computeDesign(E.ESSENTIALS, {}, E.DEFAULT_RATES, []).params.tankType, "fin");
+
+console.log("\nconservator sizing checked against the 630 kVA reference (330 dia x 685 long, CALIBRATION.md section 9)");
+// CALIBRATION.md section 24. conservatorSize takes fluidLitres as given --
+// fed the reference's own real 588 L directly (not this engine's own
+// generic AUTO 630 kVA tank sizing, which has no real design basis to
+// reproduce this specific job from, per card-cost.test.mjs's own header),
+// so this checks the formula itself, not an end-to-end live design.
+{
+  const consFromRef = E.conservatorSize({ p: { tankType: "radiator", conservatorPct: 10, conservatorAspect: 2.08 }, dry: false, fluidLitres: 588 });
+  eq("dia from the reference's own 588 L", Math.round(consFromRef.dia), 330, 3);
+  eq("length from the reference's own 588 L", Math.round(consFromRef.length), 685, 5);
+}
+{
+  const finTank = E.conservatorSize({ p: { tankType: "fin", conservatorPct: 10, conservatorAspect: 2.08 }, dry: false, fluidLitres: 588 });
+  if (finTank.dia !== 0 || finTank.length !== 0) { failures++; console.log(`  FAIL a sealed fin tank should have no conservator, got ${JSON.stringify(finTank)}`); }
+  else console.log("  ok   sealed fin tank has no conservator (dia 0, length 0)");
+}
+
 console.log(failures ? `\n${failures} FAILURES` : "\nall passed");
 process.exit(failures ? 1 : 0);

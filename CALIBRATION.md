@@ -1491,3 +1491,133 @@ now gated directly on the rate card: coolings only becomes
 rates.coolingControlGear are all nonzero; otherwise it stays at the
 design's own single current cooling, the same as before section 20
 existed. Better the lever unavailable than available and wrong.
+
+## 24. Radiator layout split from finLayout, tankType now surface-aware, conservator sized
+
+ENGINE_VERSION 1.13.0 -> 1.14.0.
+
+**The bug**: `finLayout` served both tank types. Its per-fin area used a
+fixed 320 mm depth whenever `p.tankType !== "fin"`, everything else
+identical to the fin-tank formula -- at 2500 kVA with tankType radiator
+this returned 158 fins at 320 mm deep, a corrugated fin wall doing the
+arithmetic, not an actual bank-and-header radiator layout. The bug was
+in what called it for a radiator tank, not in the fin-tank formula
+itself, which is untouched.
+
+**Split into two functions.** `finLayout(d)` is now fin-tank-only: the
+tankType ternary is gone, it always uses the fin-tank depth formula (the
+one branch that was ever correct), and gained a `pitch` field --
+centre-to-centre spacing, computed with the exact same 85%-of-tankL,
+even-spacing formula `src/components/cad/geometry.ts`'s `finPlacements()`
+already uses for the 3D/2D drawings, kept in step by hand (the engine
+takes no imports, invariant 1) rather than shared, so this field and
+what the drawings already show cannot read differently for the same
+design once something is pointed at it.
+
+`radiatorLayout(d)` is new, on a radiator's own geometry: panels bolted
+into removable banks between header pipes, not fins on a wall. Panel
+width (`p.radiatorPanelWidth`, default 520 mm) and pitch
+(`p.radiatorPanelPitch`, default 45 mm) are editable inputs, not
+derived -- they are a specific vendor's panel dimensions, same reason
+lamination width is a real slitting-stock decision (`stepWidths`'
+increment) rather than a continuous optimum. Panel height is the one
+dimension actually derived: snapped down to the largest of a small
+standard-heights ladder (600/900/1200/1500/1800/2100 mm, typical
+practice, not one vendor's catalogue) that clears the tank's own
+available vertical space. Bank count and panels-per-bank both come from
+the same `finAreaReq` every other cooling-surface figure in this engine
+already reads (section 20's fan count and `finLayout`'s own fin count
+both use it the same way) against one panel's own developed area
+(`2 x panelHeight x panelWidth`, the same both-faces basis `finLayout`
+uses for a fin), capped at `p.radiatorPanelsPerBank` (default 16, a
+handling practicality, not a physical limit) before a second bank
+starts. LV/HV bank split mirrors `finLayout`'s own fin split, one level
+up (banks instead of individual fins), same 1250 kVA sheet 2:1 fitted
+ratio and same reason (bushings, cable box, tap-changer linkage crowd
+the LV end).
+
+Header pipe centres are reported as the panel height itself (the top and
+bottom headers a bank's panels connect between are exactly one panel
+height apart). Valves: 2 per bank (top and bottom isolating valves, so a
+bank can be removed without draining the tank), not derived, standard
+practice.
+
+**tankType AUTO selection is now rating AND estimated-surface aware**,
+not rating alone. Rating is a proxy for required cooling surface, not
+the thing itself -- a design with a tight rise target or forced cooling
+at a modest rating can need more surface than a fin wall practically
+carries well under 2500 kVA, and the old rating-only rule would have
+kept it on a fin wall regardless. Estimated from the loss schedule
+directly (this design's own real `finAreaReq` is not known yet at this
+point in `deriveSpec` -- it needs the full geometry solve
+`designTransformer` runs later -- so this is a coarse pre-estimate off
+nominal `finDiss`/50 K, not the design's own eventual figure) against a
+practical fin-wall ceiling (90 m², itself a fitted round number, not a
+vendor's own limit). Rating still dominates one-directionally: crossing
+2500 kVA always forces radiator regardless of the estimate (mechanical
+size and service access favour radiators above that regardless of a
+lighter loss); the estimate only ever pulls a smaller rating UP to
+radiator, never a larger one back down to fin. Checked across
+630-5000 kVA at default assumptions: nothing between 630 and 2500 kVA
+crossed the estimated ceiling (all stayed fin, as before), 3150 kVA and
+above correctly cross to radiator, and the default 1000 kVA golden case
+is unmoved -- the two-factor rule is a genuine safety net for atypical
+loss/cooling combinations, not a change to the typical case.
+
+**Conservator sizing** (`conservatorSize(d)`): previously a BOM cost
+line folded into the AC-01 fittings lump with no dimensions at all --
+CostCardTab.tsx's own "Conservator Dimensions" card said as much ("the
+engine does not size a conservator... enter the works' own figures").
+Conventional practice sizes it at about 10% of total oil volume
+(`p.conservatorPct`, default 10) to allow for thermal expansion, mounted
+above the tank on its own brackets -- modelled as a horizontal cylinder,
+diameter and length solved from that volume at a fitted length-to-
+diameter ratio (`p.conservatorAspect`, default 2.08, the one reference
+figure on file: the 630 kVA sheet's own 330 mm dia x 685 mm long,
+685/330 = 2.076). Only meaningful on a radiator tank -- returns zero on
+a fin tank, matching this engine's own existing "a sealed fin tank...
+drops the conservator and breather maintenance" reasoning already in
+`impacts()`.
+
+**Reported against the 630 kVA reference (CALIBRATION.md section 9,
+card-cost.test.mjs's fixture: fluidLitres 588 L, tankType radiator, 28
+PSR panels, and separately, the 330 x 685 mm conservator figure this
+section is checked against):**
+
+- Fed the reference's own real 588 L directly into `conservatorSize`
+  (10% = 58.8 L, aspect 2.08): dia 330 mm, length 687 mm, against the
+  reference's 330 x 685 -- the formula itself checks out almost exactly.
+  `engine.test.mjs` asserts this at +-3 mm dia / +-5 mm length.
+- This is necessarily a check of the formula alone, not an end-to-end
+  live design: card-cost.test.mjs's own header already states there is
+  "nothing to reproduce [this job's masses] from without guessing" --
+  the sheet gives quantities directly, not the volts-per-turn or steps
+  that produced them, unlike the 1250 kVA and 630 kVA dry references
+  which do have a real over{} to reproduce from. A live AUTO-derived 630
+  kVA design (tankType forced to radiator to match the reference, since
+  630 kVA is below this engine's own ~2500 kVA fin/radiator default) was
+  also run for comparison: fluidLitres came out 999 L against the
+  reference's 588 L, and radiatorLayout gave 16 panels in one bank
+  against the reference's real 28. Recorded here rather than treated as
+  a new defect: a generic AUTO design has no claim to match one specific
+  real job's own tank envelope when that job's own design basis (K,
+  steps, duty) is not available to reproduce it from -- the same reason
+  this reference has always been a fixture, not a live reproduction, in
+  card-cost.test.mjs. Feeding the live design's own (unvalidated at this
+  rating) fluidLitres through a correct conservator formula does not
+  make the result meaningful; feeding the reference's own real oil
+  figure through it does, which is the check `engine.test.mjs` actually
+  asserts.
+
+**Not done, deliberately, per the request**: no drawing or 3D model
+change. `finLayout`'s and `radiatorLayout`'s existing consumers
+(TankDrawings.tsx drawing 14, ManufacturingTab.tsx, CostCardTab.tsx,
+partRecords.ts, TransformerParts.tsx / geometry.ts's 3D model) all still
+call `finLayout` unconditionally regardless of tank type -- for a
+radiator-tank design they will now get `finLayout`'s own fin-tank-only
+numbers (different from before, since the tankType ternary that gave
+radiator callers a fixed 320 mm depth is gone) rather than anything
+radiator-shaped, until each is rewired to call `radiatorLayout` instead
+when `p.tankType === "radiator"`. That rewiring, and drawing radiator
+banks on header pipes with valves and the conservator on brackets with
+the breather pipe, is the next step, not part of this one.
