@@ -88,3 +88,46 @@ export function finPlacements(perSide: number, tankL: number, tankH: number, fin
   }
   return out;
 }
+
+export interface BankPlacement { x: number; y: number; z: number; width: number; }
+/** Evenly spaced radiator BANK positions along both long sides of the
+ *  tank -- one radiatorLayout() bank is one visual/mechanical unit (header
+ *  pipes plus its own panelsPerBank panels bolted together), the same role
+ *  finPlacements()'s individual fins play for a fin wall, one level up.
+ *  The returned `width` is the bank's own extent ALONG the tank wall
+ *  (panelsPerBank panels at panelPitch centres, the X axis here) -- a
+ *  different axis from radiatorLayout()'s own `panelWidth` field, which is
+ *  each panel's projection OUT from the wall (the Z axis, what offsetZ is
+ *  built from), the role finLayout()'s `depth` plays for a fin. Two
+ *  different "widths" on two different axes, not a naming collision to
+ *  resolve -- radiatorLayout() names the panel's own dimension, this
+ *  function names the assembled bank's. */
+export function bankPlacements(
+  bankCount: number, panelsPerBank: number, panelPitch: number, tankL: number, tankH: number, panelHeight: number, offsetZ: number,
+): BankPlacement[] {
+  if (bankCount <= 0) return [];
+  const bankWidth = Math.max(1, panelsPerBank - 1) * panelPitch;
+  const usableL = tankL * 0.85;
+  const pitch = usableL / Math.max(1, bankCount - 1 || 1);
+  const startX = -usableL / 2;
+  const y = -tankH / 2 + panelHeight / 2 + tankH * 0.05;
+  const out: BankPlacement[] = [];
+  for (let i = 0; i < bankCount; i++) {
+    const x = bankCount === 1 ? 0 : startX + i * pitch;
+    out.push({ x, y, z: offsetZ, width: bankWidth });
+  }
+  return out;
+}
+
+export interface ConservatorPlacement { x: number; y: number; z: number; }
+/** Conservator centre, mounted above the tank on brackets -- offset toward
+ *  the HV end (arbitrary but consistent with drawing 14's own LV/HV end
+ *  split reasoning: the LV end already crowds bushings, cable box and tap
+ *  changer linkage, so accessories that have a choice go to the HV end).
+ *  y is measured from the tank's own vertical centre (this module's Y-up,
+ *  limb-centred convention), high enough to clear the cover and bushings;
+ *  bracket height is derived from that same clearance, not a separate
+ *  invented figure. */
+export function conservatorPlacement(tankL: number, tankH: number, bushingHeight: number): ConservatorPlacement {
+  return { x: tankL * 0.22, y: tankH / 2 + bushingHeight + 60, z: 0 };
+}

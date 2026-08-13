@@ -10,8 +10,9 @@ interface CadViewerTabProps {
 
 const VISIBILITY_LABELS: Record<string, string> = {
   core: 'Core', lvWinding: 'LV Windings', hvWinding: 'HV Windings',
-  tank: 'Tank and Cover', fins: 'Fins', bushings: 'Bushings',
+  tank: 'Tank and Cover', fins: 'Fins / Radiator', bushings: 'Bushings',
   baseChannel: 'Base Channel', clampingFrame: 'Clamping Frame and Tie Rods',
+  conservator: 'Conservator',
 };
 
 const VIEWS: { id: PresetView; label: string }[] = [
@@ -22,7 +23,7 @@ const VIEWS: { id: PresetView; label: string }[] = [
 export function CadViewerTab({ design, params }: CadViewerTabProps) {
   const [visibility, setVisibility] = useState<Record<string, boolean>>({
     core: true, lvWinding: true, hvWinding: true, tank: true, fins: true,
-    bushings: true, baseChannel: true, clampingFrame: true,
+    bushings: true, baseChannel: true, clampingFrame: true, conservator: true,
   });
   const [exploded, setExploded] = useState(false);
   const [transparency, setTransparency] = useState(0);

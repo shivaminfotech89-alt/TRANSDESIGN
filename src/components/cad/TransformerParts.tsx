@@ -1,9 +1,10 @@
 import React, { useMemo } from 'react';
 import * as THREE from 'three';
 import { ThreeEvent } from '@react-three/fiber';
-import { finLayout } from '@/packages/engine';
+import { finLayout, radiatorLayout, conservatorSize } from '@/packages/engine';
 import {
   limbSlabs, yokeSlabs, coreCrossSectionSpan, hvBushingSpec, lvBushingSpec, finPlacements,
+  bankPlacements, conservatorPlacement,
 } from './geometry';
 import { computePartRecords, PartRecord } from '../../lib/partRecords';
 import { parseVectorGroup, schematicPositions } from '../../lib/vectorGroup';
@@ -140,12 +141,30 @@ export function TransformerParts({
   const tieRodSpanY = design.coreHeight * 0.92;
   const tieRodX = cc + design.dCore / 2 + 40;
 
+  // CALIBRATION.md section 24: finLayout is fin-tank-only -- a radiator
+  // design reads radiatorLayout instead, not finLayout wearing a
+  // radiator's name. The two functions return different shapes (n/depth/
+  // height vs totalPanels/panelWidth/panelHeight/bankCount/...), so every
+  // fins.* read below that used to assume the fin shape now branches on
+  // isRadiator instead.
+  const isRadiator = !design.dry && params.tankType === 'radiator';
   const fins = useMemo(
-    () => (design.dry ? { n: 0, depth: 0, height: 0, perSide: 0 } : finLayout(design)),
-    [design],
+    () => (design.dry || isRadiator ? { n: 0, depth: 0, height: 0, perSide: 0 } : finLayout(design)),
+    [design, isRadiator],
+  );
+  const rad = useMemo(
+    () => (isRadiator ? radiatorLayout(design) : null),
+    [design, isRadiator],
+  );
+  const cons = useMemo(
+    () => (isRadiator ? conservatorSize(design) : null),
+    [design, isRadiator],
   );
 
-  const finFrontZ = design.tankW / 2 + (fins.depth || 0) / 2;
+  // radiatorLayout's own panelWidth is each panel's projection OUT from
+  // the tank wall (the role finLayout's depth plays for a fin), not the
+  // bank's along-wall extent -- see geometry.ts's bankPlacements() note.
+  const finFrontZ = design.tankW / 2 + ((isRadiator ? rad?.panelWidth : fins.depth) || 0) / 2;
   const finPlacementsFront = useMemo(
     () => finPlacements(fins.perSide, design.tankL, design.tankH, fins.height, finFrontZ + finExplodeZ),
     [fins, design.tankL, design.tankH, finExplodeZ, finFrontZ],
@@ -154,9 +173,22 @@ export function TransformerParts({
     () => finPlacements(fins.perSide, design.tankL, design.tankH, fins.height, -finFrontZ - finExplodeZ),
     [fins, design.tankL, design.tankH, finExplodeZ, finFrontZ],
   );
+  const bankPlacementsFront = useMemo(
+    () => (rad ? bankPlacements(rad.bankCount, rad.panelsPerBank, rad.panelPitch, design.tankL, design.tankH, rad.panelHeight, finFrontZ + finExplodeZ) : []),
+    [rad, design.tankL, design.tankH, finExplodeZ, finFrontZ],
+  );
+  const bankPlacementsBack = useMemo(
+    () => (rad ? bankPlacements(rad.bankCount, rad.panelsPerBank, rad.panelPitch, design.tankL, design.tankH, rad.panelHeight, -finFrontZ - finExplodeZ) : []),
+    [rad, design.tankL, design.tankH, finExplodeZ, finFrontZ],
+  );
 
   const hvBush = hvBushingSpec(params.umHV);
   const lvBush = lvBushingSpec(params.umLV);
+  const consExplodeY = explode * design.tankH * 0.7;
+  const consPos = useMemo(
+    () => conservatorPlacement(design.tankL, design.tankH, hvBush.height),
+    [design.tankL, design.tankH, hvBush.height],
+  );
 
   return (
     <group position={[0, design.coreHeight / 2, 0]}>
@@ -239,8 +271,12 @@ export function TransformerParts({
         </group>
       )}
 
-      {/* 5. Fins: real count and pitch from finLayout(), not a fixed decoration. */}
-      {visibility.fins && !design.dry && (
+      {/* 5. Fins or radiator banks: real count and pitch from finLayout() or
+          radiatorLayout(), not a fixed decoration -- CALIBRATION.md section
+          24. A radiator bank is drawn as its own panel array on header
+          pipes with isolating valves at the tank-wall end, not a fin wall
+          wearing a radiator's name. */}
+      {visibility.fins && !design.dry && !isRadiator && (
         <group
           name="Fins" position={[0, tankExplodeY, 0]}
           onPointerDown={(e) => select(e, groupInfo(byKey.fins))}
@@ -249,6 +285,40 @@ export function TransformerParts({
             <mesh key={i} position={[f.x, f.y, f.z]} material={tankMaterial} castShadow receiveShadow>
               <boxGeometry args={[fins.depth * 0.6, fins.height, 8]} />
             </mesh>
+          ))}
+        </group>
+      )}
+      {visibility.fins && isRadiator && rad && (
+        <group
+          name="Radiator Banks" position={[0, tankExplodeY, 0]}
+          onPointerDown={(e) => select(e, groupInfo(byKey.fins))}
+        >
+          {[...bankPlacementsFront, ...bankPlacementsBack].map((b, bi) => (
+            <group key={bi} position={[b.x, b.y, b.z]}>
+              {/* header pipes, top and bottom, spanning the bank's own panels */}
+              {[rad.panelHeight / 2, -rad.panelHeight / 2].map((hy, hi) => (
+                <mesh key={`h-${hi}`} position={[0, hy, 0]} rotation={[0, 0, Math.PI / 2]} material={frameMaterial} castShadow receiveShadow>
+                  <cylinderGeometry args={[15, 15, b.width + rad.panelPitch, 12]} />
+                </mesh>
+              ))}
+              {/* panels, bolted side by side between the headers */}
+              {Array.from({ length: rad.panelsPerBank }, (_, j) => (
+                <mesh
+                  key={`p-${j}`}
+                  position={[(j - (rad.panelsPerBank - 1) / 2) * rad.panelPitch, 0, 0]}
+                  material={tankMaterial} castShadow receiveShadow
+                >
+                  <boxGeometry args={[rad.panelPitch * 0.8, rad.panelHeight, rad.panelWidth]} />
+                </mesh>
+              ))}
+              {/* isolating valves, top and bottom, at the tank-wall end of each header --
+                  so the bank can be removed without draining the tank. */}
+              {[rad.panelHeight / 2, -rad.panelHeight / 2].map((hy, hi) => (
+                <mesh key={`v-${hi}`} position={[0, hy, -rad.panelWidth / 2 - 20]} rotation={[Math.PI / 2, 0, 0]} material={frameMaterial} castShadow receiveShadow>
+                  <cylinderGeometry args={[20, 20, 40, 10]} />
+                </mesh>
+              ))}
+            </group>
           ))}
         </group>
       )}
@@ -314,7 +384,38 @@ export function TransformerParts({
         </group>
       )}
 
-      {/* 9. Name plate, for scale and inspection completeness. */}
+      {/* 9. Conservator: computed diameter and length (CALIBRATION.md
+          section 24, conservatorSize -- 10% of total oil volume at a
+          fitted length-to-diameter ratio), mounted above the tank on
+          brackets with its breather pipe -- only on a radiator tank, since
+          a sealed fin tank has none (this engine's own existing "sealed
+          fin tank... drops the conservator" reasoning, impacts()).
+          Bracket height and breather pipe are schematic, the same
+          "real number where the engine gives one, a simple representative
+          shape where it does not" treatment drawing 13's stiffener marks
+          and fitting circles already use -- not a claim that a specific
+          bracket or breather has been engineered. */}
+      {visibility.conservator && isRadiator && cons && cons.dia > 0 && (
+        <group
+          name="Conservator"
+          position={[consPos.x, consPos.y + tankExplodeY + coverExplodeY + consExplodeY, consPos.z]}
+          onPointerDown={(e) => select(e, groupInfo(byKey.conservator))}
+        >
+          <mesh rotation={[0, 0, Math.PI / 2]} material={tankMaterial} castShadow receiveShadow>
+            <cylinderGeometry args={[cons.dia / 2, cons.dia / 2, cons.length, 24]} />
+          </mesh>
+          {[cons.length * 0.32, -cons.length * 0.32].map((bx, i) => (
+            <mesh key={`bracket-${i}`} position={[bx, -(hvBush.height + 60) / 2 - cons.dia / 2, 0]} material={frameMaterial} castShadow receiveShadow>
+              <boxGeometry args={[20, hvBush.height + 60, 20]} />
+            </mesh>
+          ))}
+          <mesh position={[cons.length / 2 + 15, -50, 0]} material={frameMaterial} castShadow receiveShadow>
+            <cylinderGeometry args={[8, 8, 100, 8]} />
+          </mesh>
+        </group>
+      )}
+
+      {/* 10. Name plate, for scale and inspection completeness. */}
       {visibility.tank && (
         <mesh position={[design.tankL / 2 + 3, 0, 0]} material={namePlateMaterial} castShadow receiveShadow
           onPointerDown={(e) => select(e, groupInfo(byKey.namePlate))}

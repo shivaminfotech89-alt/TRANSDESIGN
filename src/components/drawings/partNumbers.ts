@@ -13,6 +13,7 @@ export const PART_NUMBERS = {
   tank: 'TNK-001',
   tankCover: 'TNK-002',
   fins: 'RAD-001',
+  conservator: 'CON-001',
   hvBushing: 'BSH-HV-01',
   lvBushing: 'BSH-LV-01',
   baseChannel: 'FR-BASE-01',

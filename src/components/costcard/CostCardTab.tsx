@@ -1,5 +1,5 @@
 import React from 'react';
-import { cardCostModel, conductorSchedule, finLayout, DEFAULT_CARD_RATES } from '@/packages/engine';
+import { cardCostModel, conductorSchedule, finLayout, radiatorLayout, conservatorSize, DEFAULT_CARD_RATES } from '@/packages/engine';
 import { Card, DataRow, cardCls, cardHeaderCls, cardTitleCls, cardSubtitleCls, cardBodyCls, thCls, tdCls, inputCls } from '../ui';
 
 interface CostCardTabProps {
@@ -22,7 +22,12 @@ const kg = (n: number) => `${Math.round(n).toLocaleString('en-IN')} Kg`;
 export function CostCardTab({ design: d, params: p, rates, onCardExtraChange, readOnly }: CostCardTabProps) {
   const cost = cardCostModel(d, rates, DEFAULT_CARD_RATES, p.cardExtra || 0);
   const cond = conductorSchedule(d, p);
-  const fins = d.dry ? null : finLayout(d);
+  // CALIBRATION.md section 24: finLayout is fin-tank-only -- a radiator
+  // design reads radiatorLayout instead, not finLayout wearing a
+  // radiator's name.
+  const isRadiator = !d.dry && p.tankType === 'radiator';
+  const fins = d.dry ? null : (isRadiator ? radiatorLayout(d) : finLayout(d));
+  const cons = isRadiator ? conservatorSize(d) : null;
 
   const lossAt100 = d.totalLoss;
   const lossAt50 = d.noLoad + d.loadLoss * 0.25;
@@ -182,10 +187,17 @@ export function CostCardTab({ design: d, params: p, rates, onCardExtraChange, re
       ) : (
         <>
           <Card title="Conservator Dimensions">
-            <p className="text-[11px] text-steel px-1 py-2">
-              To be specified -- the engine does not size a conservator (expansion volume, breather sizing);
-              enter the works' own figures for the GTP.
-            </p>
+            {isRadiator ? (
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-x-6">
+                <DataRow label="Diameter" value={f(cons!.dia, 0)} unit="mm" />
+                <DataRow label="Length" value={f(cons!.length, 0)} unit="mm" />
+                <DataRow label="Volume" value={f(cons!.volumeL, 0)} unit="L" />
+              </div>
+            ) : (
+              <p className="text-[11px] text-steel px-1 py-2">
+                Not applicable: a sealed fin tank has no conservator (CALIBRATION.md section 24).
+              </p>
+            )}
           </Card>
 
           <Card title="Tank Details">
@@ -196,16 +208,29 @@ export function CostCardTab({ design: d, params: p, rates, onCardExtraChange, re
             </div>
           </Card>
 
-          <Card title="PSR / Fin Details" subtitle={p.tankType === 'fin' ? 'Corrugated fin' : 'Pressed-steel radiator'}>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-x-6">
-              <DataRow label="Panel size" value={`${fins!.depth} x ${Math.round(fins!.height)}`} unit="mm" />
-              <DataRow label="Total panels" value={String(fins!.n)} />
-              <DataRow label="LV end / HV end" value={`${fins!.lvEnd} / ${fins!.hvEnd}`} />
-            </div>
-            <p className="text-[9px] text-steel mt-1">
-              The engine models one flat panel count, not the sheet's own radiator/fins-per-radiator split
-              (e.g. "4 radiators, 7 fins each") -- that sub-structure is not held here.
-            </p>
+          <Card title="PSR / Fin Details" subtitle={isRadiator ? 'Pressed-steel radiator' : 'Corrugated fin'}>
+            {isRadiator ? (
+              <>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-x-6">
+                  <DataRow label="Panel size" value={`${fins!.panelWidth} x ${Math.round(fins!.panelHeight)}`} unit="mm" />
+                  <DataRow label="Total panels" value={String(fins!.totalPanels)} />
+                  <DataRow label="Banks, panels per bank" value={`${fins!.bankCount} x ${fins!.panelsPerBank}`} />
+                  <DataRow label="LV banks / HV banks" value={`${fins!.lvBanks} / ${fins!.hvBanks}`} />
+                  <DataRow label="Header pipe centres" value={f(fins!.headerCentres, 0)} unit="mm" />
+                  <DataRow label="Valves, total" value={String(fins!.totalValves)} />
+                </div>
+                <p className="text-[9px] text-steel mt-1">
+                  Two isolating valves per bank (top and bottom), so a bank can be removed without draining the
+                  tank -- standard practice, not derived from a specific vendor's fitting.
+                </p>
+              </>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-x-6">
+                <DataRow label="Panel size" value={`${fins!.depth} x ${Math.round(fins!.height)}`} unit="mm" />
+                <DataRow label="Total panels" value={String(fins!.n)} />
+                <DataRow label="LV end / HV end" value={`${fins!.lvEnd} / ${fins!.hvEnd}`} />
+              </div>
+            )}
           </Card>
         </>
       )}

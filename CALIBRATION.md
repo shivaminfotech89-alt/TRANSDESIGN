@@ -1609,15 +1609,47 @@ section is checked against):**
   figure through it does, which is the check `engine.test.mjs` actually
   asserts.
 
-**Not done, deliberately, per the request**: no drawing or 3D model
-change. `finLayout`'s and `radiatorLayout`'s existing consumers
-(TankDrawings.tsx drawing 14, ManufacturingTab.tsx, CostCardTab.tsx,
-partRecords.ts, TransformerParts.tsx / geometry.ts's 3D model) all still
-call `finLayout` unconditionally regardless of tank type -- for a
-radiator-tank design they will now get `finLayout`'s own fin-tank-only
-numbers (different from before, since the tankType ternary that gave
-radiator callers a fixed 320 mm depth is gone) rather than anything
-radiator-shaped, until each is rewired to call `radiatorLayout` instead
-when `p.tankType === "radiator"`. That rewiring, and drawing radiator
-banks on header pipes with valves and the conservator on brackets with
-the breather pipe, is the next step, not part of this one.
+**Consumers rewired, and the 3D model built** (the follow-up this
+section originally deferred): every consumer that called `finLayout`
+unconditionally now branches on `p.tankType` first --
+`partRecords.ts`, `CostCardTab.tsx`, `ManufacturingTab.tsx`,
+`TankDrawings.tsx` drawing 14 (real Bank Position / Header Connection
+Centres / Valve Positions in place of "to be specified"),
+`OrthographicDrawing.tsx`, `ExplodedAssemblyDrawing.tsx` drawing 19 (new
+conservator row), and `TransformerParts.tsx`, the 3D model. A radiator
+design now gets `radiatorLayout`'s own panel/bank numbers everywhere,
+not `finLayout`'s fin-tank numbers under a different tank type's name --
+the live regression this section's own gap had reintroduced (a
+consequence of removing finLayout's old radiator branch without yet
+rewiring its callers) is closed, not just documented.
+
+`geometry.ts` gained two placement helpers, `bankPlacements()` (bank
+centres along the tank wall, one radiator bank playing the role one fin
+plays for `finPlacements()`, one level up -- returns each bank's own
+along-wall width, `panelsPerBank` panels at `panelPitch` centres) and
+`conservatorPlacement()` (mounting point above the tank, offset toward
+the HV end for the same reason drawing 14's own LV/HV split already
+carries). `radiatorLayout`'s own `panelWidth` field turned out to be the
+more physically correct choice for view-framing "how far does this
+project off the tank wall" than a separate fitted constant would have
+been -- it already IS that dimension (a real pressed-steel radiator
+element's own depth, the same role `depth` plays in `finLayout`), so no
+second guessed figure was added alongside it.
+
+The 3D model draws a radiator bank as its own panel array: header pipes
+top and bottom (cylinders spanning the bank's width), the bank's own
+panels bolted between them at `panelPitch` centres, and isolating valves
+at the tank-wall end of each header -- not a fin wall's box ticks. The
+conservator is a horizontal cylinder at `conservatorSize`'s own computed
+diameter and length, on two schematic support brackets sized to the
+same clearance `conservatorPlacement()` mounts it at, with a schematic
+breather pipe at one end. Bracket and breather dimensions are
+schematic, not claimed as engineered -- the same "real number where the
+engine gives one, a simple representative shape where it does not"
+treatment drawing 13's stiffener marks and fitting circles already use,
+not a new exception. Gated on `isRadiator` and a new `conservator`
+visibility toggle, off entirely on a fin tank or a dry design.
+
+No engine change in this pass (no formula moved, `ENGINE_VERSION`
+unchanged) -- every fix here was in what a UI-layer consumer calls, not
+in what the engine computes.
