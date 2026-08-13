@@ -157,14 +157,22 @@ firebase deploy --only firestore:rules,firestore:indexes,storage
 
 ```
 VITE_FIREBASE_API_KEY=...
-VITE_FIREBASE_AUTH_DOMAIN=ai-studio-transdesignengin-41442703-2634-4bab-af2b-b96345bc6846.firebaseapp.com
-VITE_FIREBASE_PROJECT_ID=ai-studio-transdesignengin-41442703-2634-4bab-af2b-b96345bc6846
-VITE_FIREBASE_STORAGE_BUCKET=ai-studio-transdesignengin-41442703-2634-4bab-af2b-b96345bc6846.appspot.com
+VITE_FIREBASE_AUTH_DOMAIN=tendermaster-ai.firebaseapp.com
+VITE_FIREBASE_PROJECT_ID=tendermaster-ai
+VITE_FIREBASE_STORAGE_BUCKET=tendermaster-ai.appspot.com
 VITE_FIREBASE_MESSAGING_SENDER_ID=...
 VITE_FIREBASE_APP_ID=...
 ```
 
-Take the values from Project settings → Your apps → Web app.
+Take the values from Project settings → Your apps → Web app. Note these
+are the **project** ID (`tendermaster-ai`) — the previous version of this
+example wrongly used the named Firestore **database** ID here instead,
+which is a different thing (CLAUDE.md is explicit about the distinction).
+The database ID (`ai-studio-transdesignengin-41442703-2634-4bab-af2b-b96345bc6846`)
+never goes in an env var — it's a literal constant in `src/lib/firebase.ts`
+(`getFirestore(app, DATABASE_ID)`) and `functions/src/admin.ts`, and in
+`firebase.json`'s own `firestore.database` key, the same way it already
+was in step 4 above.
 
 **Vercel specifically:** Vite inlines every `VITE_*` value into the built
 JS bundle at build time — it does not read them at runtime the way a
