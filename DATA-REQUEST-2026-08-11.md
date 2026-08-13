@@ -98,6 +98,40 @@ came back to a number the sheets don't actually state for either reference.
 these two sheets gave us real numbers to check against — a manufacturing
 arrangement choice, not something derivable from the electrical design alone.
 
+## 6. Tank internal length, width and height, and oil quantity, for any sheet — especially one at or below 630 kVA
+
+For any sheet supplied, including the 630 kVA and 1250 kVA sheets already
+on file if the tank drawing is at hand: tank **internal** length, width and
+height, and the oil quantity. A rating at or below 630 kVA matters most —
+we currently have no reproducible outer-envelope data at any small rating.
+
+**What it fixes:** two independent things point the same way without
+confirming each other. First, the engine's own oil-litres-per-kVA and
+tank-mass-per-kVA figures run far higher at the small end of the range
+(100 kVA) than the large end (5000 kVA) — expected in shape (tank surface
+grows slower than kVA), but we have no small-rating sheet to check the
+size of that curve against. Second, a cost card for a 630 kVA radiator
+unit gives 588 L of oil; the engine's own generic design at that rating
+computes 999 L, 70% more — but that cost card has no volts-per-turn or
+step count behind it, so there is nothing to build a matching design from
+and the gap could be the engine's or could be that one card's own
+unrepresentative job. Checking the 1250 kVA reference's real tank
+(1660 x 665 x 1175, already on file) found the tank is close by volume
+(+3.6%) but the wrong shape (11% too tall, 5.8% too narrow) — the width
+error traces to a clearance term (hvTankClr) that was never checked
+against these sheets the way the LV-HV clearance was, but the height
+error does not trace to anything we can currently identify, and 1250 kVA
+is mid-range, not the small end where the other two signals live. A real
+small-rating tank is the one piece of data that would show whether the
+same height fault (or a different one) shows up down there too, rather
+than us continuing to reason about it from a rating where it might not
+even be the dominant effect.
+
+**Why the engine can't infer it:** tank sizing is clearances and fitted
+constants stacked on the winding geometry, not something the loss or
+turns data already on file can check — it has to come from an actual
+tank drawing or cost sheet that states the fabricated size.
+
 ---
 
 If only some of these are available right now, send what you have — each
