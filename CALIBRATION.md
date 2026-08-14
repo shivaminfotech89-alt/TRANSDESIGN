@@ -1720,14 +1720,32 @@ opts BudgetTab builds:
 | Candidates | 179,712 (exact) | 1,872 (stage 1) + ~9,000 (5 refinements) |
 | Wall time | 30.0-38.9 min (measured per-candidate cost, extrapolated) | 76.46 s, measured for real |
 
-A new engine.test.mjs case checks staged search correctness (not the
-full-scale timing, which would make the test suite itself take half an
-hour) at a deliberately smaller grid sized so the one dimension that
-matters for coarsening (etKs, 8 points) actually exceeds its own coarse
-threshold: staged best tco landed within 0.00% of the true full-grid
-minimum at that scale, stage 2 correctly refined only stagedTopN
-structural combinations, and cancelling after stage 1 correctly stops
-before stage 2 while still returning stage 1's own candidates.
+**What this table and the tests below it actually establish, stated more
+narrowly than the first version of this section did**: that staging finds
+the same *cheapest candidate by tco* as the full grid, fast. Neither the
+76.46 s / 75.01 min full-grid comparison on the real 1000 kVA case, nor
+the engine.test.mjs case below it, filtered by `.feasible` before
+comparing -- both picked the raw minimum-tco candidate regardless of
+whether it actually meets impedance, thermal and loss compliance. That is
+a real, useful confirmation that the staging *algorithm* is correct (it
+finds the true minimum of the ranking the full grid would also find,
+not an approximation of it) -- it is not a confirmation that either
+search *returns a usable design*, which is a different question the
+comparison never asked. Section 26 found the answer to that different
+question on this exact case is no: zero candidates are feasible in the
+default 1000 kVA search at all, staged or full, and it is not caused by
+staging or by anything this section changed.
+
+A new engine.test.mjs case checks staged search correctness the same
+narrow way (not the full-scale timing, which would make the test suite
+itself take half an hour) at a deliberately smaller grid sized so the one
+dimension that matters for coarsening (etKs, 8 points) actually exceeds
+its own coarse threshold: staged best tco landed within 0.00% of the true
+full-grid minimum at that scale, stage 2 correctly refined only
+stagedTopN structural combinations, and cancelling after stage 1
+correctly stops before stage 2 while still returning stage 1's own
+candidates. Again, this is the algorithm-correctness question, not the
+usability one.
 
 **Fix 2 -- a web worker** (new `src/workers/searchWorker.ts`). Staging
 cut the typical case to under 90 seconds, but "typical" is not "every
@@ -1759,3 +1777,53 @@ a what-if search, not part of how a saved revision reprices on read,
 the same reasoning section 20 already recorded; cardCostModel's fix only
 changes which count a radiator design's panel row reads, not any
 formula).
+
+## 26. The default 1000 kVA Fit to Budget search returns zero feasible candidates, and the flux floor is not why
+
+Follow-up to section 25's correction: once the staged-vs-full comparison
+was properly filtered by `.feasible` instead of raw minimum tco, both the
+76.46 s staged run and the 75.01 min full-grid run on the exact default
+1000 kVA case returned **zero feasible candidates each**, out of 1,530
+and 57,408 respectively. Not a staging artefact -- the full grid has the
+identical problem, and the raw-cheapest candidate both runs agree on is
+the same one (grade zdkh, CCA, fin, ONAN, etK 0.400), confirming again
+that staging finds the true minimum of the grid, just not a usable one
+on this case.
+
+Breaking down the 510 deduplicated candidates from a representative run:
+zOk true and thermalOk true for every single one -- impedance and
+thermal are not the problem anywhere in the grid. lossOk is false for
+all 510. Of those, only 33 fail on no-load loss; every one of the 510
+fails on load loss. The closest candidate found (grade zdkh, etK 0.480)
+reaches loadLoss 6,702 W against a limit of 6,356 W -- 5.4% over, close
+but never inside. `params.limitLL` = 6356 is confirmed to be the
+`lossSchedule()`-derived figure for this rating and level, not a manual
+override -- the default case's own `over` is `{}`.
+
+**Flux-floor hypothesis, tested directly and ruled out.** The base
+(autoFit) design's own compliant point sits at flux B = 1.44 T, and
+`fluxRange()` floors non-amorphous grades at 1.50 T -- a real, checkable
+gap between what the continuous autoFit process can reach (down to the
+1.42 T floor `fitToSchedule` itself uses) and what the search grid ever
+tries. Tested by temporarily lowering `fluxRange`'s floor to 1.40 T
+(1.40, 1.45 added ahead of the existing 1.50-1.80 ladder) and re-running
+the exact same staged search: still zero feasible, out of 660
+candidates this time, still all 660 failing on load loss specifically.
+The closest-to-compliant candidate was still at flux 1.800 T -- the
+*top* of the range, not the newly opened bottom -- meaning the search
+was not even gravitating toward the new region. Reverted immediately
+after the test; `fluxRange` is unchanged in the shipped engine.
+
+**So the flux floor is not the cause.** The actual finding, per the
+decision this section was investigating: 510 (and 660) out of 510 (660)
+failing on load loss specifically, with the closest miss only 5.4% over
+and the raw-cheapest candidate 17.8% over, points at the load-loss
+target being difficult or impossible to reach across the *combinations*
+this grid explores -- not at any one swept dimension's range being too
+narrow. Left open, not investigated further here: whether this is a
+property of `searchDesigns`' own discrete deltaLV/deltaHV/flux grid
+genuinely never landing where the continuous `autoFit` bisection does
+(most grid points are not fine-tuned to sit just inside the schedule
+the way `autoFit` deliberately targets), or something else. No fix
+attempted; this is a report, not a change -- `fluxRange`, `searchDesigns`
+and `stagedSearchDesigns` are all unchanged by this section.
