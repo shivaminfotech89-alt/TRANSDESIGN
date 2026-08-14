@@ -1220,7 +1220,14 @@ function ownershipCost(d, p) {
    the one sheet this model was built against is oil-cooled. */
 const DEFAULT_CARD_RATES = { finPanel: 600 };
 function cardCostModel(d, rates, cardRates = DEFAULT_CARD_RATES, extra = 0) {
-  const panels = d.dry ? 0 : (d.cardPanels ?? finLayout(d).n);
+  // CALIBRATION.md section 25: finLayout is fin-tank-only (section 24) --
+  // this was the one call site the "rewire every consumer" pass missed,
+  // since it lives in the engine itself rather than a UI file the earlier
+  // grep of src/ ever covered. A radiator design was getting finLayout's
+  // fin-wall panel count under this model's own "PSR (pressed-steel
+  // radiator)" row label -- the numbers were fin numbers regardless of
+  // which label printed above them.
+  const panels = d.dry ? 0 : (d.cardPanels ?? (d.p.tankType === "radiator" ? radiatorLayout(d).totalPanels : finLayout(d).n));
   const rows = [
     { no: 1, desc: "Core", qty: d.wCore, unit: "Kg", rate: rates.core },
     { no: 2, desc: "L.T Weight", qty: d.wLVCovered, unit: "Kg", rate: rates.condCu },
@@ -1251,6 +1258,9 @@ function fluxRange(gradeKey) {
   return [1.50, 1.55, 1.60, 1.65, 1.70, 1.75, 1.80].filter((b) => b <= CORE_GRADES[gradeKey].bMax);
 }
 
+const DEFAULT_DSCALES = [0.72, 0.80, 0.88, 0.95, 1.03, 1.12, 1.22, 1.32];
+const DEFAULT_GAPSCALES = [0.9, 1.0, 1.12];
+
 function searchDesigns(base, rates, band, opts) {
   const results = [];
   const grades = opts.grades.length ? opts.grades : [base.coreGrade];
@@ -1274,8 +1284,6 @@ function searchDesigns(base, rates, band, opts) {
   const etKs = opts.etKs && opts.etKs.length ? opts.etKs : [base.etK];
   const stepsList = opts.stepsList && opts.stepsList.length ? opts.stepsList : [base.steps];
   const tapTypes = opts.tapTypes && opts.tapTypes.length ? opts.tapTypes : [base.tapType];
-  const dScales = [0.72, 0.80, 0.88, 0.95, 1.03, 1.12, 1.22, 1.32];
-  const gapScales = [0.9, 1.0, 1.12];
   /* Cooling and top-oil rise target are wired the same opt-in way as etK,
      steps and tapType above: absent, they collapse to the design's own
      current value, so an existing call site is unaffected. Rise target is
@@ -1290,6 +1298,16 @@ function searchDesigns(base, rates, band, opts) {
   const riseTargets = opts.riseTargets && opts.riseTargets.length
     ? opts.riseTargets
     : opts.allowHotter ? [45, 50] : [base.oilRiseTarget];
+  /* CALIBRATION.md section 25: dScales/gapScales used to be fixed inside
+     this function, the one pair of sweep dimensions with no opt-in override
+     at all -- harmless while nothing needed to touch them, but it is
+     exactly what stagedSearchDesigns() below needs to run this same grid at
+     reduced (stage 1) and windowed (stage 2) resolution without forking the
+     search logic. Same opt-in pattern as every other dimension: absent,
+     defaults to the original fixed 8/3-point ladders, so no existing call
+     site's candidate count changes. */
+  const dScales = opts.dScales && opts.dScales.length ? opts.dScales : DEFAULT_DSCALES;
+  const gapScales = opts.gapScales && opts.gapScales.length ? opts.gapScales : DEFAULT_GAPSCALES;
 
   for (const core of cores) {
     const ctd = CORE_TYPES[core];
@@ -1318,6 +1336,13 @@ function searchDesigns(base, rates, band, opts) {
                             autoClearance: false, tankType: tk, cooling: cl, oilRiseTarget: rt,
                             lvHvClr: Math.round(base.lvHvClr * gs),
                             etK: ek, steps: st, tapType: tt,
+                            // Not read by designTransformer (deltaLV/deltaHV
+                            // and lvHvClr above are the real inputs) -- kept
+                            // on the candidate purely so stagedSearchDesigns()
+                            // can see which dScale/gapScale point a stage-1
+                            // winner actually used, to window stage 2 around
+                            // it. Harmless extra fields on every other caller.
+                            dScale: ds, gapScale: gs,
                           };
                           const d = designTransformer(cand);
                           if (!isFinite(d.wCore) || d.wCore <= 0) continue;
@@ -1344,6 +1369,143 @@ function searchDesigns(base, rates, band, opts) {
   }
   const best = new Map();
   for (const x of results) {
+    const k = [x.inputs.coreType, x.inputs.coreGrade, x.inputs.condLV, x.inputs.tankType,
+      x.inputs.cooling, x.inputs.oilRiseTarget,
+      x.d.B.toFixed(2), x.d.dLV.toFixed(2), x.d.dHV.toFixed(2),
+      x.inputs.etK.toFixed(2), x.inputs.steps, x.inputs.tapType].join("|");
+    const prev = best.get(k);
+    if (!prev || x.tco < prev.tco) best.set(k, x);
+  }
+  return [...best.values()];
+}
+
+const structKey = (x) => [x.inputs.coreType, x.inputs.coreGrade, x.inputs.condLV, x.inputs.tankType, x.inputs.cooling].join("|");
+
+/* Picks up to `n` points around `value` in `all` (sorted ascending) --
+   value's own nearest point plus its immediate neighbours, so a stage-2
+   refinement gets full resolution in the region a stage-1 coarse point
+   already looked good in, without re-scanning the whole range. Falls back
+   to the full array if it is already <= n long -- windowing a 3-point
+   gapScales array, for instance, would not save anything and would risk
+   missing the actual best point over a rounding accident in "nearest". */
+function windowAround(all, value, n) {
+  if (all.length <= n) return all;
+  let idx = 0, best = Infinity;
+  all.forEach((v, i) => { const d = Math.abs(v - value); if (d < best) { best = d; idx = i; } });
+  const half = Math.floor(n / 2);
+  let lo = Math.max(0, idx - half);
+  let hi = Math.min(all.length - 1, lo + n - 1);
+  lo = Math.max(0, hi - n + 1);
+  return all.slice(lo, hi + 1);
+}
+
+/* CALIBRATION.md section 25: searchDesigns' own full grid multiplies every
+   dimension against every other -- grades x flux x conds x dScales x tanks
+   x gapScales x coolings x riseTargets x etKs -- which is exactly right for
+   finding the true minimum, and exactly why it stopped being usable once
+   riseTargets and coolings joined the other five: 172,800 candidates at
+   roughly 10 ms each (measured directly, not assumed) is 25-45 minutes,
+   synchronous, on the tab's own main thread. The grid was never the bug;
+   running all of it in one Cartesian product every time was.
+
+   Two-stage funnel instead of a smaller fixed grid, because a smaller fixed
+   grid just moves the same problem (which candidates does it quietly never
+   look at) rather than solving it:
+
+   Stage 1 -- coarse screen, every structural combination (core type, core
+   grade, conductor, tank type, cooling), at reduced resolution on the
+   continuous levers (3 dScale points instead of 8, 1 gapScale instead of 3,
+   the caller's own first/current rise target instead of the full list, ~4
+   etK points instead of 16 or the full ETK_RANGE). Flux is left at full
+   resolution -- fluxRange() is already only 4-7 points per grade, coarsening
+   it further would not save much and risks missing the grade's own actual
+   optimum. This is cheap (order 1,000-2,000 candidates) precisely because
+   it is not trying to find the true minimum yet, only to rank structural
+   choices against each other well enough to discard the ones that are not
+   competitive.
+
+   Stage 2 -- for only the best few structural combinations from stage 1
+   (opts.stagedTopN, default 5), re-run searchDesigns restricted to that one
+   exact combination, at full flux/gapScale/riseTarget resolution and a
+   dScale/etK window centred on wherever stage 1's own winner for that
+   combination landed (windowAround) -- full resolution, but only in the
+   region already known to be competitive, not the whole range blindly.
+
+   This is a heuristic, not an exhaustive search: a structural combination
+   that stage 1's coarse point sampling made look uncompetitive is never
+   revisited in stage 2, even if the true optimum for that combination (at
+   some dScale/etK point stage 1 never happened to sample) would have beaten
+   the winners that were kept. That is the actual, named trade -- a few
+   thousand candidates finding the same minimum as 172,800 almost always,
+   not provably always -- and it is the trade needed to keep this on a
+   thread that can respond to a cancel button and paint a progress bar
+   instead of freezing for the better part of an hour. */
+function stagedSearchDesigns(base, rates, band, opts, onProgress, shouldCancel) {
+  const report = (info) => { if (onProgress) onProgress(info); };
+  const cancelled = () => !!(shouldCancel && shouldCancel());
+
+  const topN = opts.stagedTopN || 5;
+  const etKsFull = opts.etKs && opts.etKs.length ? opts.etKs : ETK_RANGE;
+  const dScalesFull = opts.dScales && opts.dScales.length ? opts.dScales : DEFAULT_DSCALES;
+  const gapScalesFull = opts.gapScales && opts.gapScales.length ? opts.gapScales : DEFAULT_GAPSCALES;
+  const riseTargetsFull = opts.riseTargets && opts.riseTargets.length ? opts.riseTargets : [base.oilRiseTarget];
+
+  // Coarse etK: evenly spaced subset of whatever range the caller gave.
+  const ETK_COARSE_N = 4;
+  const etKsCoarse = etKsFull.length <= ETK_COARSE_N ? etKsFull
+    : Array.from({ length: ETK_COARSE_N }, (_, i) => etKsFull[Math.round((i * (etKsFull.length - 1)) / (ETK_COARSE_N - 1))]);
+  const DSCALE_COARSE_N = 3;
+  const dScalesCoarse = dScalesFull.length <= DSCALE_COARSE_N ? dScalesFull
+    : Array.from({ length: DSCALE_COARSE_N }, (_, i) => dScalesFull[Math.round((i * (dScalesFull.length - 1)) / (DSCALE_COARSE_N - 1))]);
+
+  if (cancelled()) return [];
+  report({ stage: 1, phase: "start" });
+  const stage1 = searchDesigns(base, rates, band, {
+    ...opts,
+    etKs: etKsCoarse,
+    dScales: dScalesCoarse,
+    gapScales: [gapScalesFull[Math.floor(gapScalesFull.length / 2)]],
+    riseTargets: [riseTargetsFull[0]],
+  });
+  report({ stage: 1, phase: "done", count: stage1.length });
+  if (cancelled() || !stage1.length) return stage1;
+
+  const byStruct = new Map();
+  for (const x of stage1) {
+    const k = structKey(x);
+    const prev = byStruct.get(k);
+    if (!prev || x.tco < prev.tco) byStruct.set(k, x);
+  }
+  const winners = [...byStruct.values()].sort((a, b) => a.tco - b.tco).slice(0, topN);
+
+  const stage2 = [];
+  for (let i = 0; i < winners.length; i++) {
+    if (cancelled()) break;
+    const w = winners[i];
+    report({ stage: 2, phase: "tuple", tuple: i + 1, of: winners.length });
+    const dScalesWindow = windowAround(dScalesFull, w.inputs.dScale, DSCALE_COARSE_N);
+    const etKsWindow = windowAround(etKsFull, w.inputs.etK, ETK_COARSE_N + 1);
+    const refined = searchDesigns(base, rates, band, {
+      ...opts,
+      grades: [w.inputs.coreGrade],
+      conds: [w.inputs.condLV],
+      tanks: [w.inputs.tankType],
+      cores: [w.inputs.coreType],
+      coolings: [w.inputs.cooling],
+      etKs: etKsWindow,
+      dScales: dScalesWindow,
+      gapScales: gapScalesFull,
+      riseTargets: riseTargetsFull,
+    });
+    stage2.push(...refined);
+  }
+  report({ stage: 2, phase: "done", count: stage2.length });
+
+  // Same dedup searchDesigns() itself uses, applied once more across the
+  // merged stage-2 results -- two winning structural combinations refined
+  // separately can still land on near-identical final designs.
+  const best = new Map();
+  for (const x of stage2.length ? stage2 : stage1) {
     const k = [x.inputs.coreType, x.inputs.coreGrade, x.inputs.condLV, x.inputs.tankType,
       x.inputs.cooling, x.inputs.oilRiseTarget,
       x.d.B.toFixed(2), x.d.dLV.toFixed(2), x.d.dHV.toFixed(2),
@@ -2450,7 +2612,7 @@ export {
   INS_CLASS, STANDARDS, APPS, EFF_LEVELS, ESSENTIALS, DEFAULT_RATES, UM_STEPS,
   lossSchedule, clearancesFrom, umFor, zSuggest, gradeSuggest, fluxSuggest,
   stepsSuggest, densitySuggest, aspectSuggest,
-  deriveSpec, designTransformer, buildBOM, ownershipCost, searchDesigns,
+  deriveSpec, designTransformer, buildBOM, ownershipCost, searchDesigns, stagedSearchDesigns,
   impacts, calcSheet, stepWidths, stampingSchedule, finLayout, radiatorLayout, conservatorSize,
   documentRegister, routineTestSchedule, DOC_STATUS, REFS,
   inr, lakhs, bushMul, condRate, rkCond, fluxRange, bushHeight, parseVectorGroup,

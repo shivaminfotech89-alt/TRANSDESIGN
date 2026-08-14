@@ -1,6 +1,21 @@
-import React, { useMemo, useState } from 'react';
-import { searchDesigns, etkCurve, ETK_RANGE, CORE_GRADES, CONDUCTORS, inr } from '@/packages/engine';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { etkCurve, ETK_RANGE, CORE_GRADES, CONDUCTORS, inr } from '@/packages/engine';
 import { Card, Button, thCls, tdCls, inputCls, labelCls } from '../ui';
+
+/** CALIBRATION.md section 25: the search itself now runs in
+ *  src/workers/searchWorker.ts, off this tab's own main thread -- searchDesigns
+ *  is no longer called directly here. Turns a progress message from the
+ *  worker (packages/engine's stagedSearchDesigns own {stage, phase, ...}
+ *  shape) into one line a designer reading it would actually understand,
+ *  not the raw stage numbers. */
+function progressText(info: any): string {
+  if (!info) return 'Searching…';
+  if (info.stage === 1 && info.phase === 'start') return 'Screening every material, grade and tank combination…';
+  if (info.stage === 1 && info.phase === 'done') return `Screened ${info.count} combinations -- refining the best…`;
+  if (info.stage === 2 && info.phase === 'tuple') return `Refining combination ${info.tuple} of ${info.of}…`;
+  if (info.stage === 2 && info.phase === 'done') return 'Finishing…';
+  return 'Searching…';
+}
 
 interface BudgetTabProps {
   /** The live design being edited -- never the previewed one. The search
@@ -163,6 +178,21 @@ export function BudgetTab({ design, bom, params, rates, activePreviewKey, onSele
   const [band, setBand] = useState<{ min: number; max: number } | null>(null);
   const [results, setResults] = useState<any[]>([]);
   const [searching, setSearching] = useState(false);
+  const [progress, setProgress] = useState<any>(null);
+  const [searchError, setSearchError] = useState<string | null>(null);
+  const workerRef = useRef<Worker | null>(null);
+
+  // Terminate any still-running search if this tab unmounts -- a worker
+  // outlives its component otherwise, still burning CPU on a search nobody
+  // is looking at the result of.
+  useEffect(() => () => { workerRef.current?.terminate(); }, []);
+
+  const cancelSearch = () => {
+    workerRef.current?.terminate();
+    workerRef.current = null;
+    setSearching(false);
+    setProgress(null);
+  };
 
   const runSearch = () => {
     const b = { min: minLakh * 1e5, max: maxLakh * 1e5 };
@@ -209,15 +239,51 @@ export function BudgetTab({ design, bom, params, rates, activePreviewKey, onSele
         return params.dry || !coolingPriced ? [params.cooling] : ['ONAN', 'ONAF'];
       })(),
     };
-    // Deferred one tick so the "Searching" state actually paints before the
-    // synchronous grid search (a few thousand designTransformer + buildBOM
-    // calls, roughly two seconds with etK included) blocks the main thread.
+    // CALIBRATION.md section 25: runs in a worker, not on this thread --
+    // the grid this opts object describes was 179,712 candidates before
+    // staging, 30+ minutes synchronous on the tab's own main thread. Staging
+    // (packages/engine's stagedSearchDesigns, which the worker calls) cuts
+    // that to under 90 seconds typically, but a worker means even an
+    // atypical, larger grid can never freeze the tab -- it can only ever
+    // make the progress bar take longer, with a Cancel button that actually
+    // works because the search is not blocking the thread the click handler
+    // needs to run on.
+    workerRef.current?.terminate();
+    setSearchError(null);
     setSearching(true);
-    setTimeout(() => {
-      setResults(searchDesigns(params, rates, b, opts));
-      setBand(b);
+    setProgress({ stage: 1, phase: 'start' });
+
+    const worker = new Worker(new URL('../../workers/searchWorker.ts', import.meta.url), { type: 'module' });
+    workerRef.current = worker;
+
+    worker.onmessage = (e: MessageEvent) => {
+      const msg = e.data;
+      if (msg.type === 'progress') {
+        setProgress(msg.info);
+      } else if (msg.type === 'done') {
+        setResults(msg.results);
+        setBand(b);
+        setSearching(false);
+        setProgress(null);
+        worker.terminate();
+        workerRef.current = null;
+      } else if (msg.type === 'error') {
+        setSearchError(msg.message || 'The search failed unexpectedly.');
+        setSearching(false);
+        setProgress(null);
+        worker.terminate();
+        workerRef.current = null;
+      }
+    };
+    worker.onerror = (e: ErrorEvent) => {
+      setSearchError(e.message || 'The search worker failed to start.');
       setSearching(false);
-    }, 0);
+      setProgress(null);
+      worker.terminate();
+      workerRef.current = null;
+    };
+
+    worker.postMessage({ type: 'search', base: params, rates, band: b, opts });
   };
 
   const feasible = useMemo(() => results.filter((r) => r.feasible), [results]);
@@ -270,7 +336,14 @@ export function BudgetTab({ design, bom, params, rates, activePreviewKey, onSele
             <input type="number" step={0.1} value={maxLakh} onChange={(e) => setMaxLakh(Number(e.target.value))} className={`${inputCls} w-32`} />
           </div>
           <Button variant="primary" onClick={runSearch} disabled={searching}>{searching ? 'Searching…' : 'Search'}</Button>
+          {searching && <Button variant="destructive" onClick={cancelSearch}>Cancel</Button>}
         </div>
+        {searching && (
+          <p className="text-[10px] text-steel px-1 pt-2 font-mono">{progressText(progress)}</p>
+        )}
+        {searchError && (
+          <p className="text-[10px] text-alert px-1 pt-2">{searchError}</p>
+        )}
       </Card>
 
       <KSweepPanel params={params} rates={rates} />

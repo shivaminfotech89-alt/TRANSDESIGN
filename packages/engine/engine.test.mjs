@@ -393,5 +393,81 @@ console.log("\nconservator sizing checked against the 630 kVA reference (330 dia
   else console.log("  ok   sealed fin tank has no conservator (dia 0, length 0)");
 }
 
+console.log("\nstaged search finds close to the same minimum as the full grid, at a fraction of the candidates");
+// CALIBRATION.md section 25. Deliberately NOT run at BudgetTab's own full
+// scale (179,712 candidates, 30+ minutes measured directly) -- this project
+// runs test:engine before and after every engine edit, and a test that
+// takes half an hour defeats that. etKs is 8 points here specifically
+// because it is the one dimension in this opts object bigger than
+// stagedSearchDesigns' own coarse threshold (ETK_COARSE_N = 4), so real
+// coarsening and windowing actually happen; dScales/gapScales are pinned
+// small (below their own coarse thresholds) purely to keep the full-grid
+// ground truth cheap enough to compute directly in a test, not because
+// staging is skipped for them.
+{
+  const core = { ...E.ESSENTIALS, kva: 1000, hv: 11000, lv: 433, freq: 50, vector: "Dyn11", application: "distribution", standard: "IS", effLevel: "level2", medium: "oil", condPref: "auto" };
+  const { params } = E.computeDesign(core, {}, E.DEFAULT_RATES, []);
+  const opts = {
+    grades: Object.keys(E.CORE_GRADES), conds: [params.condLV], tanks: [params.tankType], cores: [params.coreType],
+    zTol: params.zTol, enforceLimits: true,
+    dScales: [0.85, 1.0, 1.15], gapScales: [1.0],
+    riseTargets: [params.oilRiseTarget],
+    etKs: Array.from({ length: 8 }, (_, i) => Math.round((0.40 + i * 0.04) * 100) / 100),
+    coolings: [params.cooling],
+    stagedTopN: 3,
+  };
+
+  const full = E.searchDesigns(params, E.DEFAULT_RATES, { min: 0, max: Infinity }, opts);
+  const fullBest = full.reduce((a, b) => (b.tco < a.tco ? b : a));
+
+  let sawStage1 = false, sawStage2Tuples = 0, cancelledEarly = false;
+  const staged = E.stagedSearchDesigns(params, E.DEFAULT_RATES, { min: 0, max: Infinity }, opts, (info) => {
+    if (info.stage === 1 && info.phase === "done") sawStage1 = true;
+    if (info.stage === 2 && info.phase === "tuple") sawStage2Tuples = info.of;
+  });
+  const stagedBest = staged.reduce((a, b) => (b.tco < a.tco ? b : a));
+
+  if (!sawStage1) { failures++; console.log("  FAIL stagedSearchDesigns never reported stage 1 completing"); }
+  else console.log("  ok   stage 1 completion reported via onProgress");
+
+  if (sawStage2Tuples < 1 || sawStage2Tuples > opts.stagedTopN) {
+    failures++; console.log(`  FAIL stage 2 refined ${sawStage2Tuples} structural combinations, expected 1-${opts.stagedTopN}`);
+  } else console.log(`  ok   stage 2 refined ${sawStage2Tuples} structural combination(s), within stagedTopN = ${opts.stagedTopN}`);
+
+  const dev = ((stagedBest.tco - fullBest.tco) / fullBest.tco) * 100;
+  if (Math.abs(dev) > 3) {
+    failures++;
+    console.log(`  FAIL staged best tco ${Math.round(stagedBest.tco)} deviates ${dev.toFixed(2)}% from the full grid's true best ${Math.round(fullBest.tco)}, expected within 3%`);
+  } else {
+    console.log(`  ok   staged best tco ${Math.round(stagedBest.tco)} within ${dev.toFixed(2)}% of the full grid's true best ${Math.round(fullBest.tco)} (${full.length} full candidates vs staging)`);
+  }
+
+  // Cancellation: stop after stage 1 reports done, before any stage-2 tuple
+  // starts -- confirms shouldCancel is actually checked, not just accepted
+  // and ignored.
+  let stage1Done = false;
+  const cancelled = E.stagedSearchDesigns(params, E.DEFAULT_RATES, { min: 0, max: Infinity }, opts,
+    (info) => { if (info.stage === 1 && info.phase === "done") stage1Done = true; },
+    () => stage1Done);
+  if (!stage1Done) { failures++; console.log("  FAIL cancellation test never saw stage 1 complete"); }
+  else if (cancelled.length === 0) { failures++; console.log("  FAIL cancelling after stage 1 returned zero results -- stage 1's own candidates should still be usable"); }
+  else console.log(`  ok   cancelling after stage 1 stops before stage 2 and still returns ${cancelled.length} stage-1 candidates`);
+}
+
+console.log("\ncardCostModel panel count follows tank type, not finLayout regardless of it");
+// CALIBRATION.md section 25: the one finLayout call site the "rewire every
+// consumer" pass missed, because it lives in the engine (cardCostModel)
+// rather than a UI file the earlier src/ grep covered.
+{
+  const core = { ...E.ESSENTIALS, kva: 2500, application: "power" };
+  const r = E.computeDesign(core, { tankType: "radiator" }, E.DEFAULT_RATES, []);
+  const cardPanels = E.cardCostModel(r.design, E.DEFAULT_RATES, E.DEFAULT_CARD_RATES, 0).rows.find((row) => row.no === 7);
+  const radPanels = E.radiatorLayout(r.design).totalPanels;
+  const finPanels = E.finLayout(r.design).n;
+  eq("radiator design's cardCostModel panel row uses radiatorLayout's own panel count", cardPanels.qty, radPanels);
+  if (cardPanels.qty === finPanels) { failures++; console.log(`  FAIL panel count (${cardPanels.qty}) matches finLayout's fin-wall count -- the bug is still there`); }
+  else console.log(`  ok   panel count (${cardPanels.qty}) does not match finLayout's fin-wall count (${finPanels})`);
+}
+
 console.log(failures ? `\n${failures} FAILURES` : "\nall passed");
 process.exit(failures ? 1 : 0);
