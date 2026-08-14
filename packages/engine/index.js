@@ -1258,7 +1258,6 @@ function fluxRange(gradeKey) {
   return [1.50, 1.55, 1.60, 1.65, 1.70, 1.75, 1.80].filter((b) => b <= CORE_GRADES[gradeKey].bMax);
 }
 
-const DEFAULT_DSCALES = [0.72, 0.80, 0.88, 0.95, 1.03, 1.12, 1.22, 1.32];
 const DEFAULT_GAPSCALES = [0.9, 1.0, 1.12];
 
 function searchDesigns(base, rates, band, opts) {
@@ -1298,15 +1297,19 @@ function searchDesigns(base, rates, band, opts) {
   const riseTargets = opts.riseTargets && opts.riseTargets.length
     ? opts.riseTargets
     : opts.allowHotter ? [45, 50] : [base.oilRiseTarget];
-  /* CALIBRATION.md section 25: dScales/gapScales used to be fixed inside
-     this function, the one pair of sweep dimensions with no opt-in override
-     at all -- harmless while nothing needed to touch them, but it is
-     exactly what stagedSearchDesigns() below needs to run this same grid at
-     reduced (stage 1) and windowed (stage 2) resolution without forking the
-     search logic. Same opt-in pattern as every other dimension: absent,
-     defaults to the original fixed 8/3-point ladders, so no existing call
-     site's candidate count changes. */
-  const dScales = opts.dScales && opts.dScales.length ? opts.dScales : DEFAULT_DSCALES;
+  /* CALIBRATION.md section 27: this grid used to enumerate flux (fluxRange)
+     and density (the dScale multiplier ladder) as discrete points, the same
+     way it enumerates grade or tank type. That is wrong for those two
+     specifically, because they are not independent structural choices --
+     they are the two levers fitToSchedule already bisects continuously to
+     land just inside the loss schedule on the main design path. A discrete
+     grid essentially never lands in that same narrow compliant window, so
+     every candidate failed on load loss regardless of grade, tank or K:
+     zero feasible results, always, on the default case. Each candidate here
+     now calls fitToSchedule itself -- exactly what computeDesign does --
+     so flux and density are fitted to the schedule per candidate rather
+     than swept. gapScales stays a swept dimension: it moves lvHvClr, a
+     structural clearance choice fitToSchedule has no opinion on. */
   const gapScales = opts.gapScales && opts.gapScales.length ? opts.gapScales : DEFAULT_GAPSCALES;
 
   for (const core of cores) {
@@ -1314,49 +1317,56 @@ function searchDesigns(base, rates, band, opts) {
     for (const g of grades) {
       if (ctd.grades === "amor" && g !== "amor") continue;
       if (ctd.grades === "crgo" && g === "amor") continue;
-      for (const B of fluxRange(g)) {
-        for (const cond of conds) {
-          // anchor the current-density ladder on the conductor being tried, not on the
-          // one already in the design: aluminium needs a far lower density than copper
-          const anchLV = cond === base.condLV ? base.deltaLV : densitySuggest(base.kva, cond, base.medium === "dry", false);
-          const anchHV = cond === base.condHV ? base.deltaHV : densitySuggest(base.kva, cond, base.medium === "dry", true);
-          for (const ds of dScales) {
-            for (const tk of tanks) {
-              for (const gs of gapScales) {
-                for (const cl of coolings) {
-                  for (const rt of riseTargets) {
-                    for (const ek of etKs) {
-                      for (const st of stepsList) {
-                        for (const tt of tapTypes) {
-                          const cand = {
-                            ...base, coreType: core, buildFactor: ctd.bf, coreGrade: g, flux: B,
-                            condLV: cond, condHV: cond,
-                            deltaLV: Math.min(anchLV * ds, CONDUCTORS[cond].dMax),
-                            deltaHV: Math.min(anchHV * ds, CONDUCTORS[cond].dMax),
-                            autoClearance: false, tankType: tk, cooling: cl, oilRiseTarget: rt,
-                            lvHvClr: Math.round(base.lvHvClr * gs),
-                            etK: ek, steps: st, tapType: tt,
-                            // Not read by designTransformer (deltaLV/deltaHV
-                            // and lvHvClr above are the real inputs) -- kept
-                            // on the candidate purely so stagedSearchDesigns()
-                            // can see which dScale/gapScale point a stage-1
-                            // winner actually used, to window stage 2 around
-                            // it. Harmless extra fields on every other caller.
-                            dScale: ds, gapScale: gs,
-                          };
-                          const d = designTransformer(cand);
-                          if (!isFinite(d.wCore) || d.wCore <= 0) continue;
-                          const bom = buildBOM(d, rates);
-                          const zOk = Math.abs(d.pctZ - base.targetZ) / base.targetZ <= opts.zTol / 100;
-                          const thermalOk = d.compliance.rise.ok && d.compliance.wRise.ok;
-                          const lossOk = !opts.enforceLimits || (d.compliance.nll.ok && d.compliance.ll.ok);
-                          results.push({
-                            inputs: cand, d, bom, price: bom.exFactory, tco: bom.tco,
-                            zOk, thermalOk, lossOk, feasible: zOk && thermalOk && lossOk,
-                            withinBudget: bom.exFactory >= (band.min || 0) && bom.exFactory <= (band.max ?? Infinity),
-                          });
-                        }
-                      }
+      // Same clamp fitToSchedule itself applies, used here only to give its
+      // bisection a starting flux inside the grade actually being tried --
+      // base.flux can easily sit outside a different grade's own bMax/bMin.
+      const bMaxG = CORE_GRADES[g].bMax - 0.02;
+      const bMinG = g === "amor" ? 1.20 : 1.42;
+      const startFlux = Math.min(bMaxG, Math.max(bMinG, base.flux));
+      for (const cond of conds) {
+        // anchor the current-density ladder on the conductor being tried, not on the
+        // one already in the design: aluminium needs a far lower density than copper
+        const anchLV = cond === base.condLV ? base.deltaLV : densitySuggest(base.kva, cond, base.medium === "dry", false);
+        const anchHV = cond === base.condHV ? base.deltaHV : densitySuggest(base.kva, cond, base.medium === "dry", true);
+        for (const tk of tanks) {
+          for (const gs of gapScales) {
+            for (const cl of coolings) {
+              for (const rt of riseTargets) {
+                for (const ek of etKs) {
+                  for (const st of stepsList) {
+                    for (const tt of tapTypes) {
+                      const candBase = {
+                        ...base, coreType: core, buildFactor: ctd.bf, coreGrade: g,
+                        condLV: cond, condHV: cond,
+                        flux: startFlux, deltaLV: anchLV, deltaHV: anchHV,
+                        autoClearance: false, tankType: tk, cooling: cl, oilRiseTarget: rt,
+                        lvHvClr: Math.round(base.lvHvClr * gs),
+                        etK: ek, steps: st, tapType: tt,
+                        // Search candidates are always fitted to the loss
+                        // schedule regardless of whether the live design
+                        // itself has autoFit on -- a manually pinned flux on
+                        // the design being priced is not a reason to skip
+                        // fitting on a hypothetical candidate being explored.
+                        autoFit: true,
+                        // Not read by designTransformer -- lvHvClr above is
+                        // the real input. Kept on the candidate purely so
+                        // stagedSearchDesigns() can see which gapScale point
+                        // a stage-1 winner actually used.
+                        gapScale: gs,
+                      };
+                      const fitted = fitToSchedule(candBase, {});
+                      const cand = { ...candBase, ...fitted };
+                      const d = designTransformer(cand);
+                      if (!isFinite(d.wCore) || d.wCore <= 0) continue;
+                      const bom = buildBOM(d, rates);
+                      const zOk = Math.abs(d.pctZ - base.targetZ) / base.targetZ <= opts.zTol / 100;
+                      const thermalOk = d.compliance.rise.ok && d.compliance.wRise.ok;
+                      const lossOk = !opts.enforceLimits || (d.compliance.nll.ok && d.compliance.ll.ok);
+                      results.push({
+                        inputs: cand, d, bom, price: bom.exFactory, tco: bom.tco,
+                        zOk, thermalOk, lossOk, feasible: zOk && thermalOk && lossOk,
+                        withinBudget: bom.exFactory >= (band.min || 0) && bom.exFactory <= (band.max ?? Infinity),
+                      });
                     }
                   }
                 }
@@ -1399,14 +1409,14 @@ function windowAround(all, value, n) {
   return all.slice(lo, hi + 1);
 }
 
-/* CALIBRATION.md section 25: searchDesigns' own full grid multiplies every
-   dimension against every other -- grades x flux x conds x dScales x tanks
-   x gapScales x coolings x riseTargets x etKs -- which is exactly right for
-   finding the true minimum, and exactly why it stopped being usable once
-   riseTargets and coolings joined the other five: 172,800 candidates at
-   roughly 10 ms each (measured directly, not assumed) is 25-45 minutes,
-   synchronous, on the tab's own main thread. The grid was never the bug;
-   running all of it in one Cartesian product every time was.
+/* CALIBRATION.md section 27: searchDesigns' own grid now multiplies grade x
+   conductor x tank x gapScale x cooling x riseTarget x etK (flux and density
+   are fitted per candidate, not swept -- see the comment above that loop).
+   That is already far smaller than the old flux/dScale-enumerated grid, but
+   a typical BudgetTab call is still several thousand candidates, and each
+   one now costs roughly eleven designTransformer calls instead of one (ten
+   fitToSchedule iterations plus the final confirming call), so staging is,
+   if anything, more valuable than it was before this fix, not less.
 
    Two-stage funnel instead of a smaller fixed grid, because a smaller fixed
    grid just moves the same problem (which candidates does it quietly never
@@ -1414,39 +1424,32 @@ function windowAround(all, value, n) {
 
    Stage 1 -- coarse screen, every structural combination (core type, core
    grade, conductor, tank type, cooling), at reduced resolution on the
-   continuous levers (3 dScale points instead of 8, 1 gapScale instead of 3,
-   the caller's own first/current rise target instead of the full list, ~4
-   etK points instead of 16 or the full ETK_RANGE). Flux is left at full
-   resolution -- fluxRange() is already only 4-7 points per grade, coarsening
-   it further would not save much and risks missing the grade's own actual
-   optimum. This is cheap (order 1,000-2,000 candidates) precisely because
-   it is not trying to find the true minimum yet, only to rank structural
-   choices against each other well enough to discard the ones that are not
-   competitive.
+   remaining continuous lever (~4 etK points instead of 16 or the full
+   ETK_RANGE), a single gapScale and a single rise target. This is cheap
+   precisely because it is not trying to find the true minimum yet, only to
+   rank structural choices against each other well enough to discard the
+   ones that are not competitive.
 
    Stage 2 -- for only the best few structural combinations from stage 1
    (opts.stagedTopN, default 5), re-run searchDesigns restricted to that one
-   exact combination, at full flux/gapScale/riseTarget resolution and a
-   dScale/etK window centred on wherever stage 1's own winner for that
-   combination landed (windowAround) -- full resolution, but only in the
-   region already known to be competitive, not the whole range blindly.
+   exact combination, at full gapScale/riseTarget resolution and an etK
+   window centred on wherever stage 1's own winner for that combination
+   landed (windowAround) -- full resolution, but only in the region already
+   known to be competitive, not the whole range blindly.
 
    This is a heuristic, not an exhaustive search: a structural combination
    that stage 1's coarse point sampling made look uncompetitive is never
    revisited in stage 2, even if the true optimum for that combination (at
-   some dScale/etK point stage 1 never happened to sample) would have beaten
-   the winners that were kept. That is the actual, named trade -- a few
-   thousand candidates finding the same minimum as 172,800 almost always,
-   not provably always -- and it is the trade needed to keep this on a
-   thread that can respond to a cancel button and paint a progress bar
-   instead of freezing for the better part of an hour. */
+   some etK point stage 1 never happened to sample) would have beaten the
+   winners that were kept. That is the actual, named trade, and it is the
+   trade needed to keep this on a thread that can respond to a cancel button
+   and paint a progress bar instead of freezing the tab. */
 function stagedSearchDesigns(base, rates, band, opts, onProgress, shouldCancel) {
   const report = (info) => { if (onProgress) onProgress(info); };
   const cancelled = () => !!(shouldCancel && shouldCancel());
 
   const topN = opts.stagedTopN || 5;
   const etKsFull = opts.etKs && opts.etKs.length ? opts.etKs : ETK_RANGE;
-  const dScalesFull = opts.dScales && opts.dScales.length ? opts.dScales : DEFAULT_DSCALES;
   const gapScalesFull = opts.gapScales && opts.gapScales.length ? opts.gapScales : DEFAULT_GAPSCALES;
   const riseTargetsFull = opts.riseTargets && opts.riseTargets.length ? opts.riseTargets : [base.oilRiseTarget];
 
@@ -1454,16 +1457,12 @@ function stagedSearchDesigns(base, rates, band, opts, onProgress, shouldCancel) 
   const ETK_COARSE_N = 4;
   const etKsCoarse = etKsFull.length <= ETK_COARSE_N ? etKsFull
     : Array.from({ length: ETK_COARSE_N }, (_, i) => etKsFull[Math.round((i * (etKsFull.length - 1)) / (ETK_COARSE_N - 1))]);
-  const DSCALE_COARSE_N = 3;
-  const dScalesCoarse = dScalesFull.length <= DSCALE_COARSE_N ? dScalesFull
-    : Array.from({ length: DSCALE_COARSE_N }, (_, i) => dScalesFull[Math.round((i * (dScalesFull.length - 1)) / (DSCALE_COARSE_N - 1))]);
 
   if (cancelled()) return [];
   report({ stage: 1, phase: "start" });
   const stage1 = searchDesigns(base, rates, band, {
     ...opts,
     etKs: etKsCoarse,
-    dScales: dScalesCoarse,
     gapScales: [gapScalesFull[Math.floor(gapScalesFull.length / 2)]],
     riseTargets: [riseTargetsFull[0]],
   });
@@ -1483,7 +1482,6 @@ function stagedSearchDesigns(base, rates, band, opts, onProgress, shouldCancel) 
     if (cancelled()) break;
     const w = winners[i];
     report({ stage: 2, phase: "tuple", tuple: i + 1, of: winners.length });
-    const dScalesWindow = windowAround(dScalesFull, w.inputs.dScale, DSCALE_COARSE_N);
     const etKsWindow = windowAround(etKsFull, w.inputs.etK, ETK_COARSE_N + 1);
     const refined = searchDesigns(base, rates, band, {
       ...opts,
@@ -1493,7 +1491,6 @@ function stagedSearchDesigns(base, rates, band, opts, onProgress, shouldCancel) 
       cores: [w.inputs.coreType],
       coolings: [w.inputs.cooling],
       etKs: etKsWindow,
-      dScales: dScalesWindow,
       gapScales: gapScalesFull,
       riseTargets: riseTargetsFull,
     });

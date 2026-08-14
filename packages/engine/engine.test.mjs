@@ -394,23 +394,22 @@ console.log("\nconservator sizing checked against the 630 kVA reference (330 dia
 }
 
 console.log("\nstaged search finds close to the same minimum as the full grid, at a fraction of the candidates");
-// CALIBRATION.md section 25. Deliberately NOT run at BudgetTab's own full
-// scale (179,712 candidates, 30+ minutes measured directly) -- this project
-// runs test:engine before and after every engine edit, and a test that
-// takes half an hour defeats that. etKs is 8 points here specifically
-// because it is the one dimension in this opts object bigger than
-// stagedSearchDesigns' own coarse threshold (ETK_COARSE_N = 4), so real
-// coarsening and windowing actually happen; dScales/gapScales are pinned
-// small (below their own coarse thresholds) purely to keep the full-grid
-// ground truth cheap enough to compute directly in a test, not because
-// staging is skipped for them.
+// CALIBRATION.md section 27. Deliberately NOT run at BudgetTab's own full
+// scale -- this project runs test:engine before and after every engine
+// edit, and a test that takes minutes defeats that. etKs is 8 points here
+// specifically because it is the one dimension in this opts object bigger
+// than stagedSearchDesigns' own coarse threshold (ETK_COARSE_N = 4), so
+// real coarsening and windowing actually happen; gapScales is pinned to a
+// single point purely to keep the full-grid ground truth cheap enough to
+// compute directly in a test (flux and density are fitted per candidate now,
+// not swept, so there is no dScale dimension left to pin).
 {
   const core = { ...E.ESSENTIALS, kva: 1000, hv: 11000, lv: 433, freq: 50, vector: "Dyn11", application: "distribution", standard: "IS", effLevel: "level2", medium: "oil", condPref: "auto" };
   const { params } = E.computeDesign(core, {}, E.DEFAULT_RATES, []);
   const opts = {
     grades: Object.keys(E.CORE_GRADES), conds: [params.condLV], tanks: [params.tankType], cores: [params.coreType],
     zTol: params.zTol, enforceLimits: true,
-    dScales: [0.85, 1.0, 1.15], gapScales: [1.0],
+    gapScales: [1.0],
     riseTargets: [params.oilRiseTarget],
     etKs: Array.from({ length: 8 }, (_, i) => Math.round((0.40 + i * 0.04) * 100) / 100),
     coolings: [params.cooling],
@@ -418,14 +417,23 @@ console.log("\nstaged search finds close to the same minimum as the full grid, a
   };
 
   const full = E.searchDesigns(params, E.DEFAULT_RATES, { min: 0, max: Infinity }, opts);
-  const fullBest = full.reduce((a, b) => (b.tco < a.tco ? b : a));
+  // CALIBRATION.md section 26/27: a raw tco.reduce() over the whole result
+  // set, feasible or not, is exactly the comparison that produced a false
+  // "staged matches full grid exactly" result earlier this project -- both
+  // sides were infeasible, so the match was meaningless. Always filter to
+  // .feasible before comparing optimality.
+  const fullFeasible = full.filter((x) => x.feasible);
+  if (!fullFeasible.length) { failures++; console.log("  FAIL full grid found zero feasible candidates on the default 1000 kVA case -- this is the exact bug section 27's fitToSchedule-per-candidate fix was meant to resolve"); }
+  else console.log(`  ok   full grid found ${fullFeasible.length}/${full.length} feasible candidates`);
+  const fullBest = (fullFeasible.length ? fullFeasible : full).reduce((a, b) => (b.tco < a.tco ? b : a));
 
   let sawStage1 = false, sawStage2Tuples = 0, cancelledEarly = false;
   const staged = E.stagedSearchDesigns(params, E.DEFAULT_RATES, { min: 0, max: Infinity }, opts, (info) => {
     if (info.stage === 1 && info.phase === "done") sawStage1 = true;
     if (info.stage === 2 && info.phase === "tuple") sawStage2Tuples = info.of;
   });
-  const stagedBest = staged.reduce((a, b) => (b.tco < a.tco ? b : a));
+  const stagedFeasible = staged.filter((x) => x.feasible);
+  const stagedBest = (stagedFeasible.length ? stagedFeasible : staged).reduce((a, b) => (b.tco < a.tco ? b : a));
 
   if (!sawStage1) { failures++; console.log("  FAIL stagedSearchDesigns never reported stage 1 completing"); }
   else console.log("  ok   stage 1 completion reported via onProgress");
@@ -437,9 +445,9 @@ console.log("\nstaged search finds close to the same minimum as the full grid, a
   const dev = ((stagedBest.tco - fullBest.tco) / fullBest.tco) * 100;
   if (Math.abs(dev) > 3) {
     failures++;
-    console.log(`  FAIL staged best tco ${Math.round(stagedBest.tco)} deviates ${dev.toFixed(2)}% from the full grid's true best ${Math.round(fullBest.tco)}, expected within 3%`);
+    console.log(`  FAIL staged best (feasible) tco ${Math.round(stagedBest.tco)} deviates ${dev.toFixed(2)}% from the full grid's true best (feasible) ${Math.round(fullBest.tco)}, expected within 3%`);
   } else {
-    console.log(`  ok   staged best tco ${Math.round(stagedBest.tco)} within ${dev.toFixed(2)}% of the full grid's true best ${Math.round(fullBest.tco)} (${full.length} full candidates vs staging)`);
+    console.log(`  ok   staged best (feasible) tco ${Math.round(stagedBest.tco)} within ${dev.toFixed(2)}% of the full grid's true best (feasible) ${Math.round(fullBest.tco)} (${full.length} full candidates vs staging)`);
   }
 
   // Cancellation: stop after stage 1 reports done, before any stage-2 tuple
