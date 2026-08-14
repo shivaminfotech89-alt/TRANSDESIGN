@@ -1720,14 +1720,32 @@ opts BudgetTab builds:
 | Candidates | 179,712 (exact) | 1,872 (stage 1) + ~9,000 (5 refinements) |
 | Wall time | 30.0-38.9 min (measured per-candidate cost, extrapolated) | 76.46 s, measured for real |
 
-A new engine.test.mjs case checks staged search correctness (not the
-full-scale timing, which would make the test suite itself take half an
-hour) at a deliberately smaller grid sized so the one dimension that
-matters for coarsening (etKs, 8 points) actually exceeds its own coarse
-threshold: staged best tco landed within 0.00% of the true full-grid
-minimum at that scale, stage 2 correctly refined only stagedTopN
-structural combinations, and cancelling after stage 1 correctly stops
-before stage 2 while still returning stage 1's own candidates.
+**What this table and the tests below it actually establish, stated more
+narrowly than the first version of this section did**: that staging finds
+the same *cheapest candidate by tco* as the full grid, fast. Neither the
+76.46 s / 75.01 min full-grid comparison on the real 1000 kVA case, nor
+the engine.test.mjs case below it, filtered by `.feasible` before
+comparing -- both picked the raw minimum-tco candidate regardless of
+whether it actually meets impedance, thermal and loss compliance. That is
+a real, useful confirmation that the staging *algorithm* is correct (it
+finds the true minimum of the ranking the full grid would also find,
+not an approximation of it) -- it is not a confirmation that either
+search *returns a usable design*, which is a different question the
+comparison never asked. Section 26 found the answer to that different
+question on this exact case is no: zero candidates are feasible in the
+default 1000 kVA search at all, staged or full, and it is not caused by
+staging or by anything this section changed.
+
+A new engine.test.mjs case checks staged search correctness the same
+narrow way (not the full-scale timing, which would make the test suite
+itself take half an hour) at a deliberately smaller grid sized so the one
+dimension that matters for coarsening (etKs, 8 points) actually exceeds
+its own coarse threshold: staged best tco landed within 0.00% of the true
+full-grid minimum at that scale, stage 2 correctly refined only
+stagedTopN structural combinations, and cancelling after stage 1
+correctly stops before stage 2 while still returning stage 1's own
+candidates. Again, this is the algorithm-correctness question, not the
+usability one.
 
 **Fix 2 -- a web worker** (new `src/workers/searchWorker.ts`). Staging
 cut the typical case to under 90 seconds, but "typical" is not "every
@@ -1759,3 +1777,153 @@ a what-if search, not part of how a saved revision reprices on read,
 the same reasoning section 20 already recorded; cardCostModel's fix only
 changes which count a radiator design's panel row reads, not any
 formula).
+
+## 26. The default 1000 kVA Fit to Budget search returns zero feasible candidates, and the flux floor is not why
+
+Follow-up to section 25's correction: once the staged-vs-full comparison
+was properly filtered by `.feasible` instead of raw minimum tco, both the
+76.46 s staged run and the 75.01 min full-grid run on the exact default
+1000 kVA case returned **zero feasible candidates each**, out of 1,530
+and 57,408 respectively. Not a staging artefact -- the full grid has the
+identical problem, and the raw-cheapest candidate both runs agree on is
+the same one (grade zdkh, CCA, fin, ONAN, etK 0.400), confirming again
+that staging finds the true minimum of the grid, just not a usable one
+on this case.
+
+Breaking down the 510 deduplicated candidates from a representative run:
+zOk true and thermalOk true for every single one -- impedance and
+thermal are not the problem anywhere in the grid. lossOk is false for
+all 510. Of those, only 33 fail on no-load loss; every one of the 510
+fails on load loss. The closest candidate found (grade zdkh, etK 0.480)
+reaches loadLoss 6,702 W against a limit of 6,356 W -- 5.4% over, close
+but never inside. `params.limitLL` = 6356 is confirmed to be the
+`lossSchedule()`-derived figure for this rating and level, not a manual
+override -- the default case's own `over` is `{}`.
+
+**Flux-floor hypothesis, tested directly and ruled out.** The base
+(autoFit) design's own compliant point sits at flux B = 1.44 T, and
+`fluxRange()` floors non-amorphous grades at 1.50 T -- a real, checkable
+gap between what the continuous autoFit process can reach (down to the
+1.42 T floor `fitToSchedule` itself uses) and what the search grid ever
+tries. Tested by temporarily lowering `fluxRange`'s floor to 1.40 T
+(1.40, 1.45 added ahead of the existing 1.50-1.80 ladder) and re-running
+the exact same staged search: still zero feasible, out of 660
+candidates this time, still all 660 failing on load loss specifically.
+The closest-to-compliant candidate was still at flux 1.800 T -- the
+*top* of the range, not the newly opened bottom -- meaning the search
+was not even gravitating toward the new region. Reverted immediately
+after the test; `fluxRange` is unchanged in the shipped engine.
+
+**So the flux floor is not the cause.** The actual finding, per the
+decision this section was investigating: 510 (and 660) out of 510 (660)
+failing on load loss specifically, with the closest miss only 5.4% over
+and the raw-cheapest candidate 17.8% over, points at the load-loss
+target being difficult or impossible to reach across the *combinations*
+this grid explores -- not at any one swept dimension's range being too
+narrow. Left open, not investigated further here: whether this is a
+property of `searchDesigns`' own discrete deltaLV/deltaHV/flux grid
+genuinely never landing where the continuous `autoFit` bisection does
+(most grid points are not fine-tuned to sit just inside the schedule
+the way `autoFit` deliberately targets), or something else. No fix
+attempted; this is a report, not a change -- `fluxRange`, `searchDesigns`
+and `stagedSearchDesigns` are all unchanged by this section.
+
+## 27. searchDesigns fits flux and density per candidate via fitToSchedule, instead of enumerating them -- section 26's zero-feasible finding, fixed
+
+Section 26 left one hypothesis open: `fluxRange()`/`dScales` enumerate flux
+and current density as discrete grid points, while `fitToSchedule` (the
+function `computeDesign`'s own main path calls) reaches a compliant point
+by a 10-iteration continuous bisection-style correction that lands *just*
+inside the loss schedule. A discrete grid essentially never lands in that
+narrow window by chance, which is exactly consistent with what section 26
+measured: every candidate failing specifically on load loss, the closest
+miss only 5.4% over, and zOk/thermalOk true everywhere -- the compliant
+region exists, the grid just never samples it.
+
+**The fix.** `searchDesigns` no longer sweeps `flux` (`fluxRange(g)`) or
+density (the `dScale` multiplier ladder) as grid points at all. For each
+remaining structural combination (core type, core grade, conductor, tank
+type, cooling, top-oil rise target, etK, steps, tapType, gapScale), the
+candidate is built with a grade-clamped starting flux and a
+conductor-anchored starting density, `autoFit: true` forced regardless of
+the live design's own autoFit setting, and `fitToSchedule(candBase, {})`
+is called on it -- unlocked, so it fits both flux and density together --
+exactly the call `computeDesign` makes on its own main path. The fitted
+values are merged in and a final `designTransformer` call confirms the
+design actually built from them, the same two-call shape (fit, then
+confirm) `computeDesign` itself uses. `dScale` and `fluxRange` enumeration
+are gone from the grid; `fluxRange()` itself is unchanged and still
+exported, just no longer called by `searchDesigns`.
+
+This also shrinks the grid: the old grid multiplied grade x flux x
+conductor x dScale x tank x gapScale x cooling x riseTarget x etK. The new
+one multiplies grade x conductor x tank x gapScale x cooling x riseTarget
+x etK -- two whole dimensions gone. Each surviving candidate now costs
+roughly eleven `designTransformer` calls instead of one (ten fitToSchedule
+iterations plus the final confirming call), so the net wall-time change is
+real but far smaller than the ~40x drop in raw candidate count alone would
+suggest -- see the measurements below.
+
+`stagedSearchDesigns` no longer windows a `dScale` dimension, because there
+is not one to window: stage 1 coarsens etK only (gapScale and rise target
+pinned to a single point, same as before), stage 2 re-runs the winning
+structural combinations at full gapScale/riseTarget resolution with an etK
+window centred on stage 1's own winner. The dedup key is unchanged.
+
+**Verified on all three ratings the search runs at, using BudgetTab's own
+production opts** (all grades, all conductors, fin+radiator tanks, full
+ETK_RANGE, three rise targets, ONAN -- coolings only sweeps ONAN/ONAF once
+fan/pump/control-gear rates are priced, which DEFAULT_RATES does not do,
+per section 23):
+
+| kVA | full candidates | full wall time | full feasible | staged candidates | staged wall time | staged best tco | full best tco (feasible) | match |
+|---|---|---|---|---|---|---|---|---|
+| 1000 | 2,922 | 688.1 s | 1,056 | 195 | 62.5 s | 5,242,387.96 | 5,242,387.96 | exact |
+| 630 | 2,886 | 491.0 s | 906 | 198 | 31.1 s | 3,792,548.33 | 3,792,548.33 | exact |
+| 2500 | 2,586 | 577.7 s | 1,254 | 144 | 61.3 s | 10,217,833.57 | 10,217,833.57 | exact |
+
+Zero feasible candidates, on every rating tested, is now a substantial
+fraction feasible (roughly a third to half of the deduplicated grid). The
+staged search matches the full grid's true feasible-filtered optimum
+exactly on all three ratings, not approximately -- the tco values above
+are bit-for-bit identical between the staged and full runs, because both
+searches are evaluating the same fitted candidate once they land on the
+same structural/etK/gapScale/riseTarget point, not two different
+approximations of it. This is the correctness check section 25 originally
+claimed and section 26 corrected: it was never actually run against
+feasible candidates before, because none existed to run it against.
+
+The 1000 kVA full-grid best feasible candidate: grade zdkh, aluminium,
+fin tank, ONAN, 50 K rise, etK 0.40, flux 1.78 T, deltaLV/deltaHV
+0.87/0.94 A/mm2, 15 steps, OCTC. noLoad 816.7 W against a 1,196 W limit,
+loadLoss 5,970.6 W against a 6,356 W limit -- comfortably inside the
+schedule on both counts, not hugging the edge the way a discrete grid
+point would by luck. etK landing at 0.40 (the bottom of ETK_RANGE) on all
+three ratings' best feasible candidates is consistent with section 25's
+unresolved etK-floor question -- worth another look now that the search
+actually returns usable designs to check it against, but not investigated
+in this section.
+
+**Adoption reproduces its own reported price exactly.** Simulated
+`App.tsx`'s `BUDGET_OVER_KEYS` adoption path directly: built `over` from
+each of `coreType, coreGrade, flux, condLV, condHV, deltaLV, deltaHV,
+tankType, cooling, oilRiseTarget, lvHvClr, etK, steps, tapType` read off a
+candidate's own `inputs`, then called `computeDesign(core, over,
+DEFAULT_RATES)` and compared the result against the candidate's own
+reported price and tco. Tested on three feasible 1000 kVA candidates
+spanning the cost range (cheapest, median, most expensive of the staged
+set): all three reproduced their own `exFactory` and `tco` to the cent.
+This works because `flux`, `deltaLV` and `deltaHV` are in `BUDGET_OVER_KEYS`
+and therefore present in `over`, which makes `fitToSchedule`'s own
+`lockF`/`lockD` gates both true on the adopted recompute -- it returns
+`{}` immediately rather than re-fitting, so the adopted design uses
+exactly the fitted values the search already found. This check has never
+passed before this section, because no feasible candidate existed to
+test it against.
+
+No `ENGINE_VERSION` bump: this changes what `searchDesigns` and
+`stagedSearchDesigns` explore, not what `computeDesign` returns for a
+given `core`/`over`/`rates` -- the same reasoning sections 17, 23 and 25
+already applied to earlier changes to these two functions. A saved
+revision reprices identically before and after this section; only the
+Fit to Budget search itself finds different (now feasible) candidates.
