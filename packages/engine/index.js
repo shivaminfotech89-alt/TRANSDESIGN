@@ -8,7 +8,7 @@
  * without bumping it, or old quotations stop reproducing.
  */
 
-export const ENGINE_VERSION = "1.14.0";
+export const ENGINE_VERSION = "1.16.0";
 
 const CONDUCTORS = {
   copper: { name: "Copper, EC grade", rho20: 0.017241, alpha: 0.00393, dens: 8890, dMax: 3.6, short: "Cu", proof: 1.0 },
@@ -133,10 +133,28 @@ const EFF_LEVELS = {
    coefficient was wrong. See "Not adopted" for the correction. The 0.766
    exponent and the no-load formula are both untouched -- neither reference
    sheet gave evidence against either. */
+/* CALIBRATION.md section 30: the no-load coefficient (4.6) was left
+   untouched at section 6 for a named reason -- no real no-load figure to
+   anchor it against, and two adjacent mid-range points cannot honestly fit
+   both a coefficient and an exponent. Two furnace core charts (section 28)
+   are the first real no-load guarantees since then: 800 kVA at 1160 W and
+   1250 kVA at 1390 W (plus the existing 1250 kVA Mehir reference at
+   1400 W) against this formula's own 999/1431/1431 W at Level 2 -- 14%
+   tight at 800 kVA. Still two mid-range points, though (800 and 1250 kVA,
+   a 1.56x span, not the 100-300 kVA and 2000 kVA+ points section 6 asked
+   for), so only the coefficient moves, exponent held at 0.805 -- the same
+   restraint section 6 applied to the load-loss coefficient (52 -> 32,
+   exponent 0.766 untouched). A full two-parameter refit was computed and
+   rejected: it fits all three points to within 0.36%, but extrapolates to
+   2.6x the current prediction at 100 kVA and 0.28x at 31500 kVA, because
+   two of the three points share one kVA and the exponent is effectively
+   set by a single ratio. 4.6 -> 4.75 (geometric mean of the coefficient
+   implied by each of the three points at the existing exponent) is a flat
+   +3.3% at every rating, not a reshaping. */
 function lossSchedule(kva, level, dry) {
   const m = (EFF_LEVELS[level] || EFF_LEVELS.level2).mul;
   const kn = dry ? 1.45 : 1, kl = dry ? 1.20 : 1;
-  return { nll: 4.6 * Math.pow(kva, 0.805) * m * kn, ll: 32 * Math.pow(kva, 0.766) * m * kl };
+  return { nll: 4.75 * Math.pow(kva, 0.805) * m * kn, ll: 32 * Math.pow(kva, 0.766) * m * kl };
 }
 
 /* ---------------- Clearances from withstand levels ---------------- */
@@ -374,8 +392,25 @@ function deriveSpec(core, over = {}) {
   const aNetEst = etTrialSug / (4.44 * (core.freq || 50) * fluxSug);
   const dCoreEst = Math.sqrt((4 * aNetEst) / (Math.PI * 0.94 * CORE_GRADES[gk].sf)) * 1000;
   put("steps", stepsSuggest(dCoreEst), null, Object.keys(STEP_UTIL).map((k) => [+k, k + " steps"]), "More steps fill the coil circle better and save steel, but cost more to cut and stack.");
-  put("stepIncrement", 10, [5, 25, 5], null, "Lamination is slit to standard widths, not cut to a continuous optimum. Step widths round up to the nearest multiple of this.");
+  put("stepIncrement", 10, [5, 25, 5], null, "Lamination is slit to standard widths, not cut to a continuous optimum. Step widths round down to the nearest multiple of this -- rounding up can put the widest step past the core diameter itself.");
   put("aspect", aspectSuggest(umHV), [2.0, 3.8, 0.05], null, "Starting window shape. The final height is solved to hit the declared impedance unless you turn that off.");
+  /* CALIBRATION.md section 28: the design-office aspect check, window
+     height over window width, applied as a real constraint rather than
+     left for a search to discover the hard way. Measured from real
+     designs, not guessed: two Mehir Transformers sheets (1250 kVA oil
+     2.44, 630 kVA dry 2.64) and two furnace core charts (Samruddhi Milk
+     800 kVA 2.22, a 1250 kVA 750+500 dual-rated OLTC furnace 4.62). The
+     furnace outlier is real, not noise -- a dual-rated OLTC furnace duty
+     genuinely needs a taller, narrower window than a distribution design
+     does, which is why the default is application-aware rather than one
+     number for every duty. Distribution/power/etc default to 2.8, a
+     margin above the highest distribution figure measured (2.64); furnace
+     and rectifier duty default to 5.0, a margin above the 4.62 furnace
+     figure. Editable either way -- this is a measured starting point, not
+     a law, and a design office with its own tighter or looser practice
+     should set its own number. */
+  put("maxAspect", core.application === "furnace" || core.application === "rectifier" ? 5.0 : 2.8, [2.0, 6.0, 0.1], null,
+    "Window height over window width. A taller, narrower window needs more turns per unit height and packs an ever-thinner coil -- past this ratio the winding is judged not buildable, not just expensive. Furnace and dual-rated OLTC duty legitimately run taller than distribution.");
   put("autoWindow", true, null, [[true, "Solve height for the declared impedance"], [false, "Use the output equation only"]], "With this on, the window height is adjusted until the calculated impedance matches the declared value, which is what a designer does by hand.");
   put("autoFit", true, null, [[true, "Fit flux and current density to the loss limits"], [false, "Use the rating-based values only"]], "With this on, the flux density and the current densities are trimmed until the calculated losses sit just inside the declared limits, the cheapest core and coil that still passes.");
   put("windowSpace", 8, [6, 12, 0.5], null, "Numerator of the window space factor 8/(30+kV). Raise it if your coils pack tighter than average.");
@@ -1019,6 +1054,15 @@ function designTransformer(p) {
     wRise: { val: windRise, lim: wRiseLimit, ok: windRise <= wRiseLimit + 0.5 },
     ratio: { val: Math.abs(ratioErr), lim: 0.5, ok: Math.abs(ratioErr) <= 0.5 },
     volley: { val: g.voltsPerLayer, lim: p.acHV * 1000 * 0.6, ok: g.voltsPerLayer * 2 <= p.acHV * 1000 * 0.6 },
+    // CALIBRATION.md section 28: window height over width, the design-office
+    // manufacturability check. A design can satisfy impedance, thermal and
+    // the loss schedule with a window that is not a winding anyone can
+    // actually build -- see section 28's own K=0.32 case, a 1.28-1.45 m LV
+    // coil on a 630-1000 kVA distribution job, more than double the real
+    // reference designs' own 595-633 mm. Nothing else in this engine's
+    // compliance set notices a coil that has grown enormously tall and thin
+    // in exchange for lower I2R loss; this is the one that does.
+    aspect: { val: Hw / g.Ww, lim: p.maxAspect, ok: Hw / g.Ww <= p.maxAspect },
   };
   const compliant = Object.values(compliance).every((x) => x.ok);
 
@@ -1362,9 +1406,18 @@ function searchDesigns(base, rates, band, opts) {
                       const zOk = Math.abs(d.pctZ - base.targetZ) / base.targetZ <= opts.zTol / 100;
                       const thermalOk = d.compliance.rise.ok && d.compliance.wRise.ok;
                       const lossOk = !opts.enforceLimits || (d.compliance.nll.ok && d.compliance.ll.ok);
+                      // CALIBRATION.md section 28: a candidate can be
+                      // impedance-, thermal- and loss-compliant with a
+                      // winding nobody could actually build -- an ever
+                      // taller, ever thinner coil is how this grid pays for
+                      // lower load loss at a low K once flux and density are
+                      // fitted rather than swept. Rejected here the same way
+                      // zOk/thermalOk/lossOk already are, not left for a
+                      // human to notice after the fact.
+                      const aspectOk = d.compliance.aspect.ok;
                       results.push({
                         inputs: cand, d, bom, price: bom.exFactory, tco: bom.tco,
-                        zOk, thermalOk, lossOk, feasible: zOk && thermalOk && lossOk,
+                        zOk, thermalOk, aspectOk, lossOk, feasible: zOk && thermalOk && aspectOk && lossOk,
                         withinBudget: bom.exFactory >= (band.min || 0) && bom.exFactory <= (band.max ?? Infinity),
                       });
                     }
@@ -1469,13 +1522,29 @@ function stagedSearchDesigns(base, rates, band, opts, onProgress, shouldCancel) 
   report({ stage: 1, phase: "done", count: stage1.length });
   if (cancelled() || !stage1.length) return stage1;
 
+  /* CALIBRATION.md section 31: the multi-basin failure this function's own
+     header always named as possible, actually observed -- 630 and 2500 kVA
+     both found feasible candidates on the full grid that stage 1 here
+     never carried into stage 2. Cause: a structural combination's
+     representative was picked by raw cheapest tco regardless of
+     feasibility, so a combination whose only competitive coarse-etK point
+     happened to be aspect-infeasible could still out-rank, and crowd out
+     of the top-N cut, a combination whose feasible region was narrower but
+     genuinely buildable. An infeasible candidate is not a cheaper version
+     of a feasible one for this purpose -- it is not a real option at all,
+     and must never win a structural combination's own representative slot,
+     or the ranking between combinations, over one that is real. */
   const byStruct = new Map();
   for (const x of stage1) {
     const k = structKey(x);
     const prev = byStruct.get(k);
-    if (!prev || x.tco < prev.tco) byStruct.set(k, x);
+    if (!prev) { byStruct.set(k, x); continue; }
+    const better = x.feasible === prev.feasible ? x.tco < prev.tco : x.feasible && !prev.feasible;
+    if (better) byStruct.set(k, x);
   }
-  const winners = [...byStruct.values()].sort((a, b) => a.tco - b.tco).slice(0, topN);
+  const winners = [...byStruct.values()]
+    .sort((a, b) => (a.feasible === b.feasible ? a.tco - b.tco : (a.feasible ? -1 : 1)))
+    .slice(0, topN);
 
   const stage2 = [];
   for (let i = 0; i < winners.length; i++) {
@@ -1538,7 +1607,13 @@ function etkCurve(p, rates, range = ETK_RANGE) {
     const zOk = Math.abs(d.pctZ - p.targetZ) / p.targetZ <= p.zTol / 100;
     const thermalOk = d.compliance.rise.ok && d.compliance.wRise.ok;
     const lossOk = d.compliance.nll.ok && d.compliance.ll.ok;
-    pts.push({ etK: k, exFactory: bom.exFactory, feasible: zOk && thermalOk && lossOk });
+    // CALIBRATION.md section 28: without this, a low K that trades an ever
+    // taller, ever thinner (and so unbuildable) coil for lower load loss
+    // looks like a genuine saving to this curve, and fitEtkToCost below
+    // would pick it for every AUTO-K design at this rating, not only a
+    // search candidate.
+    const aspectOk = d.compliance.aspect.ok;
+    pts.push({ etK: k, exFactory: bom.exFactory, feasible: zOk && thermalOk && aspectOk && lossOk });
   }
   return pts;
 }
@@ -1551,9 +1626,9 @@ function etkCurve(p, rates, range = ETK_RANGE) {
    never second-guessed by a cost search, same as an explicit flux or density
    is never re-fit to the loss schedule.
 
-   When some point on the swept range is fully compliant (impedance, thermal
-   and loss limits, the same three checks searchDesigns itself gates on),
-   the cheapest of those is used, same as always.
+   When some point on the swept range is fully compliant (impedance, thermal,
+   window aspect and loss limits, the same four checks searchDesigns itself
+   gates on), the cheapest of those is used, same as always.
 
    When none is: an earlier version of this function fell back to
    deriveSpec's own fixed AUTO suggestion, reasoning that picking a
@@ -1590,6 +1665,7 @@ function fitEtkToCost(p, over = {}, rates = DEFAULT_RATES) {
   if (!zOk) missed.push(`impedance ${d.pctZ.toFixed(2)}% against ${p.targetZ}% declared`);
   if (!d.compliance.rise.ok) missed.push(`top-oil/enclosure rise ${d.compliance.rise.val.toFixed(1)} against ${d.compliance.rise.lim} °C`);
   if (!d.compliance.wRise.ok) missed.push(`winding rise ${d.compliance.wRise.val.toFixed(1)} against ${d.compliance.wRise.lim} °C`);
+  if (!d.compliance.aspect.ok) missed.push(`window aspect ${d.compliance.aspect.val.toFixed(2)} against ${d.compliance.aspect.lim.toFixed(2)} max`);
   const bFloor = p.coreGrade === "amor" ? 1.20 : 1.42;
   const floorNote = d.B <= bFloor + 0.001
     ? ` Flux is already at the ${bFloor.toFixed(2)} T floor for this core grade -- no lower K closes this; it needs a different loss schedule or a different grade.`
@@ -1950,7 +2026,26 @@ function stepWidths(n, d, increment = 10) {
   let prevH = 0, total = 0;
   for (let i = 0; i < n; i++) {
     const wIdeal = 2 * R * Math.cos(a[i]);
-    const w = increment > 0 ? Math.ceil(wIdeal / increment) * increment : wIdeal;
+    /* CALIBRATION.md section 28: real core charts (Samruddhi Milk 800 kVA,
+       widest pocket 230 mm on a 236 mm core; the 1250 kVA 750+500 furnace
+       chart, 220 mm on 224 mm) put the widest step at 0.975-0.982 of the
+       core diameter, never at or above it -- a lamination plate wider than
+       the core it sits inside is not a thing that can be built. Rounding
+       every step's wIdeal UP to the next stepIncrement can and did push the
+       widest step past the diameter itself (233.15mm -> 240mm on a 236mm
+       core, before this fix). But rounding every step DOWN instead moved
+       the 1250 kVA distribution reference's own Plate A total (validated
+       to -1.4% against a real cut chart, CALIBRATION.md section 16) to
+       -9.7% -- rounding direction is not uniformly wrong, only the specific
+       case where it produces a physically impossible width is. Clamped
+       instead: round up as before, unless that would put the step at or
+       past the core diameter, in which case round down. Reproduces both
+       furnace charts' widest pocket exactly (233.15 -> 230, 221.29 -> 220,
+       since both ceiled values exceed their own core diameter) while
+       leaving every other step's rounding, and the 1250 kVA distribution
+       reference's Plate A total, unchanged. */
+    const wCeil = increment > 0 ? Math.ceil(wIdeal / increment) * increment : wIdeal;
+    const w = wCeil < d ? wCeil : Math.floor(wIdeal / increment) * increment;
     const h = R * Math.sin(a[i]);
     const t = i === 0 ? 2 * h : h - prevH;      // centre pocket is full depth, others are per side
     rows.push({ w, wIdeal, t, halfH: h, perSide: i > 0 });
