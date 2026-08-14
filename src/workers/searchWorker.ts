@@ -20,8 +20,15 @@ import { stagedSearchDesigns } from '@/packages/engine';
  *   in  -> { type: 'search', base, rates, band, opts }
  *   in  -> { type: 'cancel' }
  *   out -> { type: 'progress', info }        (stage/phase/count, see engine)
- *   out -> { type: 'done', results, cancelled }
+ *   out -> { type: 'done', results, cancelled, excludedNote }
  *   out -> { type: 'error', message }
+ *
+ * excludedNote (CALIBRATION.md section 33): stagedSearchDesigns attaches
+ * this directly to the results array it returns (packages/engine/index.js)
+ * when a conductor was left out of the sweep for an unsourced rate --
+ * pulled off here into its own field so BudgetTab does not have to read a
+ * non-indexed property off an array that has already crossed postMessage's
+ * structured clone.
  */
 
 let cancelled = false;
@@ -45,7 +52,8 @@ ctx.onmessage = (e: MessageEvent) => {
         (info: unknown) => ctx.postMessage({ type: 'progress', info }),
         () => cancelled,
       );
-      ctx.postMessage({ type: 'done', results, cancelled });
+      const excludedNote = (results as unknown as { excludedNote?: string }).excludedNote ?? null;
+      ctx.postMessage({ type: 'done', results, cancelled, excludedNote });
     } catch (err) {
       ctx.postMessage({ type: 'error', message: err instanceof Error ? err.message : String(err) });
     }

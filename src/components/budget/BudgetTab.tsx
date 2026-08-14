@@ -180,6 +180,10 @@ export function BudgetTab({ design, bom, params, rates, activePreviewKey, onSele
   const [searching, setSearching] = useState(false);
   const [progress, setProgress] = useState<any>(null);
   const [searchError, setSearchError] = useState<string | null>(null);
+  // CALIBRATION.md section 33: set whenever the engine left a conductor out
+  // of the sweep because its rate is still at the unsourced DEFAULT_RATES
+  // placeholder -- searchDesigns' own excludedNote, forwarded by the worker.
+  const [excludedNote, setExcludedNote] = useState<string | null>(null);
   const workerRef = useRef<Worker | null>(null);
 
   // Terminate any still-running search if this tab unmounts -- a worker
@@ -250,6 +254,7 @@ export function BudgetTab({ design, bom, params, rates, activePreviewKey, onSele
     // needs to run on.
     workerRef.current?.terminate();
     setSearchError(null);
+    setExcludedNote(null);
     setSearching(true);
     setProgress({ stage: 1, phase: 'start' });
 
@@ -262,6 +267,7 @@ export function BudgetTab({ design, bom, params, rates, activePreviewKey, onSele
         setProgress(msg.info);
       } else if (msg.type === 'done') {
         setResults(msg.results);
+        setExcludedNote(msg.excludedNote ?? null);
         setBand(b);
         setSearching(false);
         setProgress(null);
@@ -343,6 +349,9 @@ export function BudgetTab({ design, bom, params, rates, activePreviewKey, onSele
         )}
         {searchError && (
           <p className="text-[10px] text-alert px-1 pt-2">{searchError}</p>
+        )}
+        {excludedNote && (
+          <p className="text-[10px] text-alert px-1 pt-2">{excludedNote}</p>
         )}
       </Card>
 

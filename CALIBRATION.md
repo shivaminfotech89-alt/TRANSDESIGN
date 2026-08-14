@@ -2228,3 +2228,107 @@ is what closed it.
 No `ENGINE_VERSION` bump: `stagedSearchDesigns` is a what-if search, not
 part of how a saved revision reprices on read, the same reasoning applied
 throughout sections 17, 23, 25 and 27.
+## 32. maxAspect default raised to 3.0 -- real headroom to 3.0, the same exploit beyond it
+
+Section 29's default (2.8) was a margin above the two real distribution
+figures measured (2.44, 2.64), not itself derived from a buildable-limit
+test. Worth checking before accepting it: at 630 kVA the best design sits
+0.23% off that ceiling (section on binding constraints, this conversation)
+-- close enough that the ceiling itself might be costing real money, or
+might be exactly where a real winding stops being one.
+
+**Swept 630 kVA (the rating pinned hardest against 2.8) at maxAspect
+2.8/3.0/3.2/3.5, full production search options:**
+
+| maxAspect | ex-works | vs 2.8 | etK | conductor | LV density | coil height | aspect actual |
+|---|---|---|---|---|---|---|---|
+| 2.8 | Rs 9,09,707 | -- | 0.48 | CCA | 1.34 A/mm2 | 696 mm | 2.79 (pinned) |
+| 3.0 | Rs 9,02,755 | -0.76% | 0.46 | CCA | 1.30 A/mm2 | 731 mm | 2.99 (pinned) |
+| 3.2 | Rs 8,43,827 | -7.8% | 0.46 | aluminium | 0.97 A/mm2 | 796 mm | 3.08 (not pinned) |
+| 3.5 | Rs 8,43,827 | -7.8% | 0.46 | aluminium | 0.97 A/mm2 | 796 mm | 3.08 (not pinned) |
+
+Two different regimes, not one curve. 2.8 -> 3.0 is a smooth, small move:
+same conductor, density barely changes (1.34 -> 1.30 A/mm2), coil height
+grows 5%, real 0.76% saving. 3.0 -> 3.2 is a jump to a different structural
+combination entirely: conductor switches to aluminium and current density
+collapses 25% in one step -- the same mechanism section 29's K=0.32
+finding was (a low-density winding traded for lower loss, unconstrained by
+anything that notices it), one step removed and centred on aluminium's own
+naturally lower baseline density (roughly 1.95 A/mm2 typical against
+copper's 2.5) rather than K. 3.5 gives numbers identical to 3.2 -- the
+search stopped needing the ceiling at all past 3.08, confirming the
+ceiling itself was never what was limiting this second regime; something
+else (most likely the current-density floor fitToSchedule already has, or
+the same one section 29 named) is, and raising maxAspect further will not
+reach a third regime, it will just stop mattering the way it already has.
+
+**Decision: default raised to 3.0 for every application except furnace and
+rectifier (unchanged at 5.0).** The real, buildable saving stops at 3.0;
+past it the 7.8% a naive reading of the sweep suggests is not a saving in
+the same sense section 29 already named -- it is the identical exploit,
+not a different, larger one. Recorded here so nobody reads the 3.2/3.5
+rows later and reopens this without the density collapse alongside them.
+
+Default case (1000 kVA) unaffected: its own aspect margin was 7.14% clear
+of 2.8 already (this conversation's binding-constraint check), nowhere
+near either ceiling. ENGINE_VERSION 1.17.0 -- a real move for any design
+whose own aspect sits between 2.8 and 3.0, confirmed by the 2000 kVA
+impedance-solve bracket in `engine.test.mjs` shifting again (-0.42% ->
+-3.18%), the same cost-search cascade sections 28 and 30 each produced
+there.
+## 33. Correcting the record: every search recommending CCA or aluminium rested on two unsourced rates
+
+**This is a substantial correction, not a minor caveat.** Every Fit to
+Budget search this project has run, in every session, at every rating
+tested, has recommended copper-clad aluminium or plain aluminium over
+copper -- and every one of those recommendations rested on `condAl`
+(Rs 340/kg) and `condCca` (Rs 560/kg), two rates `DEFAULT_RATES`' own
+comment already said were never confirmed against anything. Checked
+directly across the four ratings this session has used as its own test
+set, full production search options, copper-only forced as the
+comparison:
+
+| kVA | winning conductor | winner ex-works | copper-only ex-works | copper premium |
+|---|---|---|---|---|
+| 630 | CCA | Rs 9,02,755 | Rs 15,59,642 | 72.76% |
+| 1000 | aluminium | Rs 10,70,520 | Rs 21,00,145 | 96.18% |
+| 1250 | aluminium | Rs 12,12,921 | Rs 23,78,323 | 96.08% |
+| 2500 | CCA | Rs 18,69,025 | Rs 34,77,472 | 86.06% |
+
+`condCu` (Rs 1,415/kg) is the one figure of the three actually taken from
+a real sheet (the 630 kVA Level 1 costing sheet, section 7). `condAl` and
+`condCca` are inherited placeholders that predate this project's
+calibration work entirely. CCA is the more implausible of the two: it
+physically contains copper and costs more to produce than plain
+aluminium, so a rate at 40% of copper's cannot be right on its face, not
+just "unconfirmed." Any Fit to Budget result, any cost narrative, any
+reference to a "cheaper aluminium/CCA design" from any earlier section of
+this document or any earlier session -- all of it rests on these two
+numbers and should not be relied on until they are replaced with a real
+supplier quote.
+
+**Fix: searchDesigns will not recommend a conductor whose rate is still at
+this unsourced placeholder.** `UNSOURCED_RATE_KEYS` (`condAl`, `condCca`)
+and `unsourcedConductorRate(cond, rates)` gate the `conds` list
+`searchDesigns` actually sweeps -- excluded unless the caller's own
+`rates` object has moved the rate away from `DEFAULT_RATES`' own exact
+placeholder value, which counts as a real, entered figure like any other
+and lifts the exclusion for that conductor. `stagedSearchDesigns`
+inherits this for free (it calls `searchDesigns` for every stage), and
+attaches the same note to whichever array it returns. `unsourcedConductorNote()`
+names exactly which material and which rate key needs a real entry, and is
+surfaced end to end: `searchDesigns`/`stagedSearchDesigns` attach it as
+`.excludedNote` on the results array, `searchWorker.ts` forwards it as its
+own field on the `done` message (pulled off before anything crosses
+`postMessage`, not relying on structured clone preserving a non-indexed
+array property), and `BudgetTab.tsx` renders it next to the search
+controls whenever a search excluded something.
+
+An unsourced rate that silently wins every search it is offered is worse
+than a missing one -- copper is the only conductor with a real rate, and
+until aluminium and CCA strip quotes arrive it is the only conductor this
+search can recommend. No `ENGINE_VERSION` bump: `computeDesign`'s own
+output for a given input is unchanged (conductor selection there comes
+from `condSuggest`, untouched by this section); only what `searchDesigns`
+and `stagedSearchDesigns` are willing to recommend moved, the same
+reasoning applied throughout sections 17, 23, 25, 27 and 31.
