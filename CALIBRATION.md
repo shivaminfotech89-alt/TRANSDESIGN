@@ -1927,3 +1927,304 @@ given `core`/`over`/`rates` -- the same reasoning sections 17, 23 and 25
 already applied to earlier changes to these two functions. A saved
 revision reprices identically before and after this section; only the
 Fit to Budget search itself finds different (now feasible) candidates.
+## 28. Two new real core charts, and the widest-pocket snap-down fix they confirm
+
+Two real core charts, dimensions as stated on them:
+
+**800 kVA OLTC (Samruddhi Milk).** Core diameter 236 mm, window height
+357 mm, core limb centre 397 mm. Flux 1.60 T, specific loss 1.203 W/kg,
+no-load loss 1160 W guaranteed max. Core mass 964.22 kg, 15 steps, widest
+pocket 230 mm. Three-plate chart (V-notch, outer, centre), each with its
+own total -- only the aggregate figures above are on file here, not the
+individual plate weights.
+
+**1250 kVA (750+500) OLTC furnace.** Core diameter 224 mm, window height
+698 mm, core limb centre 375 mm. Flux 1.62 T, specific loss 1.24 W/kg,
+no-load loss 1390 W guaranteed max. Core mass 1121.67 kg, 15 steps, widest
+pocket 220 mm. Same three-plate structure, same caveat on plate-level detail.
+
+Window width follows the same relationship `cc = Ww + dCore` this engine
+already uses internally (section 16): Ww = limb centre - core diameter --
+161 mm and 151 mm here, giving Hw/Ww of 2.22 and 4.62. The second of those
+numbers is what section 27's K=0.32 investigation and the aspect-ratio
+constraint that followed it are built on; not read further here.
+
+**Widest pocket, checked against `stepWidths()` directly.** Both charts put
+the widest step at 0.975-0.982 of the core diameter -- 230/236 and
+220/224 -- never at or above it, which is the only physically possible
+result: `wIdeal = 2R cos(a[0])` for the widest step is always strictly
+less than the diameter, by construction. `stepWidths()` was rounding every
+step's width UP to the nearest `stepIncrement` (10 mm default), which for
+the widest step on both these charts pushes it PAST the core diameter --
+233.15 mm -> 240 mm on the 236 mm core, 221.29 mm -> 230 mm on the 224 mm
+core -- a lamination plate wider than the core it sits inside, which is
+not a thing that can be built.
+
+Rounding every step down instead reproduces both charts' widest pocket
+exactly (233.15 -> 230, 221.29 -> 220), but moved the 1250 kVA distribution
+reference's own Plate A total (section 16, validated to -1.4% against a
+real cut plate) from 612.49 kg to 560.81 kg against its 621.09 kg target --
+outside the +-5% tolerance. Rounding direction is not uniformly wrong,
+only the specific case where rounding up produces a physically impossible
+width is. Fixed with a clamp instead of a blanket change: round up as
+before, unless that would put the step at or past the core diameter, in
+which case round down. This reproduces both furnace charts' widest pocket
+exactly while leaving the 1250 kVA distribution reference's Plate A total,
+and every other step's rounding on every other design, untouched -- the
+1250 kVA distribution reference's own widest step never gets close enough
+to its core diameter to hit the clamp.
+
+ENGINE_VERSION 1.15.0. Default case core mass 1612 -> 1577 kg (its own
+widest step does hit the clamp), ex-works 2,310,742 -> 2,282,317, tank
+length 1628 -> 1621 mm -- moved via the no-load loss and cost-driven K
+search cascading from the corrected core mass, not a second change.
+`reference-designs.test.mjs` and `card-cost.test.mjs` are both unaffected.
+
+**Specific loss confirms M5, not M4, at building factor 1.10.** Both
+charts' own W/kg figures (1.203 at 1.60 T, 1.24 at 1.62 T) match this
+engine's M5 grade (`wRef: 1.25, bRef: 1.7`) at the stepLap building factor
+(1.10) to within 1.2-1.9%: 1.225 and 1.255 W/kg predicted. M4
+(`wRef: 1.05`) predicts 1.029 and 1.054 W/kg against the same charts --
+14.4-15.0% under. `gradeSuggest` keys the AUTO grade off efficiency level,
+not application, and neither chart states which level it was built to, so
+this is confirmation the M5 curve itself is well fitted, not evidence that
+any AUTO suggestion needs to change -- left as a validation, no code moved.
+
+**Window height varies with duty far more than either reference design
+alone suggested.** The two furnace charts are close in core diameter
+(236 mm, 224 mm) but not remotely close in window height (357 mm,
+698 mm) -- the 1250 kVA unit is dual-rated (750+500) with an OLTC, and
+needs a genuinely taller window for that duty, not a design fault. Noted
+here because section 27's K=0.32 finding (1.28-1.45 m LV coil height at
+630/1000 kVA, more than double the two Mehir references' own 595-633 mm)
+should be read as a symptom of the missing aspect constraint at those
+specific ratings and duty, not as evidence that any *particular* window
+height figure elsewhere in this document is wrong on its own -- window
+height is duty-dependent to a degree this document had not yet measured
+directly until these two charts arrived.
+## 29. Window aspect ratio (Hw/Ww) added as a real manufacturability constraint
+
+**The clearest example yet of a pattern this project keeps running into: an
+unconstrained search does not find a real optimum, it finds whatever gap
+is left in the model's own constraints, and reports it as a saving.**
+Section 25/26 found this as a symptom (every search candidate failing on
+load loss, no obvious cause). Section 27 found the mechanism (a discrete
+grid never landing where a continuous fit does) and fixed it -- which
+immediately uncovered a second, different gap: once density and flux stop
+being the excuse, K keeps falling to whatever floor the sweep is given,
+because nothing was checking whether the winding K=0.32 demands can
+actually be built. The fix each time was not to narrow the search or move
+a boundary -- it was to teach the model the constraint a real design
+office already applies by inspection, so the search has to satisfy it too,
+the same as impedance, thermal and loss already are. Moving the etK floor
+from 0.40 to 0.32 would have "fixed" the symptom by hiding it further down
+the range; this section fixes the actual gap, and the optimum comes back
+to K=0.48-0.54 on its own, matching the reference designs, because that is
+where the real optimum was the whole time.
+
+Section 27's K=0.32 finding: once flux and density are fitted per candidate
+instead of swept, the etK-floor question from section 25 stopped being an
+unanswerable range-boundary question and became a real one -- lowering the
+floor to 0.32 found a cheaper design on all three ratings tested (630,
+1000, 2500 kVA), landing on the new floor itself each time. Inspected
+directly: the K=0.32 winners run a 1.28-1.45 m LV coil height at
+630-1000 kVA (versus 595-633 mm for the same structural point at K=0.544,
+where the two real Mehir references sit) and a current density of
+0.75 A/mm2, a hair above `fitToSchedule`'s own 0.7 A/mm2 floor. Nothing in
+`compliance` (impedance, thermal, loss schedule) notices a winding that has
+traded an ever-taller, ever-thinner coil for lower I2R loss -- the model
+was finding a real minimum of its own cost function, not a bug in the
+arithmetic, but a minimum outside what a winding machine or a tank can
+actually hold.
+
+**Measured range.** Window height over window width, four real designs:
+
+| Design | Hw | Ww | Hw/Ww |
+|---|---|---|---|
+| 1250 kVA oil (Mehir, distribution) | 566.5 mm | 232.7 mm | 2.44 |
+| 630 kVA dry (Mehir, distribution) | 634.1 mm | 240.4 mm | 2.64 |
+| 800 kVA OLTC furnace (Samruddhi Milk) | 357 mm | 161 mm | 2.22 |
+| 1250 kVA (750+500) OLTC furnace | 698 mm | 151 mm | **4.62** |
+
+The furnace outlier is real, not noise (section 28): a dual-rated OLTC
+furnace duty genuinely needs a taller, narrower window than a distribution
+design does. One bound across every application would either reject a
+legitimate furnace design or admit an unbuildable distribution one.
+
+**The constraint.** New parameter `maxAspect`, AUTO-suggested from
+application -- 2.8 for every application except furnace and rectifier
+(margin above the 2.64 distribution figure measured), 5.0 for furnace and
+rectifier (margin above the 4.62 furnace figure measured) -- editable
+either way, range 2.0-6.0. Added to `designTransformer`'s own `compliance`
+object (`compliance.aspect`), which is generic (`compliant =
+Object.values(compliance).every(x => x.ok)`), so it participates in
+`compliant` everywhere for free, the same as impedance, thermal and loss
+checks already do. Also added to `etkCurve`'s own feasibility flag, so
+`fitEtkToCost`'s AUTO-K selection on the *main* design path avoids an
+unbuildable K too, not only a search candidate -- without this, the same
+exploit available to `searchDesigns` would have been available to any
+plain `computeDesign` call with AUTO etK and autoFit on.
+
+**Verified on all three ratings, full grid, aspect constraint active,
+etK range back at its production 0.40 floor:**
+
+| kVA | full candidates | feasible (with aspect) | z/thermal/loss-compliant (aspect ignored) | best feasible etK | best feasible density | best feasible aspect |
+|---|---|---|---|---|---|---|
+| 630 | 2,886 | 288 | 924 | 0.50 | 1.41 A/mm2 | 2.60 |
+| 1000 | 201 (staged) | 33 | -- | 0.48 | 1.04 A/mm2 | 2.60 |
+| 2500 | 2,586 | 378 | 1,374 | 0.54 | 1.18 A/mm2 | 2.62 |
+
+None of the three lands on the 0.40 floor any more -- the constraint
+removed exactly the region the etK-floor question was actually probing.
+Current density on the best candidate at every rating sits well clear of
+the 0.7 A/mm2 floor (1.04-1.41 A/mm2), and aspect sits comfortably under
+the 2.8 limit (2.60-2.62), not pinned at the new boundary the way etK was
+pinned at 0.40 before this section. This settles the etK-floor question
+from section 25/26: the floor itself was never wrong, the grid was finding
+designs the floor correctly excludes now.
+
+No `ENGINE_VERSION` bump beyond 1.15.0 (section 28) -- this section's own
+change (the new `compliance.aspect` check and `maxAspect` parameter) does
+not move the default case's golden numbers, since the default design's own
+aspect ratio (2.51) already sits under its AUTO maxAspect (2.8).
+## 30. No-load coefficient: back-solved against three real points, coefficient-only fit adopted
+
+Section 6 left the no-load coefficient (4.6 in `lossSchedule`'s
+`4.6 * kva^0.805 * m * kn`) unchanged on purpose, for a specific, named
+reason: "there is no equivalent no-load figure from either sheet to
+anchor a change against... What would settle it: guaranteed no-load loss
+figures from two or three more real designs, at ratings away from the two
+already available... one design at 100-300 kVA and one at 2000 kVA or
+above, since a coefficient fitted to two adjacent mid-range points has no
+evidence either way about whether the same exponent (0.805) holds at the
+ends of the range."
+
+Section 28's two furnace charts are the first real no-load figures since
+then, and the gap they show is real: at Level 2 (m = 1.00), the current
+formula predicts 999 W at 800 kVA against an 1160 W real guarantee -- 14%
+tight -- and 1431 W at 1250 kVA against 1390 W (furnace) and 1400 W (the
+Mehir oil reference)'s own guarantees, 2-3% loose. Three real points now:
+
+| Rating | Real guarantee | Current formula (Level 2) | Deviation |
+|---|---|---|---|
+| 800 kVA (furnace) | 1160 W | 999 W | -13.8% |
+| 1250 kVA (furnace) | 1390 W | 1431 W | +2.98% |
+| 1250 kVA (Mehir oil reference) | 1400 W | 1431 W | +2.25% |
+
+**Full two-parameter fit (coefficient and exponent), as asked.** Least
+squares in log space against all three points: coefficient 73.2, exponent
+0.413 (against the current 4.6 and 0.805). Fits all three points to within
++-0.36% -- essentially exact.
+
+**This is not a fit I would ship without flagging first.** Section 6's own
+caution is exactly what applies here: 800 kVA and 1250 kVA are both still
+"the middle of the range" it asked to get evidence away from -- a 1.56x
+span, not the 100-300 kVA and 2000 kVA-plus points it named. Two of the
+three points share the same kVA (1250), so the exponent is effectively
+determined by one single ratio (800:1250), not by evidence spanning the
+range the formula has to serve. Extrapolated, the two-parameter fit
+diverges from the current formula fast in both directions:
+
+| kVA | current formula | two-parameter fit | ratio |
+|---|---|---|---|
+| 100 | 187 W | 491 W | 2.62x |
+| 500 | 685 W | 955 W | 1.39x |
+| 1250 | 1431 W | 1395 W | 0.97x |
+| 2500 | 2501 W | 1857 W | 0.74x |
+| 5000 | 4369 W | 2473 W | 0.57x |
+| 31500 | 19226 W | 5292 W | 0.28x |
+
+A 2.6x jump at 100 kVA and a formula predicting barely a quarter of the
+current no-load loss at 31500 kVA is not a plausible correction from two
+nearby real data points -- it is what an under-determined two-parameter
+fit does when the data does not actually constrain the exponent.
+
+**Coefficient-only fit, exponent held at the existing 0.805**, the same
+move section 6 made for the load-loss coefficient (52 -> 32, exponent
+0.766 untouched, "neither sheet gave evidence against either"):
+geometric-mean coefficient across the three points, 4.75 (against the
+current 4.6) -- a uniform +3.3% at every rating, not a range-dependent
+reshaping. Fits the three points to -11.0%, +6.4%, +5.6% respectively --
+worse on any single point than the two-parameter fit, better everywhere
+else, because it is not spending its second degree of freedom on three
+points that cannot actually support one.
+
+**Decision: coefficient-only fit adopted, two-parameter fit rejected.**
+`lossSchedule`'s no-load coefficient is now 4.75 (was 4.6), exponent 0.805
+unchanged. ENGINE_VERSION 1.16.0. The two-parameter fit (coefficient 73.2,
+exponent 0.413) is recorded here, deliberately, as the option NOT taken --
+it agrees with all three points to within 0.36%, tighter than the adopted
+fit's -11.0%/+6.4%/+5.6%, but the extrapolation table above (2.6x the
+current prediction at 100 kVA, 0.28x at 31500 kVA) is why: two of the three
+points share one kVA, so the exponent it implies is set by a single ratio,
+not by evidence across the range the formula has to serve. Do not refit it
+from these three points again without first getting the low-rating
+(100-300 kVA) and high-rating (2000 kVA+) guarantees section 6 already
+asked for -- that request still stands, unmet by this section\'s own two
+mid-range points.
+
+**Before/after ex-works, Level 2, no override, autoFit on:**
+
+| kVA | before (4.6) | after (4.75) | change | no-load loss before -> after | limit before -> after |
+|---|---|---|---|---|---|
+| 630 | Rs 17,17,257 | Rs 17,17,257 | 0.0% | 791 -> 791 W | 825 -> 851 W |
+| 1000 | Rs 22,82,317 | Rs 21,78,588 | -4.5% | 1143 -> 1202 W | 1196 -> 1235 W |
+| 1250 | Rs 26,15,284 | Rs 25,38,053 | -3.0% | 1234 -> 1263 W | 1431 -> 1478 W |
+
+630 kVA does not move at all -- its design was not no-load-limited to begin
+with (something else, most likely the 1.42 T flux floor, was already
+binding before the ceiling was), so a looser no-load ceiling bought it
+nothing. 1000 and 1250 kVA both used more of the newly available headroom
+(no-load loss rose toward the new, higher limit at each), trading a bigger
+core for a smaller, cheaper one -- the schedule becoming more accurate
+changed what the cheapest compliant design actually is, at the two ratings
+where no-load loss was the binding constraint.
+## 31. Staging's multi-basin failure, actually observed, and fixed
+
+Section 25's own header named this as a possible failure mode of the
+two-stage funnel: "a structural combination that stage 1's coarse point
+sampling made look uncompetitive is never revisited in stage 2, even if
+the true optimum for that combination... would have beaten the winners
+that were kept." Section 29's aspect-constraint verification found it for
+real: at 630 and 2500 kVA, `stagedSearchDesigns` returned zero feasible
+candidates while the full grid found hundreds.
+
+**Cause.** Stage 1 picked each structural combination's own representative
+by raw cheapest tco among its coarse-etK samples, with no regard for
+whether that cheapest point was feasible. An aspect-infeasible candidate
+at etK 0.40 (cheap precisely because it is unbuildable, section 29) could
+still be the cheapest point sampled for its structural combination -- and
+ranking structural combinations against each other by that price let a
+combination with no real feasible option out-rank, and crowd out of the
+top-N cut, a combination whose true feasible region was narrower but
+genuinely buildable. Stage 2 then never got to refine the combination that
+actually had an answer.
+
+**Fix.** Within each structural combination, prefer a feasible
+representative over an infeasible one regardless of price -- an infeasible
+candidate is not a cheaper version of a feasible one, it is not a real
+option, and must never win the representative slot on price alone. When
+ranking combinations for the top-N cut, combinations with a feasible
+representative always outrank ones without, then sort by tco within each
+group. `structKey`, `windowAround`, stage 2's own refinement and the final
+dedup are all unchanged -- this is a ranking-order fix within stage 1,
+nothing about what gets computed.
+
+**Verified on all three ratings, full grid versus staged, aspect
+constraint and the section 30 no-load coefficient both active:**
+
+| kVA | full candidates | full feasible | full best tco | staged candidates | staged feasible | staged best tco | match |
+|---|---|---|---|---|---|---|---|
+| 630 | 2,904 | 360 | 4,096,973.60 | 216 | 123 | 4,096,973.60 | exact, 0.0000% |
+| 1000 | 2,928 | 522 | 5,698,070.62 | 201 | 162 | 5,698,070.62 | exact, 0.0000% |
+| 2500 | 2,610 | 414 | 11,414,074.53 | 147 | 147 | 11,414,074.53 | exact, 0.0000% |
+
+Bit-for-bit identical on all three, not approximately close -- staging and
+the full grid land on the same structural/etK point, so both compute the
+same fitted candidate. The zero-feasible failure this section fixes is
+gone; the section 25 header's own named risk was real, was hit, and this
+is what closed it.
+
+No `ENGINE_VERSION` bump: `stagedSearchDesigns` is a what-if search, not
+part of how a saved revision reprices on read, the same reasoning applied
+throughout sections 17, 23, 25 and 27.

@@ -194,14 +194,39 @@ const r = E.computeDesign(E.ESSENTIALS, {}, E.DEFAULT_RATES, []);
 // `etkNonCompliant` to false: a design that used to be flagged unable to
 // meet its own no-load ceiling at any K now can, because the core the old
 // formula thought it needed to build was never real.
-eq("ex-works", Math.round(r.bom.exFactory), 2310742, 800);
-eq("delivered", Math.round(r.bom.withGst), 2726676, 900);
-eq("tank length mm", Math.round(r.design.tankL), 1628, 2);
-eq("no-load loss W", Math.round(r.design.noLoad), 1138, 5);
-eq("load loss W", Math.round(r.design.loadLoss), 6085, 30);
-eq("impedance %", +r.design.pctZ.toFixed(2), 5.00, 0.02);
-eq("efficiency %", +r.design.eff100.toFixed(2), 99.28, 0.02);
-eq("core mass kg", Math.round(r.design.wCore), 1612, 15);
+// ENGINE_VERSION 1.15.0 (CALIBRATION.md section 28): stepWidths() rounded
+// every step's width UP to the nearest stepIncrement, which is provably
+// wrong for the widest step specifically -- two real furnace core charts
+// (Samruddhi Milk 800 kVA, the 1250 kVA 750+500 furnace chart) put the
+// widest pocket at 0.975-0.982 of the core diameter, never at or above it,
+// and rounding up was pushing this engine's own widest step PAST the core
+// diameter (233.15mm -> 240mm on a 236mm core). Fixed with a clamp: round
+// up as before, unless that would put the step at or past the core
+// diameter, in which case round down instead -- reproduces both furnace
+// charts' widest pocket exactly, while leaving the 1250 kVA distribution
+// reference's own Plate A total (validated to -1.4% against a real cut
+// chart, section 16) untouched, since that reference's widest step never
+// hits the clamp. The default case's own widest step does hit it, so its
+// core mass (and everything downstream of core mass -- no-load loss,
+// ex-works, tank length via the cost-driven K search) moved slightly.
+// ENGINE_VERSION 1.16.0 (CALIBRATION.md section 30): lossSchedule's no-load
+// coefficient, 4.6 -> 4.75, held against three real guarantees (800 kVA and
+// 1250 kVA furnace core charts, plus the existing 1250 kVA Mehir reference)
+// at the existing 0.805 exponent -- a full two-parameter refit fit those
+// three points far tighter but extrapolated to 2.6x the old prediction at
+// 100 kVA and 0.28x at 31500 kVA, so only the coefficient moved, the same
+// restraint section 6 applied to the load-loss coefficient. A flat +3.3%
+// looser no-load ceiling everywhere lets autoFit raise flux further before
+// hitting it, so the default case's core shrinks and gets cheaper -- this
+// is the schedule becoming more accurate, not a search finding a shortcut.
+eq("ex-works", Math.round(r.bom.exFactory), 2178588, 800);
+eq("delivered", Math.round(r.bom.withGst), 2570734, 900);
+eq("tank length mm", Math.round(r.design.tankL), 1632, 2);
+eq("no-load loss W", Math.round(r.design.noLoad), 1202, 5);
+eq("load loss W", Math.round(r.design.loadLoss), 6157, 30);
+eq("impedance %", +r.design.pctZ.toFixed(2), 5.22, 0.02);
+eq("efficiency %", +r.design.eff100.toFixed(2), 99.27, 0.02);
+eq("core mass kg", Math.round(r.design.wCore), 1445, 15);
 eq("compliant", r.design.compliant, true);
 eq("HV construction", r.design.hvConstruction, "crossover");
 eq("LV construction", r.design.lvConstruction, "strip");
@@ -285,9 +310,16 @@ const impedanceDev = (kva, baselinePct) => {
 // itself: this is the correction reaching a rating small enough that the
 // core mass error was large relative to the whole design. 630, 2000 and
 // 2500 kVA barely moved.
+// ENGINE_VERSION 1.16.0 (CALIBRATION.md section 30): the no-load
+// coefficient bump (4.6 -> 4.75) shifts fitEtkToCost's own cost-driven K
+// search, which the window-height bisection's bracket condition is
+// sensitive to at 2000 kVA specifically -- same cascade section 28's
+// stepWidths fix produced here before the clamp version was found, this
+// time not fixable the same way since the coefficient move is the whole
+// point of this section, not an incidental side effect of a different fix.
 impedanceDev(100, -19.91);
 impedanceDev(630, -5.91);
-impedanceDev(2000, 0.00);
+impedanceDev(2000, -0.42);
 impedanceDev(2500, 0.00);
 
 console.log("\ncooling equipment: fan and pump count follow cooling type, not a fixed number");
