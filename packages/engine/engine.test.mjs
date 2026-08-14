@@ -219,6 +219,17 @@ const r = E.computeDesign(E.ESSENTIALS, {}, E.DEFAULT_RATES, []);
 // looser no-load ceiling everywhere lets autoFit raise flux further before
 // hitting it, so the default case's core shrinks and gets cheaper -- this
 // is the schedule becoming more accurate, not a search finding a shortcut.
+//
+// ENGINE_VERSION 1.17.0 (CALIBRATION.md section 32): maxAspect's default
+// for distribution/power/etc, 2.8 -> 3.0 -- a 630 kVA sweep at 2.8/3.0/3.2/
+// 3.5 (the rating whose own best design sat right at the 2.8 ceiling) found
+// a genuine, buildable 0.76% saving at 3.0 (current density 1.30 A/mm2,
+// still healthy), then the same low-density exploit K=0.32 was, one step
+// removed: past aspect 3.08 the search jumps to aluminium at 0.97 A/mm2 for
+// a further 7.8% that is not a real saving in the same sense. This default
+// case's own aspect margin was 7.14% clear of 2.8 already, so none of its
+// own numbers move -- only 2000 kVA's impedance-solve bracket does, same
+// cascade as 1.16.0's own note, updated below.
 eq("ex-works", Math.round(r.bom.exFactory), 2178588, 800);
 eq("delivered", Math.round(r.bom.withGst), 2570734, 900);
 eq("tank length mm", Math.round(r.design.tankL), 1632, 2);
@@ -317,9 +328,14 @@ const impedanceDev = (kva, baselinePct) => {
 // stepWidths fix produced here before the clamp version was found, this
 // time not fixable the same way since the coefficient move is the whole
 // point of this section, not an incidental side effect of a different fix.
+// CALIBRATION.md section 32: maxAspect's default (3.0, was 2.8) moves
+// fitEtkToCost's own cost-driven K search again at 2000 kVA, same
+// bracket-sensitivity cascade as 1.16.0's note above -- this default case's
+// own aspect margin was 7.14% clear of 2.8 already, so nothing about this
+// design itself changed; only 2000 kVA's own impedance-solve bracket did.
 impedanceDev(100, -19.91);
 impedanceDev(630, -5.91);
-impedanceDev(2000, -0.42);
+impedanceDev(2000, -3.18);
 impedanceDev(2500, 0.00);
 
 console.log("\ncooling equipment: fan and pump count follow cooling type, not a fixed number");

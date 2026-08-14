@@ -8,7 +8,7 @@
  * without bumping it, or old quotations stop reproducing.
  */
 
-export const ENGINE_VERSION = "1.16.0";
+export const ENGINE_VERSION = "1.17.0";
 
 const CONDUCTORS = {
   copper: { name: "Copper, EC grade", rho20: 0.017241, alpha: 0.00393, dens: 8890, dMax: 3.6, short: "Cu", proof: 1.0 },
@@ -394,7 +394,7 @@ function deriveSpec(core, over = {}) {
   put("steps", stepsSuggest(dCoreEst), null, Object.keys(STEP_UTIL).map((k) => [+k, k + " steps"]), "More steps fill the coil circle better and save steel, but cost more to cut and stack.");
   put("stepIncrement", 10, [5, 25, 5], null, "Lamination is slit to standard widths, not cut to a continuous optimum. Step widths round down to the nearest multiple of this -- rounding up can put the widest step past the core diameter itself.");
   put("aspect", aspectSuggest(umHV), [2.0, 3.8, 0.05], null, "Starting window shape. The final height is solved to hit the declared impedance unless you turn that off.");
-  /* CALIBRATION.md section 28: the design-office aspect check, window
+  /* CALIBRATION.md section 28/32: the design-office aspect check, window
      height over window width, applied as a real constraint rather than
      left for a search to discover the hard way. Measured from real
      designs, not guessed: two Mehir Transformers sheets (1250 kVA oil
@@ -403,13 +403,17 @@ function deriveSpec(core, over = {}) {
      furnace outlier is real, not noise -- a dual-rated OLTC furnace duty
      genuinely needs a taller, narrower window than a distribution design
      does, which is why the default is application-aware rather than one
-     number for every duty. Distribution/power/etc default to 2.8, a
-     margin above the highest distribution figure measured (2.64); furnace
-     and rectifier duty default to 5.0, a margin above the 4.62 furnace
-     figure. Editable either way -- this is a measured starting point, not
-     a law, and a design office with its own tighter or looser practice
-     should set its own number. */
-  put("maxAspect", core.application === "furnace" || core.application === "rectifier" ? 5.0 : 2.8, [2.0, 6.0, 0.1], null,
+     number for every duty. Distribution/power/etc default to 3.0 (section
+     32: swept 2.8-3.5 at 630 kVA, the rating where 2.8 bound hardest --
+     2.8->3.0 is a genuine, buildable 0.76% saving at healthy current
+     density; past 3.08 the search jumps to aluminium at collapsing
+     density, the same exploit K=0.32 was, one step removed, so the ceiling
+     stops at 3.0 rather than following that saving further); furnace and
+     rectifier duty default to 5.0, a margin above the 4.62 furnace figure.
+     Editable either way -- this is a measured starting point, not a law,
+     and a design office with its own tighter or looser practice should set
+     its own number. */
+  put("maxAspect", core.application === "furnace" || core.application === "rectifier" ? 5.0 : 3.0, [2.0, 6.0, 0.1], null,
     "Window height over window width. A taller, narrower window needs more turns per unit height and packs an ever-thinner coil -- past this ratio the winding is judged not buildable, not just expensive. Furnace and dual-rated OLTC duty legitimately run taller than distribution.");
   put("autoWindow", true, null, [[true, "Solve height for the declared impedance"], [false, "Use the output equation only"]], "With this on, the window height is adjusted until the calculated impedance matches the declared value, which is what a designer does by hand.");
   put("autoFit", true, null, [[true, "Fit flux and current density to the loss limits"], [false, "Use the rating-based values only"]], "With this on, the flux density and the current densities are trimmed until the calculated losses sit just inside the declared limits, the cheapest core and coil that still passes.");
@@ -579,7 +583,16 @@ function deriveSpec(core, over = {}) {
    that sheet, and not touched on the strength of five figures from one
    document. This is the engineering-default rate card only, the lowest
    tier of the price-source hierarchy (src/lib/pricing.ts): any project
-   with its own rate card or item-master prices never reads this. */
+   with its own rate card or item-master prices never reads this.
+
+   CALIBRATION.md section 33: condAl and condCca specifically -- UNSOURCED,
+   not merely "unconfirmed" like the rest of this object. Every Fit to
+   Budget search this project has ever run, at every rating, recommended
+   aluminium or CCA over sheet-confirmed copper by 73-96%, entirely on the
+   strength of these two numbers. CCA physically contains copper and costs
+   more to produce than plain aluminium; 40% of the copper rate cannot be
+   right. See UNSOURCED_RATE_KEYS below -- searchDesigns will not recommend
+   either material while its rate sits at exactly this placeholder. */
 const DEFAULT_RATES = {
   core: 240, condCu: 1415, condAl: 340, condCca: 560, insulation: 385,
   frameMS: 70, tankMS: 86, fin: 152, radiator: 168, fluid: 115,
@@ -1304,10 +1317,34 @@ function fluxRange(gradeKey) {
 
 const DEFAULT_GAPSCALES = [0.9, 1.0, 1.12];
 
+/* CALIBRATION.md section 33: condAl and condCca have never been confirmed
+   against a real quote (DEFAULT_RATES' own comment) -- every search this
+   project has run recommended one or the other over sheet-confirmed copper
+   by 73-96%, entirely on the strength of two placeholder numbers nobody
+   ever checked. An unsourced rate that silently wins every search it is
+   offered in is worse than a missing one, so it is excluded here rather
+   than trusted -- unless a project's own rate card has actually moved the
+   rate away from this exact placeholder, which counts as a real, entered
+   figure like any other. */
+const UNSOURCED_RATE_KEYS = new Set(["condAl", "condCca"]);
+function unsourcedConductorRate(cond, rates) {
+  const rk = rkCond(cond);
+  return UNSOURCED_RATE_KEYS.has(rk) && rates[rk] === DEFAULT_RATES[rk];
+}
+function unsourcedConductorNote(conds, rates) {
+  const excluded = conds.filter((c) => unsourcedConductorRate(c, rates));
+  if (!excluded.length) return null;
+  const names = excluded.map((c) => `${CONDUCTORS[c].name} (${rkCond(c)})`).join(", ");
+  return `${names} excluded from this search: rate not sourced from a real quote. `
+    + `Enter your own ${excluded.map((c) => rkCond(c)).join("/")} rate in the rate card to include `
+    + `${excluded.length > 1 ? "them" : "it"}.`;
+}
+
 function searchDesigns(base, rates, band, opts) {
   const results = [];
   const grades = opts.grades.length ? opts.grades : [base.coreGrade];
-  const conds = opts.conds.length ? opts.conds : [base.condLV];
+  const condsRequested = opts.conds.length ? opts.conds : [base.condLV];
+  const conds = condsRequested.filter((c) => !unsourcedConductorRate(c, rates));
   const tanks = opts.tanks.length ? opts.tanks : [base.tankType];
   const cores = opts.cores.length ? opts.cores : [base.coreType];
   /* CALIBRATION.md section 2: K (etK) trades core steel for winding copper
@@ -1439,7 +1476,10 @@ function searchDesigns(base, rates, band, opts) {
     const prev = best.get(k);
     if (!prev || x.tco < prev.tco) best.set(k, x);
   }
-  return [...best.values()];
+  const out = [...best.values()];
+  const note = unsourcedConductorNote(condsRequested, rates);
+  if (note) out.excludedNote = note;
+  return out;
 }
 
 const structKey = (x) => [x.inputs.coreType, x.inputs.coreGrade, x.inputs.condLV, x.inputs.tankType, x.inputs.cooling].join("|");
@@ -1500,6 +1540,8 @@ function windowAround(all, value, n) {
 function stagedSearchDesigns(base, rates, band, opts, onProgress, shouldCancel) {
   const report = (info) => { if (onProgress) onProgress(info); };
   const cancelled = () => !!(shouldCancel && shouldCancel());
+  const condsRequested = opts.conds && opts.conds.length ? opts.conds : [base.condLV];
+  const conductorNote = unsourcedConductorNote(condsRequested, rates);
 
   const topN = opts.stagedTopN || 5;
   const etKsFull = opts.etKs && opts.etKs.length ? opts.etKs : ETK_RANGE;
@@ -1520,7 +1562,7 @@ function stagedSearchDesigns(base, rates, band, opts, onProgress, shouldCancel) 
     riseTargets: [riseTargetsFull[0]],
   });
   report({ stage: 1, phase: "done", count: stage1.length });
-  if (cancelled() || !stage1.length) return stage1;
+  if (cancelled() || !stage1.length) { if (conductorNote) stage1.excludedNote = conductorNote; return stage1; }
 
   /* CALIBRATION.md section 31: the multi-basin failure this function's own
      header always named as possible, actually observed -- 630 and 2500 kVA
@@ -1579,7 +1621,9 @@ function stagedSearchDesigns(base, rates, band, opts, onProgress, shouldCancel) 
     const prev = best.get(k);
     if (!prev || x.tco < prev.tco) best.set(k, x);
   }
-  return [...best.values()];
+  const out = [...best.values()];
+  if (conductorNote) out.excludedNote = conductorNote;
+  return out;
 }
 
 /* CALIBRATION.md section 2: K = Et/sqrt(kVA) trades core steel for winding
