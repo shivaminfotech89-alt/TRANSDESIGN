@@ -274,14 +274,26 @@ const r = E.computeDesign(E.ESSENTIALS, {}, E.DEFAULT_RATES, []);
 // stated 15-25% range for harmonic duty. Neither touches this default
 // distribution-duty case: it was already well inside both new limits, and
 // the stray change only applies to furnace duty.
-eq("ex-works", Math.round(r.bom.exFactory), 2181359, 800);
-eq("delivered", Math.round(r.bom.withGst), 2574003, 900);
-eq("tank length mm", Math.round(r.design.tankL), 1557, 2);
-eq("no-load loss W", Math.round(r.design.noLoad), 1099, 5);
-eq("load loss W", Math.round(r.design.loadLoss), 5991, 30);
-eq("impedance %", +r.design.pctZ.toFixed(2), 5.23, 0.02);
-eq("efficiency %", +r.design.eff100.toFixed(2), 99.30, 0.02);
-eq("core mass kg", Math.round(r.design.wCore), 1040, 15);
+// ENGINE_VERSION 1.22.0 (CALIBRATION.md section 46): the continuous
+// window-spread convergence check (section 38) could be, and at this
+// default case's own winning K = 0.46 actually was, satisfied by
+// coincidence while numGroups/layers was still genuinely alternating
+// between two states underneath it -- a false-positive "converged" that
+// happened to land on whichever of the two states was active the moment a
+// 5-iteration window of dLV/dHV drift narrowed enough to pass, an
+// arbitrary snapshot with no claim to being the better of the two. Every
+// number below moved because this default case was never actually at a
+// stable fixed point before -- it only looked converged. The new number is
+// the deliberately-chosen, compliant, margin-closest state, not a
+// regression: see section 46 for the full diagnosis and fix.
+eq("ex-works", Math.round(r.bom.exFactory), 2100057, 800);
+eq("delivered", Math.round(r.bom.withGst), 2478067, 900);
+eq("tank length mm", Math.round(r.design.tankL), 1506, 2);
+eq("no-load loss W", Math.round(r.design.noLoad), 1076, 5);
+eq("load loss W", Math.round(r.design.loadLoss), 6088, 30);
+eq("impedance %", +r.design.pctZ.toFixed(2), 4.87, 0.02);
+eq("efficiency %", +r.design.eff100.toFixed(2), 99.29, 0.02);
+eq("core mass kg", Math.round(r.design.wCore), 1021, 15);
 eq("autoFit converged", r.autoFitConverged, true);
 eq("compliant", r.design.compliant, true);
 // ENGINE_VERSION 1.21.0 (CALIBRATION.md section 44): compliance.aspect (the
@@ -291,13 +303,24 @@ eq("compliant", r.design.compliant, true);
 // different design can now clear the old ratio while missing one of these,
 // or the reverse) -- see section 44 for the 2500 kVA furnace case that
 // flips to non-compliant under this default.
-eq("coil height mm", Math.round(r.design.compliance.coilHeight.val), 622, 3);
+eq("coil height mm", Math.round(r.design.compliance.coilHeight.val), 616, 3);
 eq("coil height limit mm", r.design.compliance.coilHeight.lim, 880);
-eq("tank height mm", Math.round(r.design.compliance.tankHeight.val), 1330, 3);
+eq("tank height mm", Math.round(r.design.compliance.tankHeight.val), 1324, 3);
 eq("tank height limit mm", r.design.compliance.tankHeight.lim, 1500);
 eq("HV construction", r.design.hvConstruction, "crossover");
 eq("LV construction", r.design.lvConstruction, "strip");
 eq("etK non-compliant, flagged", r.etkNonCompliant, false);
+// ENGINE_VERSION 1.22.0: cycle resolution reports which discrete winding
+// states it chose between, exactly as etkNonCompliant reports a saturated
+// K search -- this default case does cycle (see the note above), so the
+// note must be present and name the chosen state.
+eq("autoFit cycle note present", typeof r.autoFitCycleNote, "string");
+if (r.autoFitCycleNote && !r.autoFitCycleNote.includes("Chose")) {
+  failures++;
+  console.log(`  FAIL autoFit cycle note does not name a chosen state: "${r.autoFitCycleNote}"`);
+} else {
+  console.log(`  ok   autoFit cycle note: "${r.autoFitCycleNote}"`);
+}
 
 console.log("\nstepped core utilisation matches the classical table");
 // increment: 0 disables snapping (CALIBRATION.md, drawing 22) -- this is
@@ -392,9 +415,16 @@ const impedanceDev = (kva, baselinePct) => {
 // ENGINE_VERSION 1.19.0 (CALIBRATION.md section 39): the self-consistent K
 // search moves every rating's own true cost-optimal K, and so this bracket
 // too -- 630 and 2500 kVA land exactly on target, 100 and 2000 kVA do not.
-impedanceDev(100, -2.80);
-impedanceDev(630, 0.00);
-impedanceDev(2000, -3.87);
+// ENGINE_VERSION 1.22.0 (CALIBRATION.md section 46): the discrete-cycle fix
+// changes which K several of these ratings actually settle at (same
+// bracket-sensitivity cascade every K-moving change in this file has
+// produced before) -- 630 kVA moves from exactly on target to 2.79% off,
+// a real shift, not a defect in the impedance solve: 2.79% sits inside the
+// same range this table already accepted for 100 and 2000 kVA. 2500 kVA
+// stays exact.
+impedanceDev(100, -1.76);
+impedanceDev(630, 2.79);
+impedanceDev(2000, -3.79);
 impedanceDev(2500, 0.00);
 
 console.log("\ncooling equipment: fan and pump count follow cooling type, not a fixed number");
@@ -585,6 +615,50 @@ console.log("\nstaged search finds close to the same minimum as the full grid, a
   if (!stage1Done) { failures++; console.log("  FAIL cancellation test never saw stage 1 complete"); }
   else if (cancelled.length === 0) { failures++; console.log("  FAIL cancelling after stage 1 returned zero results -- stage 1's own candidates should still be usable"); }
   else console.log(`  ok   cancelling after stage 1 stops before stage 2 and still returns ${cancelled.length} stage-1 candidates`);
+}
+
+console.log("\nfitToSchedule resolves a discrete-geometry limit cycle instead of running to the iteration cap (CALIBRATION.md section 46)");
+{
+  const kva = 1000;
+  const core = { ...E.ESSENTIALS, kva };
+  // 1.75 T is a plain interior flux value (not a grade boundary) that
+  // section 46's own diagnosis found oscillating between numGroups 5/6
+  // and 6/7 -- locking it isolates the density-only fit exactly the way a
+  // Class B pin solve's noLoadLoss lever does on every one of its 44
+  // bisection steps.
+  const over = { flux: 1.75 };
+  const spec = E.deriveSpec(core, over);
+  const r = E.fitToSchedule(spec.S, over);
+  if (!r.autoFitCycleNote) { failures++; console.log("  FAIL expected a detected limit cycle at flux=1.75, 1000 kVA -- got none (has the underlying geometry changed?)"); }
+  else console.log(`  ok   cycle detected: "${r.autoFitCycleNote}"`);
+  if (r.autoFitConverged !== true) { failures++; console.log(`  FAIL expected the resolved cycle to report converged (a compliant state was found), got ${r.autoFitConverged}`); }
+  else console.log("  ok   resolved to a compliant state, reported converged");
+
+  // Regression check for a real bug found while building this: rounding
+  // the chosen state's flux/density to 2 decimals for a clean report can,
+  // on its own, cross back over the exact threshold the choice was made
+  // to land on, silently reverting to the OTHER discrete state. Verify the
+  // returned values, fed straight back into designTransformer, still
+  // produce the state the note claims was chosen.
+  const built = E.designTransformer({ ...spec.S, flux: over.flux, deltaLV: r.deltaLV, deltaHV: r.deltaHV });
+  const chosenLoadLoss = Number((r.autoFitCycleNote.match(/Chose .*?\((\d+) W/) || [])[1]);
+  if (!chosenLoadLoss || Math.abs(built.loadLoss - chosenLoadLoss) > 5) {
+    failures++;
+    console.log(`  FAIL returned flux/density do not reproduce the chosen state -- rounding reverted it: built loadLoss ${Math.round(built.loadLoss)} W vs chosen ${chosenLoadLoss} W`);
+  } else {
+    console.log(`  ok   returned flux/density reproduce the chosen state exactly (built ${Math.round(built.loadLoss)} W vs chosen ${chosenLoadLoss} W)`);
+  }
+}
+
+console.log("\nfitToSchedule reports flux saturation separately from cycling (CALIBRATION.md section 46)");
+{
+  // 1250 kVA's own default AUTO-K design saturates flux at the grade
+  // ceiling with no cycling involved -- the case autoFitFluxLimit exists
+  // to name regardless of whether density is also cycling.
+  const r = E.computeDesign({ ...E.ESSENTIALS, kva: 1250 }, {}, E.DEFAULT_RATES, []);
+  if (!r.autoFitFluxLimit) { failures++; console.log("  FAIL expected autoFitFluxLimit at 1250 kVA (flux known to saturate at the grade ceiling here) -- got none"); }
+  else if (r.autoFitFluxLimit.at !== "ceiling") { failures++; console.log(`  FAIL expected flux saturated at the ceiling, got "${r.autoFitFluxLimit.at}"`); }
+  else console.log(`  ok   flux saturation reported: at ${r.autoFitFluxLimit.at}, ${r.autoFitFluxLimit.value} T, noLoad ${r.autoFitFluxLimit.noLoad} W against ${r.autoFitFluxLimit.limit} W (compliant: ${r.autoFitFluxLimit.compliant})`);
 }
 
 console.log("\nsearchDesigns holds a pinned flux or current density on every candidate (CALIBRATION.md section 42)");
