@@ -100,4 +100,26 @@ html, body {
     background: white;
     min-height: 297mm; /* A4 height */
   }
+
+  /* Drawings2D.tsx: each top-level child is one fully self-contained,
+     independently-numbered drawing (its own Card header and its own
+     bottom title block, per DRAWINGS.md's universal requirements) -- not
+     a page shared between two related drawings. break-inside keeps a
+     drawing's own title block and any schedule table it renders together
+     from being split across a page boundary; break-after starts the next
+     drawing on a fresh page. Excluded on the last child so the PDF does
+     not end with a trailing blank page. Both the legacy page-break-*
+     and modern break-* properties are set: this runs through whatever
+     browser the user's own machine has via window.print(), not a
+     controlled Puppeteer target the way PrintReport.tsx's own print
+     styles are (functions/src/reportPdf.ts), so the older, more broadly
+     supported property is kept alongside the modern one, not replaced. */
+  .drawing-page {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  .drawing-page:not(:last-child) {
+    break-after: page;
+    page-break-after: always;
+  }
 }
