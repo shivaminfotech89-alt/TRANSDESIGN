@@ -25,6 +25,12 @@ interface ResultsDisplayProps {
   liveDesign: any;
   liveBom: any;
   liveParams: any;
+  /** The live design's raw over -- what the user actually pinned, not
+   *  liveParams' resolved values (every param is "resolved" whether it came
+   *  from a pin or deriveSpec's own AUTO estimate; only over says which).
+   *  Passed to the Budget tab so a pinned flux or current density is held
+   *  by the search too, CALIBRATION.md section 42. */
+  liveOver: Record<string, any>;
   project: any;
   rates: Record<string, number>;
   onRatesChange: (rates: Record<string, number>) => void;
@@ -147,7 +153,7 @@ function PriceSourceBadge({ source }: { source: PriceResolution | undefined }) {
 }
 
 export function ResultsDisplay({
-  core, design, bom, params, liveDesign, liveBom, liveParams, project, rates, onRatesChange, effectiveRates,
+  core, design, bom, params, liveDesign, liveBom, liveParams, liveOver, project, rates, onRatesChange, effectiveRates,
   rateCard, onManageRateCards, pricingLocked, rateSources, priceLocks, onTogglePriceLock, itemsByRateKey,
   activePreviewKey, onSelectPreview, onCardExtraChange, orgId, projectId, revision,
 }: ResultsDisplayProps) {
@@ -466,7 +472,7 @@ export function ResultsDisplay({
               never the currently previewed one, see ResultsDisplayProps note. */}
           {activeTab === 'budget' && (
             <BudgetTab
-              design={liveDesign} bom={liveBom} params={liveParams} rates={effectiveRates}
+              design={liveDesign} bom={liveBom} params={liveParams} over={liveOver} rates={effectiveRates}
               activePreviewKey={activePreviewKey} onSelectPreview={onSelectPreview}
             />
           )}

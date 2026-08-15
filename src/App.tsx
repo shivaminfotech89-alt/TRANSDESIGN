@@ -831,7 +831,7 @@ export default function App() {
           <section>
             <ResultsDisplay
               core={core} design={activeDesign} bom={activeBom} params={activeParams}
-              liveDesign={result.design} liveBom={result.bom} liveParams={result.params}
+              liveDesign={result.design} liveBom={result.bom} liveParams={result.params} liveOver={over}
               project={buildMeta(projectName)}
               orgId={orgId} projectId={currentProjectId} revision={projectCurrentRevision}
               rates={rates} onRatesChange={setRates} effectiveRates={effectiveRates}

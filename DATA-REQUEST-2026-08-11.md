@@ -98,6 +98,28 @@ came back to a number the sheets don't actually state for either reference.
 these two sheets gave us real numbers to check against — a manufacturing
 arrangement choice, not something derivable from the electrical design alone.
 
+**Two specific, related questions on this same winding, not yet answered:**
+
+- **Is the 630 kVA HV winding built from two parallel conductors?** The
+  sheet states approximately 3.15 x 1.50 mm bare, 4.65 mm² as a single
+  conductor, which at 19.1 A phase current is 4.1 A/mm² — implausibly high.
+  The sheet's own stated HV copper mass, 323.64 kg, and its turns are
+  consistent with two parallel conductors at roughly 6.5 mm² each, not one
+  at 4.65 mm². If it is two parallel, please give the real individual
+  conductor dimensions rather than the combined figure.
+
+- **Does each parallel HV strand carry its own full covering, or a lighter
+  shared covering between strands?** This only matters once a winding
+  actually has more than one HV strand (the two sheets on file do not, at
+  their ratings), so it cannot be checked against either reference — it
+  first becomes a real question at the rating in question 1 above, and at
+  5000 kVA and up generally, where the engine's own multi-strand HV split
+  now applies (CALIBRATION.md section 41). The engine currently assumes
+  full individual covering per strand, copied from the equivalent LV
+  convention for lack of anything HV-specific to check it against — flagged
+  as an assumption, not confirmed. A sheet with any multi-strand HV winding,
+  at any rating, and its covered-conductor build-up would close this.
+
 ## 6. Tank internal length, width and height, and oil quantity, for any sheet — especially one at or below 630 kVA
 
 For any sheet supplied, including the 630 kVA and 1250 kVA sheets already

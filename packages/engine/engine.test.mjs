@@ -230,14 +230,44 @@ const r = E.computeDesign(E.ESSENTIALS, {}, E.DEFAULT_RATES, []);
 // case's own aspect margin was 7.14% clear of 2.8 already, so none of its
 // own numbers move -- only 2000 kVA's impedance-solve bracket does, same
 // cascade as 1.16.0's own note, updated below.
-eq("ex-works", Math.round(r.bom.exFactory), 2178588, 800);
-eq("delivered", Math.round(r.bom.withGst), 2570734, 900);
-eq("tank length mm", Math.round(r.design.tankL), 1632, 2);
-eq("no-load loss W", Math.round(r.design.noLoad), 1202, 5);
-eq("load loss W", Math.round(r.design.loadLoss), 6157, 30);
-eq("impedance %", +r.design.pctZ.toFixed(2), 5.22, 0.02);
-eq("efficiency %", +r.design.eff100.toFixed(2), 99.27, 0.02);
-eq("core mass kg", Math.round(r.design.wCore), 1445, 15);
+// ENGINE_VERSION 1.18.0 (CALIBRATION.md section 38): fitToSchedule's own
+// fixed-point loop used to take a full, undamped step for a fixed 10
+// iterations with no convergence check -- section 37's margin targets
+// (0.90/0.93) surfaced a real, pre-existing fault this had been hiding: at
+// some ratings the loop does not converge at all, oscillating around a
+// discontinuity in the LV parallel-conductor split (lvAxCount/lvRadCount)
+// rather than settling. Fixed with damping (RELAX = 0.6) and an actual
+// convergence check (window-spread based, not a fixed count), capped at 60
+// iterations with autoFitConverged reporting when that cap is hit without
+// settling. This default case now runs more iterations to reach a genuine
+// fixed point rather than stopping at 10 regardless -- every number below
+// moved again, on top of section 37's own move, because the earlier
+// numbers were themselves from an under-converged snapshot, not a
+// different design.
+//
+// ENGINE_VERSION 1.19.0 (CALIBRATION.md section 39): fitEtkToCost used to
+// sweep K holding flux/density fixed at whatever the FIRST fitToSchedule
+// call had fitted for a different K -- comparing every K but one on a fit
+// that was never actually theirs. Found directly: 630 kVA's own achieved
+// load-loss margin collapsed from a correctly-fitted 7.11% to 0.59% once
+// fitEtkToCost moved K away from what fitToSchedule had fitted. Every K
+// candidate is now re-fitted for itself (etkPoint/etkCurve), started from
+// a K-independent baseline (fluxSuggest/densitySuggest, not whatever a
+// different K's own fit left flux/density at -- a clamp of the carried-over
+// value is not a reset). This surfaced a real, cheaper design at this
+// default case's own true cost-optimal K (0.46, not 0.52) that the old
+// stale-fit comparison could not see -- every number below moved again,
+// a genuinely different, cheaper design this time, not another
+// convergence artefact.
+eq("ex-works", Math.round(r.bom.exFactory), 2181359, 800);
+eq("delivered", Math.round(r.bom.withGst), 2574003, 900);
+eq("tank length mm", Math.round(r.design.tankL), 1557, 2);
+eq("no-load loss W", Math.round(r.design.noLoad), 1099, 5);
+eq("load loss W", Math.round(r.design.loadLoss), 5991, 30);
+eq("impedance %", +r.design.pctZ.toFixed(2), 5.23, 0.02);
+eq("efficiency %", +r.design.eff100.toFixed(2), 99.30, 0.02);
+eq("core mass kg", Math.round(r.design.wCore), 1040, 15);
+eq("autoFit converged", r.autoFitConverged, true);
 eq("compliant", r.design.compliant, true);
 eq("HV construction", r.design.hvConstruction, "crossover");
 eq("LV construction", r.design.lvConstruction, "strip");
@@ -333,9 +363,12 @@ const impedanceDev = (kva, baselinePct) => {
 // bracket-sensitivity cascade as 1.16.0's note above -- this default case's
 // own aspect margin was 7.14% clear of 2.8 already, so nothing about this
 // design itself changed; only 2000 kVA's own impedance-solve bracket did.
-impedanceDev(100, -19.91);
-impedanceDev(630, -5.91);
-impedanceDev(2000, -3.18);
+// ENGINE_VERSION 1.19.0 (CALIBRATION.md section 39): the self-consistent K
+// search moves every rating's own true cost-optimal K, and so this bracket
+// too -- 630 and 2500 kVA land exactly on target, 100 and 2000 kVA do not.
+impedanceDev(100, -2.80);
+impedanceDev(630, 0.00);
+impedanceDev(2000, -3.87);
 impedanceDev(2500, 0.00);
 
 console.log("\ncooling equipment: fan and pump count follow cooling type, not a fixed number");
@@ -441,6 +474,24 @@ console.log("\nconservator sizing checked against the 630 kVA reference (330 dia
   else console.log("  ok   sealed fin tank has no conservator (dia 0, length 0)");
 }
 
+console.log("\nConstruction B (V-notch/outer/centre) against the 1250 kVA (750+500) furnace chart");
+// CALIBRATION.md section 35. Geometry only (dCore/cc/Hw/steps/thk), not a
+// full computeDesign reproduction -- this checks coreCuttingChart()'s own
+// formula against the one real chart it was solved against, the same way
+// Construction A's own three-plate formulas are checked directly rather
+// than through a full design.
+{
+  const chartB = E.coreCuttingChart(
+    { dCore: 224, cc: 375, Hw: 698, grade: { thk: 0.23 } },
+    { steps: 15, stepIncrement: 10, coreConstruction: "B" },
+  );
+  eq("construction flag", chartB.construction, "B");
+  eq("V-notch total kg", +chartB.totalV.toFixed(2), 397.69, 0.5);
+  eq("outer total kg", +chartB.totalO.toFixed(2), 500.25, 0.5);
+  eq("centre total kg", +chartB.totalC.toFixed(2), 223.73, 0.5);
+  eq("core total kg", +chartB.chartTotal.toFixed(2), 1121.67, 0.5);
+}
+
 console.log("\nstaged search finds close to the same minimum as the full grid, at a fraction of the candidates");
 // CALIBRATION.md section 27. Deliberately NOT run at BudgetTab's own full
 // scale -- this project runs test:engine before and after every engine
@@ -508,6 +559,44 @@ console.log("\nstaged search finds close to the same minimum as the full grid, a
   if (!stage1Done) { failures++; console.log("  FAIL cancellation test never saw stage 1 complete"); }
   else if (cancelled.length === 0) { failures++; console.log("  FAIL cancelling after stage 1 returned zero results -- stage 1's own candidates should still be usable"); }
   else console.log(`  ok   cancelling after stage 1 stops before stage 2 and still returns ${cancelled.length} stage-1 candidates`);
+}
+
+console.log("\nsearchDesigns holds a pinned flux or current density on every candidate (CALIBRATION.md section 42)");
+// Grades limited to 3 (not every CORE_GRADES entry) purely to keep this
+// test fast -- proving the pin survives a grade change at all is the point,
+// not covering every grade, and this file is run before and after every
+// engine edit.
+{
+  const gradeSample = ["m4", "m0h", "amor"];
+  const core = { ...E.ESSENTIALS };
+  const pinnedFlux = 1.55;
+  const { params: pinnedBase } = E.computeDesign(core, { flux: pinnedFlux }, E.DEFAULT_RATES, []);
+  const pinnedResults = E.searchDesigns(pinnedBase, E.DEFAULT_RATES, { min: 0, max: Infinity }, {
+    grades: gradeSample, conds: [pinnedBase.condLV], tanks: ["fin"],
+    cores: [pinnedBase.coreType], zTol: pinnedBase.zTol, enforceLimits: true,
+    etKs: [pinnedBase.etK], riseTargets: [pinnedBase.oilRiseTarget], coolings: [pinnedBase.cooling],
+    over: { flux: pinnedFlux },
+  });
+  const allHeld = pinnedResults.length > 0 && pinnedResults.every((r) => Math.abs(r.d.B - pinnedFlux) < 0.001);
+  if (!allHeld) { failures++; console.log(`  FAIL pinned flux ${pinnedFlux} was not held across every candidate (${pinnedResults.length} candidates)`); }
+  else console.log(`  ok   pinned flux ${pinnedFlux} T held exactly across all ${pinnedResults.length} candidates`);
+  if (!pinnedResults.pinnedNote) { failures++; console.log("  FAIL pinnedNote missing when flux is pinned"); }
+  else console.log("  ok   pinnedNote reported");
+
+  // Unpinned: same grid, no over -- flux must still vary across candidates
+  // (grade changes its own bMax/bMin), otherwise the fix above accidentally
+  // locked the search shut for everyone, pinned or not.
+  const { params: freeBase } = E.computeDesign(core, {}, E.DEFAULT_RATES, []);
+  const freeResults = E.searchDesigns(freeBase, E.DEFAULT_RATES, { min: 0, max: Infinity }, {
+    grades: gradeSample, conds: [freeBase.condLV], tanks: ["fin"],
+    cores: [freeBase.coreType], zTol: freeBase.zTol, enforceLimits: true,
+    etKs: [freeBase.etK], riseTargets: [freeBase.oilRiseTarget], coolings: [freeBase.cooling],
+  });
+  const distinctFlux = new Set(freeResults.map((r) => r.d.B.toFixed(2))).size;
+  if (distinctFlux < 2) { failures++; console.log(`  FAIL unpinned search only saw ${distinctFlux} distinct flux value(s) -- should vary freely across grades`); }
+  else console.log(`  ok   unpinned search still varies flux freely across ${distinctFlux} distinct values (no regression)`);
+  if (freeResults.pinnedNote) { failures++; console.log("  FAIL pinnedNote present when nothing is pinned"); }
+  else console.log("  ok   pinnedNote absent when nothing is pinned");
 }
 
 console.log("\ncardCostModel panel count follows tank type, not finLayout regardless of it");

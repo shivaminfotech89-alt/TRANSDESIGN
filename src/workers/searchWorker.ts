@@ -20,7 +20,7 @@ import { stagedSearchDesigns } from '@/packages/engine';
  *   in  -> { type: 'search', base, rates, band, opts }
  *   in  -> { type: 'cancel' }
  *   out -> { type: 'progress', info }        (stage/phase/count, see engine)
- *   out -> { type: 'done', results, cancelled, excludedNote }
+ *   out -> { type: 'done', results, cancelled, excludedNote, pinnedNote }
  *   out -> { type: 'error', message }
  *
  * excludedNote (CALIBRATION.md section 33): stagedSearchDesigns attaches
@@ -29,6 +29,10 @@ import { stagedSearchDesigns } from '@/packages/engine';
  * pulled off here into its own field so BudgetTab does not have to read a
  * non-indexed property off an array that has already crossed postMessage's
  * structured clone.
+ *
+ * pinnedNote (CALIBRATION.md section 42): same mechanism, set when
+ * msg.opts.over pins flux or current density -- every candidate the search
+ * evaluated held that pin rather than refitting around it, and this says so.
  */
 
 let cancelled = false;
@@ -53,7 +57,8 @@ ctx.onmessage = (e: MessageEvent) => {
         () => cancelled,
       );
       const excludedNote = (results as unknown as { excludedNote?: string }).excludedNote ?? null;
-      ctx.postMessage({ type: 'done', results, cancelled, excludedNote });
+      const pinnedNote = (results as unknown as { pinnedNote?: string }).pinnedNote ?? null;
+      ctx.postMessage({ type: 'done', results, cancelled, excludedNote, pinnedNote });
     } catch (err) {
       ctx.postMessage({ type: 'error', message: err instanceof Error ? err.message : String(err) });
     }

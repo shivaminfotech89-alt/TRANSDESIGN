@@ -95,7 +95,7 @@ interface LeverAdapter {
    * conductor material), search it for the first option that actually
    * reaches the target, instead of a generic "try something else" hint.
    */
-  findAlternative?: (targetValue: number, wantLower: boolean, ctx: EvalCtx) => { name: string; achieved: number } | null;
+  findAlternative?: (targetValue: number, wantLower: boolean, ctx: EvalCtx, pinnedEtK: number) => { name: string; achieved: number } | null;
 }
 
 const fluxFloor = (coreGrade: string) => (coreGrade === 'amor' ? 1.20 : 1.42); // SOLVER.md section 3
@@ -117,6 +117,7 @@ function searchCatalog(
   targetValue: number,
   adapter: LeverAdapter,
   core: any, baseOver: Record<string, any>, rates: any,
+  pinnedEtK: number,
 ): { name: string; achieved: number } | null {
   const sorted = [...entries].sort((a, b) => a.lossMetric - b.lossMetric);
   const idx = sorted.findIndex((e) => e.key === currentKey);
@@ -124,7 +125,11 @@ function searchCatalog(
   const sequence = wantLower ? sorted.slice(0, idx).reverse() : sorted.slice(idx + 1);
 
   for (const cand of sequence) {
-    const candOver = { ...baseOver, ...buildOver(cand.key) };
+    // etK held at the same value solvePin() already pinned for the whole
+    // solve -- same reasoning, not re-discovered per candidate material
+    // (which would be up to 4-5 more full K searches on top of the one
+    // already avoided).
+    const candOver = { ...baseOver, ...buildOver(cand.key), etK: pinnedEtK };
     const candSpec = deriveSpec(core, candOver);
     const candCtx: EvalCtx = { core, over: candOver, rates, spec: candSpec };
     const [lo, hi] = adapter.range(candCtx);
@@ -147,11 +152,11 @@ const LEVER_ADAPTERS: Record<string, LeverAdapter> = {
     context: ({ spec }) => CORE_GRADES[spec.S.coreGrade].name,
     suggestion: (hitLow) => (hitLow ? 'a lower-loss core grade' : 'a higher-loss, cheaper core grade'),
     applicable: () => true,
-    findAlternative: (targetValue, wantLower, ctx) => searchCatalog(
+    findAlternative: (targetValue, wantLower, ctx, pinnedEtK) => searchCatalog(
       Object.entries(CORE_GRADES).map(([key, g]: [string, any]) => ({ key, name: g.name, lossMetric: g.wRef })),
       ctx.spec.S.coreGrade, wantLower,
       (key) => ({ coreGrade: key }),
-      targetValue, LEVER_ADAPTERS.noLoadLoss, ctx.core, ctx.over, ctx.rates,
+      targetValue, LEVER_ADAPTERS.noLoadLoss, ctx.core, ctx.over, ctx.rates, pinnedEtK,
     ),
   },
   loadLoss: {
@@ -165,11 +170,11 @@ const LEVER_ADAPTERS: Record<string, LeverAdapter> = {
     context: ({ spec }) => CONDUCTORS[spec.S.condLV].name,
     suggestion: () => 'a different conductor material',
     applicable: () => true,
-    findAlternative: (targetValue, wantLower, ctx) => searchCatalog(
+    findAlternative: (targetValue, wantLower, ctx, pinnedEtK) => searchCatalog(
       Object.entries(CONDUCTORS).map(([key, c]: [string, any]) => ({ key, name: c.name, lossMetric: c.rho20 })),
       ctx.spec.S.condLV, wantLower,
       (key) => ({ condLV: key, condHV: key }),
-      targetValue, LEVER_ADAPTERS.loadLoss, ctx.core, ctx.over, ctx.rates,
+      targetValue, LEVER_ADAPTERS.loadLoss, ctx.core, ctx.over, ctx.rates, pinnedEtK,
     ),
   },
   coreDiameter: {
@@ -257,10 +262,34 @@ export function solvePin(target: ClassBTarget | string, targetValue: number, cor
     return { targetId, target: targetValue, reachable: false, message: applicable };
   }
 
+  // SOLVER.md section 3: a Class B solve moves exactly one lever to hit
+  // one target. etK is not that lever -- computeDesign's own K search
+  // (packages/engine CALIBRATION.md section 39) re-optimises it by
+  // default whenever it is not pinned, which inside a 44-step bisection
+  // is both wrong and slow. Wrong: the bisection stops isolating the
+  // lever's own effect on the target, since K can jump between steps and
+  // move the design through a second, uncontrolled channel -- the
+  // "monotonic in the lever" assumption bisection depends on is no longer
+  // guaranteed. Slow: measured directly, ~92s for one solve (44 x the K
+  // search's own ~1.5-1.7s), ~15 min worst case for solveAllPins with two
+  // pins across its own convergence passes.
+  //
+  // Fixed by holding etK at whatever the design already resolves to --
+  // one computeDesign() call, not 44 -- for the entire solve, bisection
+  // and final result alike. Not re-optimised at the end either: doing so
+  // would change the design's geometry again and could move the achieved
+  // value away from the target this solve just found, making a
+  // "reachable" result untrue by the time it is reported. If the design
+  // office wants K re-optimised for cost, that is Fit to Budget's own job
+  // (an explicit action), not a silent side effect of pinning a loss
+  // figure.
+  const pinnedEtK = over.etK !== undefined ? over.etK : computeDesign(core, over, rates, []).params.etK;
+  const pinnedOver = { ...over, etK: pinnedEtK };
+
   const [lo, hi] = adapter.range(ctx);
   const evaluate = (leverValue: number) => {
     const patch = adapter.applyOver(leverValue, ctx);
-    const result = computeDesign(core, { ...over, ...patch }, rates, []);
+    const result = computeDesign(core, { ...pinnedOver, ...patch }, rates, []);
     return adapter.extract(result);
   };
 
@@ -268,7 +297,7 @@ export function solvePin(target: ClassBTarget | string, targetValue: number, cor
 
   if (bisected.reachable === false) {
     const hitLow = Math.abs(bisected.closest.leverValue - lo) < Math.abs(bisected.closest.leverValue - hi);
-    const alt = adapter.findAlternative?.(targetValue, hitLow, ctx) ?? null;
+    const alt = adapter.findAlternative?.(targetValue, hitLow, ctx, pinnedEtK) ?? null;
     const tail = adapter.findAlternative
       ? (alt
         ? `${alt.name} would reach ${fmt(targetValue)} ${adapter.targetUnit}.`
@@ -280,7 +309,15 @@ export function solvePin(target: ClassBTarget | string, targetValue: number, cor
     return { targetId, target: targetValue, reachable: false, message };
   }
 
-  const overPatch = adapter.applyOver(bisected.leverValue, ctx);
+  // etK is carried in the returned patch too, not just used internally --
+  // otherwise the persisted design would revert to AUTO K the moment this
+  // patch is applied, paying the K search's own cost again on the very
+  // next render and, worse, silently re-optimising K away from the design
+  // this solve just reported as reaching its target. A design office that
+  // wants K re-optimised for cost after solving a loss target runs Fit to
+  // Budget for that, deliberately -- it is not an implicit side effect of
+  // pinning a different figure.
+  const overPatch = { ...adapter.applyOver(bisected.leverValue, ctx), etK: pinnedEtK };
   const finalResult = computeDesign(core, { ...over, ...overPatch }, rates, []);
   const compliant = finalResult.design.compliant as boolean;
   const failedChecks = Object.entries(finalResult.design.compliance)
@@ -288,7 +325,7 @@ export function solvePin(target: ClassBTarget | string, targetValue: number, cor
     .map(([k]) => k);
 
   const message = compliant
-    ? `${t!.label} set to ${fmt(bisected.achieved)} ${adapter.targetUnit} by moving ${adapter.leverLabel.toLowerCase()} to ${fmt(bisected.leverValue)} ${adapter.leverUnit}.`
+    ? `${t!.label} set to ${fmt(bisected.achieved)} ${adapter.targetUnit} by moving ${adapter.leverLabel.toLowerCase()} to ${fmt(bisected.leverValue)} ${adapter.leverUnit} (K held at ${fmt(pinnedEtK)}, the design's own current value).`
     : `${t!.label} reached ${fmt(bisected.achieved)} ${adapter.targetUnit} by moving ${adapter.leverLabel.toLowerCase()} to ${fmt(bisected.leverValue)} ${adapter.leverUnit}, `
       + `but the design now fails compliance on: ${failedChecks.join(', ')}. This solve is not usable as-is.`;
 
