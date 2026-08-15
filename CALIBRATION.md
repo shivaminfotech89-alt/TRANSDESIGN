@@ -3111,3 +3111,38 @@ to `FIT_MAX_ITERS`) to well under 200ms typically, since a confirmed cycle
 exits the loop immediately rather than running out the full cap -- a real
 benefit for Class B pin solve speed, though re-measuring the full pin
 solve was not part of this section's own scope.
+
+
+## 47. Drawing 21 (stamping schedule) did not know Construction B existed
+
+`stampingSchedule(d, steps)` took no `params` argument at all, so it could
+never read `coreConstruction` -- selecting Construction B in the UI
+correctly reached the engine and drawing 22 (confirmed directly: traced
+`p.coreConstruction` through `designTransformer` and `coreCuttingChart`,
+both read "B" correctly, `chart.construction` came back "B"), but drawing
+21 had no way to know and always rendered Construction A's own
+limb/yoke layout regardless of what was selected. Most likely what was
+actually being looked at when Construction B "did not show".
+
+**Fix.** `stampingSchedule(d, steps, p)` now takes the same third
+argument `coreCuttingChart` already does, and delegates to the exact
+same `coreConstructionB()` call when `p?.coreConstruction === "B"` --
+not a second B-model of its own. Construction A keeps its own two
+deliberately-different models (this schedule's continuous-stack
+approximation vs drawing 22's whole-sheet chart, ~2% apart, unchanged
+from before); Construction B has only ever had one model, so both
+documents now use it and agree exactly -- confirmed directly, both
+report 2129.92 kg core total at the same 1250 kVA furnace design.
+
+The React side (`StampingSchedule` in Drawings2D.tsx) now branches the
+same way `CoreCuttingChart` does: Construction A keeps its schematic and
+limb/yoke table; Construction B renders the V-Notch/Outer/Centre tables
+via a `plateTable()` helper pulled out to module scope so both
+components call the identical rendering code on the identical rows, not
+two copies that could drift apart. No schematic for B, same reasoning as
+drawing 22: the three tables are already every number a schematic would
+add.
+
+`reference-designs.test.mjs`'s own `stampingSchedule` call updated to
+pass `r1250.params` -- that reference is Construction A (default), so
+the assertion value is unchanged (1739.83 kg, confirmed).

@@ -147,7 +147,7 @@ within("Cutting chart, core total kg", +chart1250.chartTotal.toFixed(2), 1672.8,
 // mass off the continuous stack depth, wCore and the cutting chart off a
 // rounded whole sheet count -- real integer sheets, not a formula gap.
 const stepsFor1250 = E.stepWidths(15, r1250.design.dCore, r1250.params.stepIncrement);
-const sched1250 = E.stampingSchedule(r1250.design, stepsFor1250);
+const sched1250 = E.stampingSchedule(r1250.design, stepsFor1250, r1250.params);
 within("Cutting schedule vs wCore, core total kg", +sched1250.totalMass.toFixed(2), r1250.design.wCore, 3);
 
 console.log("\n630 kVA, 11/0.433 kV, dry type, copper -- Mehir Transformers sheet");

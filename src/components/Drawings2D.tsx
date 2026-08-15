@@ -239,7 +239,55 @@ export function CoreCrossSection({ design, params, project }: Drawings2DProps) {
 export function StampingSchedule({ design, params, project }: Drawings2DProps) {
   const arrowId = useId();
   const steps = stepWidths(params.steps, design.dCore, params.stepIncrement);
-  const sched = stampingSchedule(design, steps);
+  const sched = stampingSchedule(design, steps, params);
+  const isB = sched.construction === 'B';
+
+  // Construction B has no schematic here, the same reason drawing 22 has
+  // none: coreConstructionB()'s own three totals are already numbers in
+  // the tables below, and a picture without its own numbers is exactly
+  // what DRAWINGS.md's universal requirements exist to prevent -- see
+  // CoreCuttingChart's own note. fit is a minimal stub, same as that
+  // component's, so TitleBlock's required prop is satisfied without a
+  // real scale to report ("Scale: n/a").
+  if (isB) {
+    return (
+      <Card
+        title="Core Stamping Schedule"
+        subtitle={`Drawing ${drawingNo(project, '21')} · ${sched.thk} mm lamination · Construction B`}
+      >
+        <table className="w-full max-w-md mb-3">
+          <tbody>
+            <DataRow label="No-load loss" value={design.noLoad.toFixed(0)} unit="W" />
+            <DataRow label="Rating" value={ratingLabel(params)} />
+            <DataRow label="Flux density" value={design.B.toFixed(3)} unit="T" />
+          </tbody>
+        </table>
+        <p className="text-[10px] text-steel mb-3">
+          Construction B has one known cutting model (CALIBRATION.md section 35), not a separate estimating
+          approximation -- this schedule uses the same coreConstructionB() call drawing 22's cutting chart does, so
+          the two agree exactly rather than differing by the ~2 percent Construction A's own two models do.
+        </p>
+        {plateTable(sched.rows, 'V-Notch -- Yoke, Top and Bottom', 'V', sched.totalV)}
+        {plateTable(sched.rows, 'Outer -- Two Outer Limbs, Mitred Both Ends', 'O', sched.totalO)}
+        {plateTable(sched.rows, 'Centre -- Centre Limb, Mitred Both Ends', 'C', sched.totalC)}
+        <table className="w-full max-w-md">
+          <tbody>
+            <tr className="bg-sheetAlt font-semibold">
+              <td className={`${tdCls} text-[11px] font-display uppercase tracking-[0.1em] text-ink2`}>Core Total</td>
+              <td className={`${tdCls} text-right font-mono text-[13px] text-copper`}>{sched.chartTotal.toFixed(2)} kg</td>
+            </tr>
+          </tbody>
+        </table>
+        <TitleBlock
+          drawingNo={drawingNo(project, '21')} title="Lamination Stamping and Cutting Schedule" rev={project?.revision ?? 0}
+          sheet={21} totalSheets={21} fit={{ scale: 0 } as any} standard={params.standard}
+          projectName={project?.projectName} customer={project?.customer} ratingLabel={ratingLabel(params)}
+          material={design.grade.name} partNumber={PART_NUMBERS.core}
+        />
+      </Card>
+    );
+  }
+
   const centre = sched.rows[0];
 
   const gapMM = centre.limbLong * 0.18;
@@ -372,11 +420,14 @@ export function StampingSchedule({ design, params, project }: Drawings2DProps) {
  *  No dimension-line SVG for the same reason DRAWINGS.md's own universal
  *  requirement exists to prevent: a picture without its numbers is
  *  useless, and this document is only ever numbers. */
-export function CoreCuttingChart({ design, params, project }: Drawings2DProps) {
-  const chart = coreCuttingChart(design, params);
-  const isB = chart.construction === 'B';
-
-  const plateTable = (title: string, key: 'A' | 'B' | 'C' | 'V' | 'O', total: number, note?: string) => (
+/** Shared by CoreCuttingChart (drawing 22) and StampingSchedule (drawing 21,
+ *  Construction B only) -- both read the same coreConstructionB() rows, so
+ *  both render them the same way rather than each keeping its own copy
+ *  that could drift out of step with the other (CALIBRATION.md section
+ *  35/47, the same "two documents must agree" principle as wCore vs the
+ *  cutting chart). */
+function plateTable(rows: any[], title: string, key: 'A' | 'B' | 'C' | 'V' | 'O', total: number, note?: string) {
+  return (
     <div className="mb-3">
       <div className="text-[11px] font-display uppercase tracking-[0.12em] text-copper mb-1">{title}</div>
       {note && <p className="text-[10px] text-steel mb-1">{note}</p>}
@@ -390,7 +441,7 @@ export function CoreCuttingChart({ design, params, project }: Drawings2DProps) {
           </tr>
         </thead>
         <tbody>
-          {chart.rows.map((r: any) => (
+          {rows.map((r: any) => (
             <tr key={r.i}>
               <td className={`${tdCls} text-[11px] text-ink2`}>{r.i}</td>
               <td className={`${tdCls} text-right font-mono text-[11px]`}>{r[key].length.toFixed(1)}</td>
@@ -408,6 +459,11 @@ export function CoreCuttingChart({ design, params, project }: Drawings2DProps) {
       </table>
     </div>
   );
+}
+
+export function CoreCuttingChart({ design, params, project }: Drawings2DProps) {
+  const chart = coreCuttingChart(design, params);
+  const isB = chart.construction === 'B';
 
   return (
     <Card
@@ -424,18 +480,18 @@ export function CoreCuttingChart({ design, params, project }: Drawings2DProps) {
 
       {isB ? (
         <>
-          {plateTable('V-Notch -- Yoke, Top and Bottom', 'V', chart.totalV)}
-          {plateTable('Outer -- Two Outer Limbs, Mitred Both Ends', 'O', chart.totalO)}
-          {plateTable('Centre -- Centre Limb, Mitred Both Ends', 'C', chart.totalC)}
+          {plateTable(chart.rows, 'V-Notch -- Yoke, Top and Bottom', 'V', chart.totalV)}
+          {plateTable(chart.rows, 'Outer -- Two Outer Limbs, Mitred Both Ends', 'O', chart.totalO)}
+          {plateTable(chart.rows, 'Centre -- Centre Limb, Mitred Both Ends', 'C', chart.totalC)}
         </>
       ) : (
         <>
-          {plateTable('Plate A -- Limb, Mitred Both Ends', 'A', chart.totalA)}
+          {plateTable(chart.rows, 'Plate A -- Limb, Mitred Both Ends', 'A', chart.totalA)}
           {plateTable(
-            'Plate B -- Half Yoke, Step-Lap', 'B', chart.totalB,
+            chart.rows, 'Plate B -- Half Yoke, Step-Lap', 'B', chart.totalB,
             'Shift 0/10/20 mm, the 0 mm group carrying half the sheets at each step -- see the shift breakdown below.',
           )}
-          {plateTable('Plate C -- Full Yoke, Mitred One End', 'C', chart.totalC)}
+          {plateTable(chart.rows, 'Plate C -- Full Yoke, Mitred One End', 'C', chart.totalC)}
 
           <div className="mb-3">
             <div className="text-[11px] font-display uppercase tracking-[0.12em] text-ink2 mb-1">Plate B Shift Breakdown</div>
