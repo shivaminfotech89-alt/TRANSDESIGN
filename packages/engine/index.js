@@ -8,7 +8,7 @@
  * without bumping it, or old quotations stop reproducing.
  */
 
-export const ENGINE_VERSION = "1.22.0";
+export const ENGINE_VERSION = "1.23.0";
 
 const CONDUCTORS = {
   copper: { name: "Copper, EC grade", rho20: 0.017241, alpha: 0.00393, dens: 8890, dMax: 3.6, short: "Cu", proof: 1.0 },
@@ -2361,8 +2361,17 @@ function stepWidths(n, d, increment = 10) {
    all derive limb and yoke from the same two figures instead of three
    sets of numbers that used to land close by coincidence of this
    reference's own proportions, not by agreement. */
-function stampingSchedule(d, steps) {
+function stampingSchedule(d, steps, p) {
   const thk = d.grade.thk || 0.27;
+  // CALIBRATION.md section 35/47: Construction B has exactly one known
+  // formula (coreConstructionB, fitted to the one real chart on file), not
+  // a separate "estimating" model the way Construction A deliberately has
+  // two (this schedule's continuous-stack approximation, drawing 22's own
+  // whole-sheet chart) -- so drawing 21 delegates to the same call drawing
+  // 22 makes rather than inventing a second B model that could disagree
+  // with it, the same principle section 15/41 established for Construction
+  // A's own limb term and the HV strand split.
+  if (p?.coreConstruction === "B") return coreConstructionB(d.dCore, d.cc, d.Hw, steps, thk);
   const C = d.cc, dC = d.dCore;
   let wt = 0, sheets = 0;
   const rows = steps.rows.map((s, i) => {
@@ -2376,16 +2385,19 @@ function stampingSchedule(d, steps) {
     wt += mass; sheets += nSheets * 5;
     return { i: i + 1, w: s.w, stack, nSheets, limbLong, limbShort, yokeLong, yokeShort, mass };
   });
-  return { rows, totalMass: wt, totalSheets: sheets, thk };
+  return { construction: "A", rows, totalMass: wt, totalSheets: sheets, thk };
 }
 
 /* DRAWINGS.md drawing 22, CALIBRATION.md section 12: the core CUTTING
    CHART, a different document from stampingSchedule's cutting SCHEDULE
-   above -- that one models two plate types (limb, yoke) from the
-   long/short mitred-edge average; this one models three (limb, half yoke,
-   full yoke) because that is what the one real chart checked against
-   actually shows, and the two are not meant to reconcile line for line.
-   stampingSchedule is untouched.
+   above -- for Construction A, that one models two plate types (limb,
+   yoke) from the long/short mitred-edge average; this one models three
+   (limb, half yoke, full yoke) because that is what the one real chart
+   checked against actually shows, and the two are deliberately not meant
+   to reconcile line for line at Construction A. For Construction B
+   (section 35/47) there is only one model, not two -- stampingSchedule
+   delegates to the same coreConstructionB() call this function does, so
+   the two documents necessarily agree there.
 
    All three lengths are fitted to the one 1250 kVA chart available
    (CALIBRATION.md), each against the cleanest formula that reproduced its
