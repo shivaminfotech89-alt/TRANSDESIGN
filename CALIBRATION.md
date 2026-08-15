@@ -3146,3 +3146,99 @@ add.
 `reference-designs.test.mjs`'s own `stampingSchedule` call updated to
 pass `r1250.params` -- that reference is Construction A (default), so
 the assertion value is unchanged (1739.83 kg, confirmed).
+
+
+## 48. wCore is purchased weight; core loss needed a separate, assembled mass -- and the first fix attempt reproduced a bug this file already found once
+
+Traced why Construction B's own cost search moved to a core 20% larger in
+diameter than Construction A's at the same 1250 kVA furnace design, when
+B's steel costs more per kg-equivalent (the real V-notch scrap penalty,
+6-21% more steel than A for the identical geometry) -- the naive
+expectation is a smaller core, not a bigger one. Root cause: `noLoad =
+wPerKg * wCore` and `i0pct`'s own formula both used `wCore`, which is
+construction-specific -- correctly so for cost (Construction B's cutting
+pattern genuinely needs more purchased steel than A's for the same
+finished core), wrongly so for loss physics. Scrap steel does not carry
+flux. Using B's scrap-inflated purchased mass for `noLoad` made a
+genuinely different core -- steel that generates no loss at all -- look
+like it does, which pushed the flux-fitting correction down, which
+pushed the required core cross-section up for the same K, which failed
+the tank-height shop limit at low K specifically for B and forced the
+search into the higher-K region it should never have needed.
+
+**Fix.** `wCoreAssembled` is now a separate quantity: cost, the BOM and
+the cutting charts keep `wCore` (purchased, construction-specific,
+unchanged); `noLoad` and `i0pct` (exciting current) now read
+`wCoreAssembled` instead. Named so the two cannot be confused again --
+"purchased" and "assembled" appear in both the variable names and the
+calc sheet's own row labels, and the calc sheet's no-load and exciting-
+current rows now say explicitly "not the purchased weight above."
+
+**The first attempt at `wCoreAssembled` was wrong, and was caught before
+shipping.** The obvious-seeming derivation -- net/gross area times the
+total mean magnetic path length (`aGross * (3*Hw + 2*(2*cc+dCore))`),
+the standard textbook core-weight estimate -- turns out to be EXACTLY
+the formula section 15 already found and replaced for `wCore` itself,
+for the same reason: it treats every lamination as if it ran the full
+window height regardless of step, which overstated the limb by +6.6%
+against the 1250 kVA reference's own real cutting chart. Reusing it
+under a new name reproduced the same overstatement, discovered by
+checking the new quantity against wCore directly rather than trusting
+the reasoning because the formula looked standard. Not shipped.
+
+**What is actually used instead: Construction A's own limb + yoke
+formula, computed unconditionally.** Construction A's formula (Plate A,
+2 x width per step; the yoke's own aGross x span term) is this engine's
+best validated estimate of what a real, finished, assembled core of a
+given dCore/Hw/cc/steps actually weighs -- checked against two real
+reference builds, one of them (the 1250 kVA sheet) to within 0.5 kg
+against that sheet's own reported cutting-chart total (section 15). A
+Construction A core and a Construction B core built to the same
+dCore/Hw/cc are the same finished magnetic circuit; `wCoreAssembled` is
+now Construction A's own formula regardless of which construction is
+actually selected, since that formula is this engine's own best answer
+to "what does a real, assembled core of this shape weigh," independent
+of which cutting method built it.
+
+**Construction A's own scrap fraction, checked first as instructed: not
+separable from what this engine currently has, and reported as such
+rather than guessed at.** Since `wCoreAssembled` IS Construction A's own
+formula, `wCore` and `wCoreAssembled` are now identical BY CONSTRUCTION
+for every Construction A design -- confirmed directly, equal to six
+decimal places at the default case. This is not zero because A's real
+fabrication has no mitre scrap at all (it certainly does, to some
+physical degree); it is zero because this engine has no validated,
+non-invented way to subtract a scrap allowance from a formula that
+already matches a real reference to within 0.5 kg without either
+guessing a fraction or reproducing the aGross x 3 x Hw formula already
+shown wrong above. Every no-load figure this engine has produced under
+Construction A -- which is every design that does not explicitly select
+B, since A is the default and B is not auto-suggested -- is UNCHANGED by
+this fix. That is narrower than "every no-load figure this tool has
+produced is inflated," and is reported as the actual finding rather than
+the one that was expected going in.
+
+**Construction B's own scrap fraction is real and now correctly
+excluded from loss physics.** At the 1250 kVA furnace design:
+`wCoreAssembled` 1231.9 kg against purchased `wCore` 1485.1 kg, 17.1%
+-- inside the 6-21% range section 45 already found at matched geometry,
+now confirmed from the production formula itself rather than a separate
+isolated check.
+
+**Verified: the backwards K-search is gone.** At the same 1250 kVA
+furnace design, Construction B's own cost-optimal `dCore` and `etK` now
+match Construction A's exactly (239.8 mm, K = 0.48 -- both were),
+confirming the shop-limit infeasibility the inflated `noLoad` was
+manufacturing at low K is gone. Regression-tested in engine.test.mjs.
+
+`wFrame` (clamping/frame mass) stays on `wCore`, not `wCoreAssembled`:
+frame sizing is a mechanical consequence of the real, physical,
+purchased core, not of its flux-carrying properties.
+
+No golden number in engine.test.mjs moved -- the default case is
+Construction A, and Construction A is now provably unaffected by this
+fix. `reference-designs.test.mjs` and `card-cost.test.mjs` are also both
+Construction A (the default) and unaffected. `ENGINE_VERSION` bumped to
+1.24.0 regardless, since this is a real formula change reachable by any
+design that selects Construction B, even though the default case does
+not move -- the same principle as section 41's HV strand-split fix.
