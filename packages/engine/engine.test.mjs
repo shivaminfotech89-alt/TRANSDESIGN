@@ -548,6 +548,37 @@ console.log("\nConstruction B (V-notch/outer/centre) against the 1250 kVA (750+5
   eq("core total kg", +chartB.chartTotal.toFixed(2), 1121.67, 0.5);
 }
 
+console.log("\nwCoreAssembled: purchased vs assembled core mass, and the K-search fix it produces (CALIBRATION.md section 48)");
+{
+  // Construction A: wCoreAssembled is Construction A's own formula, always
+  // -- so for an A design the two must be identical, not merely close.
+  // This is the honest, narrow finding: A's own no-load figures do not
+  // move, because this engine has no validated basis to subtract
+  // anything further from a formula already checked against two real
+  // references.
+  const rA = E.computeDesign(E.ESSENTIALS, { coreConstruction: "A" }, E.DEFAULT_RATES, []);
+  eq("Construction A: wCore equals wCoreAssembled exactly", +rA.design.wCore.toFixed(6), +rA.design.wCoreAssembled.toFixed(6));
+
+  // Construction B: at the 1250 kVA furnace design, wCoreAssembled must be
+  // LESS than the purchased wCore (real scrap, not backwards) and, most
+  // importantly, the K-search "backwards" bug this section fixes must
+  // actually be gone: B's own optimal dCore/etK must now match A's own
+  // optimal dCore/etK at the same design, since a decoupled noLoad no
+  // longer manufactures a shop-limit infeasibility that pushes B toward a
+  // bigger core than its true cost trade-off supports.
+  const furnace = { ...E.ESSENTIALS, kva: 1250, hv: 11000, lv: 433, application: "furnace" };
+  const rB = E.computeDesign(furnace, { coreConstruction: "B" }, E.DEFAULT_RATES, []);
+  const rA2 = E.computeDesign(furnace, { coreConstruction: "A" }, E.DEFAULT_RATES, []);
+  if (rB.design.wCoreAssembled >= rB.design.wCore) {
+    failures++;
+    console.log(`  FAIL Construction B's wCoreAssembled (${rB.design.wCoreAssembled.toFixed(1)}) should be less than its purchased wCore (${rB.design.wCore.toFixed(1)}) -- real scrap, not backwards`);
+  } else {
+    console.log(`  ok   Construction B wCoreAssembled ${rB.design.wCoreAssembled.toFixed(1)} kg < purchased wCore ${rB.design.wCore.toFixed(1)} kg (${(100 * (rB.design.wCore - rB.design.wCoreAssembled) / rB.design.wCore).toFixed(1)}% scrap)`);
+  }
+  eq("Construction B's own optimal dCore now matches Construction A's at the same design", +rB.design.dCore.toFixed(1), +rA2.design.dCore.toFixed(1), 0.1);
+  eq("Construction B's own optimal etK now matches Construction A's at the same design", rB.params.etK, rA2.params.etK);
+}
+
 console.log("\nstaged search finds close to the same minimum as the full grid, at a fraction of the candidates");
 // CALIBRATION.md section 27. Deliberately NOT run at BudgetTab's own full
 // scale -- this project runs test:engine before and after every engine
