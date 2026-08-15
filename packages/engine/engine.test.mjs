@@ -259,6 +259,21 @@ const r = E.computeDesign(E.ESSENTIALS, {}, E.DEFAULT_RATES, []);
 // stale-fit comparison could not see -- every number below moved again,
 // a genuinely different, cheaper design this time, not another
 // convergence artefact.
+//
+// ENGINE_VERSION 1.20.0 (CALIBRATION.md section 41): the HV multi-strand
+// split conductorSchedule always displayed is now fed back into the radial
+// build and resistance calculation instead of being recomputed separately.
+// Only changes ratings above HV_STRAND_MAX_MM2's single-strand ceiling
+// (~5000 kVA and up at this voltage class) -- this default case's own HV
+// stays single-strand, so none of the numbers below moved.
+//
+// ENGINE_VERSION 1.21.0 (CALIBRATION.md sections 44/45): compliance.aspect
+// (window height/width ratio) replaced by direct coilHeightLimit/
+// tankHeightLimit shop limits (see the coil/tank height assertions below);
+// furnace duty's stray allowance corrected 26 -> 25% against the designer's
+// stated 15-25% range for harmonic duty. Neither touches this default
+// distribution-duty case: it was already well inside both new limits, and
+// the stray change only applies to furnace duty.
 eq("ex-works", Math.round(r.bom.exFactory), 2181359, 800);
 eq("delivered", Math.round(r.bom.withGst), 2574003, 900);
 eq("tank length mm", Math.round(r.design.tankL), 1557, 2);
@@ -269,6 +284,17 @@ eq("efficiency %", +r.design.eff100.toFixed(2), 99.30, 0.02);
 eq("core mass kg", Math.round(r.design.wCore), 1040, 15);
 eq("autoFit converged", r.autoFitConverged, true);
 eq("compliant", r.design.compliant, true);
+// ENGINE_VERSION 1.21.0 (CALIBRATION.md section 44): compliance.aspect (the
+// window height/width ratio) replaced by two direct shop limits. This
+// default case sits well inside both, so it stays compliant, but the same
+// change moved the AUTO-K search's feasible set for OTHER ratings (a
+// different design can now clear the old ratio while missing one of these,
+// or the reverse) -- see section 44 for the 2500 kVA furnace case that
+// flips to non-compliant under this default.
+eq("coil height mm", Math.round(r.design.compliance.coilHeight.val), 622, 3);
+eq("coil height limit mm", r.design.compliance.coilHeight.lim, 880);
+eq("tank height mm", Math.round(r.design.compliance.tankHeight.val), 1330, 3);
+eq("tank height limit mm", r.design.compliance.tankHeight.lim, 1500);
 eq("HV construction", r.design.hvConstruction, "crossover");
 eq("LV construction", r.design.lvConstruction, "strip");
 eq("etK non-compliant, flagged", r.etkNonCompliant, false);
