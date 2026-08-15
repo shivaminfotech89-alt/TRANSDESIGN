@@ -292,6 +292,8 @@ export function ResultsDisplay({
                       ['Top Rise (K)', design.compliance.rise],
                       ['Winding Rise (K)', design.compliance.wRise],
                       ['Ratio Error (%)', design.compliance.ratio],
+                      ['Coil Height (mm)', design.compliance.coilHeight],
+                      ['Tank Height (mm)', design.compliance.tankHeight],
                     ].map(([label, c]: [string, any]) => (
                       <tr key={label}>
                         <td className={`${tdCls} text-ink2 text-[11px]`}>{label}</td>

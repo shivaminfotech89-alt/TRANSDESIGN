@@ -8,7 +8,7 @@
  * without bumping it, or old quotations stop reproducing.
  */
 
-export const ENGINE_VERSION = "1.20.0";
+export const ENGINE_VERSION = "1.21.0";
 
 const CONDUCTORS = {
   copper: { name: "Copper, EC grade", rho20: 0.017241, alpha: 0.00393, dens: 8890, dMax: 3.6, short: "Cu", proof: 1.0 },
@@ -102,12 +102,21 @@ const STANDARDS = {
   GOST: { name: "GOST", oilRise: 55, windRise: 65, zTol: 10, lossTolTotal: 10, lossTolPart: 15 },
 };
 
-/* Application presets */
+/* Application presets. stray (eddy + stray loss as a percentage of I2R) had
+   no source behind any of these eight figures until CALIBRATION.md section
+   45 -- the designer's own stated practice for harmonic-duty loads is 15-25%.
+   rectifier (24), solar (20) and ups (22) already sat inside that range;
+   furnace was the one outside it, at 26, with nothing behind that specific
+   number either. Furnace duty (arc furnace supply, the most harmonic-severe
+   of the four) is anchored at the top of the stated range, 25, rather than
+   left at an unsourced figure one point past it. Every other value here
+   (etK, z, tap, cool) is unchanged and still not individually sourced --
+   only stray was checked and fixed this pass. */
 const APPS = {
   distribution: { name: "Distribution", etK: 0.45, z: 5.0, stray: 12, tap: "octc", cool: "ONAN" },
   power: { name: "Power", etK: 0.53, z: 10.0, stray: 15, tap: "oltc", cool: "ONAF" },
   rectifier: { name: "Rectifier / converter duty", etK: 0.50, z: 8.0, stray: 24, tap: "octc", cool: "ONAN" },
-  furnace: { name: "Furnace duty", etK: 0.50, z: 7.0, stray: 26, tap: "oltc", cool: "OFAF" },
+  furnace: { name: "Furnace duty", etK: 0.50, z: 7.0, stray: 25, tap: "oltc", cool: "OFAF" },
   isolation: { name: "Isolation", etK: 0.42, z: 4.0, stray: 10, tap: "none", cool: "ONAN" },
   solar: { name: "Solar / inverter duty", etK: 0.46, z: 6.0, stray: 20, tap: "octc", cool: "ONAN" },
   ups: { name: "UPS duty", etK: 0.44, z: 5.0, stray: 22, tap: "none", cool: "ONAN" },
@@ -402,27 +411,20 @@ function deriveSpec(core, over = {}) {
      it was solved against. */
   put("coreConstruction", "A", null, [["A", "Limb / half-yoke / full-yoke"], ["B", "V-notch / outer / centre"]], "How the core lamination is cut and stacked. Construction A is confirmed against two real reference builds; Construction B against one furnace core chart -- see CALIBRATION.md section 35 before relying on it away from similar proportions.");
   put("aspect", aspectSuggest(umHV), [2.0, 3.8, 0.05], null, "Starting window shape. The final height is solved to hit the declared impedance unless you turn that off.");
-  /* CALIBRATION.md section 28/32: the design-office aspect check, window
-     height over window width, applied as a real constraint rather than
-     left for a search to discover the hard way. Measured from real
-     designs, not guessed: two Mehir Transformers sheets (1250 kVA oil
-     2.44, 630 kVA dry 2.64) and two furnace core charts (Samruddhi Milk
-     800 kVA 2.22, a 1250 kVA 750+500 dual-rated OLTC furnace 4.62). The
-     furnace outlier is real, not noise -- a dual-rated OLTC furnace duty
-     genuinely needs a taller, narrower window than a distribution design
-     does, which is why the default is application-aware rather than one
-     number for every duty. Distribution/power/etc default to 3.0 (section
-     32: swept 2.8-3.5 at 630 kVA, the rating where 2.8 bound hardest --
-     2.8->3.0 is a genuine, buildable 0.76% saving at healthy current
-     density; past 3.08 the search jumps to aluminium at collapsing
-     density, the same exploit K=0.32 was, one step removed, so the ceiling
-     stops at 3.0 rather than following that saving further); furnace and
-     rectifier duty default to 5.0, a margin above the 4.62 furnace figure.
-     Editable either way -- this is a measured starting point, not a law,
-     and a design office with its own tighter or looser practice should set
-     its own number. */
-  put("maxAspect", core.application === "furnace" || core.application === "rectifier" ? 5.0 : 3.0, [2.0, 6.0, 0.1], null,
-    "Window height over window width. A taller, narrower window needs more turns per unit height and packs an ever-thinner coil -- past this ratio the winding is judged not buildable, not just expensive. Furnace and dual-rated OLTC duty legitimately run taller than distribution.");
+  /* CALIBRATION.md section 44: window height over window width (maxAspect,
+     sections 28/32) replaced by the two real shop limits it was always a
+     proxy for. A ratio is application-aware because different duties
+     produce different ratios for the same actual coil; a shop's winding
+     machine and crane/pit height are fixed pieces of equipment that do not
+     change with the duty being wound, so the direct limits are NOT
+     application-aware the way maxAspect's default was -- a furnace job on
+     the same line has the same physical ceiling a distribution job does.
+     If a specific job genuinely runs on different tooling, the design
+     office sets that job's own number, the same as before. */
+  put("coilHeightLimit", 880, [400, 1500, 10], null,
+    "The taller of the LV and HV coil heights, mm. Past this the winding does not fit the shop's winding machine or handling equipment -- a real physical ceiling, not a proxy ratio.");
+  put("tankHeightLimit", 1500, [800, 3000, 10], null,
+    "Tank (or dry-type enclosure) height, mm. Past this the tank does not fit under the shop crane or through the shop's own handling constraints.");
   put("autoWindow", true, null, [[true, "Solve height for the declared impedance"], [false, "Use the output equation only"]], "With this on, the window height is adjusted until the calculated impedance matches the declared value, which is what a designer does by hand.");
   put("autoFit", true, null, [[true, "Fit flux and current density to the loss limits"], [false, "Use the rating-based values only"]], "With this on, the flux density and the current densities are trimmed until the calculated losses sit just inside the declared limits, the cheapest core and coil that still passes.");
   /* CALIBRATION.md section 37: fitToSchedule used to target a flat 0.96 of
@@ -434,8 +436,8 @@ function deriveSpec(core, over = {}) {
      practice explains it directly: 6-8% margin on load loss, 8-10% on
      no-load, not a uniform 4%. marginTargetLL/NLL replace the hardcode,
      each independently editable -- a design office with its own tighter or
-     looser practice sets its own number, the same as maxAspect or
-     coilHeightLimit. */
+     looser practice sets its own number, the same as coilHeightLimit or
+     tankHeightLimit. */
   put("marginTargetLL", 0.93, [0.85, 0.95, 0.01], null, "Fraction of the declared load-loss limit autoFit targets internally. 0.93 leaves 7% margin -- lower means less margin (cheaper, closer to the declared ceiling), higher means more.");
   put("marginTargetNLL", 0.90, [0.85, 0.95, 0.01], null, "Fraction of the declared no-load-loss limit autoFit targets internally. 0.90 leaves 10% margin.");
   put("windowSpace", 8, [6, 12, 0.5], null, "Numerator of the window space factor 8/(30+kV). Raise it if your coils pack tighter than average.");
@@ -1145,15 +1147,15 @@ function designTransformer(p) {
     wRise: { val: windRise, lim: wRiseLimit, ok: windRise <= wRiseLimit + 0.5 },
     ratio: { val: Math.abs(ratioErr), lim: 0.5, ok: Math.abs(ratioErr) <= 0.5 },
     volley: { val: g.voltsPerLayer, lim: p.acHV * 1000 * 0.6, ok: g.voltsPerLayer * 2 <= p.acHV * 1000 * 0.6 },
-    // CALIBRATION.md section 28: window height over width, the design-office
-    // manufacturability check. A design can satisfy impedance, thermal and
-    // the loss schedule with a window that is not a winding anyone can
-    // actually build -- see section 28's own K=0.32 case, a 1.28-1.45 m LV
+    // CALIBRATION.md section 44 (was section 28's window-aspect ratio, a
+    // proxy for the same thing): a design can satisfy impedance, thermal
+    // and the loss schedule with a coil or tank the shop cannot actually
+    // build or move -- see section 28's own K=0.32 case, a 1.28-1.45 m LV
     // coil on a 630-1000 kVA distribution job, more than double the real
-    // reference designs' own 595-633 mm. Nothing else in this engine's
-    // compliance set notices a coil that has grown enormously tall and thin
-    // in exchange for lower I2R loss; this is the one that does.
-    aspect: { val: Hw / g.Ww, lim: p.maxAspect, ok: Hw / g.Ww <= p.maxAspect },
+    // reference designs' own 595-633 mm. These two check the real physical
+    // limits directly instead of the ratio that used to stand in for them.
+    coilHeight: { val: Math.max(g.hLV, g.hHV), lim: p.coilHeightLimit, ok: Math.max(g.hLV, g.hHV) <= p.coilHeightLimit },
+    tankHeight: { val: tankH, lim: p.tankHeightLimit, ok: tankH <= p.tankHeightLimit },
   };
   const compliant = Object.values(compliance).every((x) => x.ok);
 
@@ -1562,18 +1564,19 @@ function searchDesigns(base, rates, band, opts) {
                       const zOk = Math.abs(d.pctZ - base.targetZ) / base.targetZ <= opts.zTol / 100;
                       const thermalOk = d.compliance.rise.ok && d.compliance.wRise.ok;
                       const lossOk = !opts.enforceLimits || (d.compliance.nll.ok && d.compliance.ll.ok);
-                      // CALIBRATION.md section 28: a candidate can be
-                      // impedance-, thermal- and loss-compliant with a
-                      // winding nobody could actually build -- an ever
-                      // taller, ever thinner coil is how this grid pays for
-                      // lower load loss at a low K once flux and density are
+                      // CALIBRATION.md section 44 (was section 28's aspect
+                      // ratio proxy): a candidate can be impedance-, thermal-
+                      // and loss-compliant with a coil or tank the shop
+                      // cannot actually build or move -- an ever taller,
+                      // ever thinner coil is how this grid pays for lower
+                      // load loss at a low K once flux and density are
                       // fitted rather than swept. Rejected here the same way
                       // zOk/thermalOk/lossOk already are, not left for a
                       // human to notice after the fact.
-                      const aspectOk = d.compliance.aspect.ok;
+                      const shopLimitsOk = d.compliance.coilHeight.ok && d.compliance.tankHeight.ok;
                       results.push({
                         inputs: cand, d, bom, price: bom.exFactory, tco: bom.tco,
-                        zOk, thermalOk, aspectOk, lossOk, feasible: zOk && thermalOk && aspectOk && lossOk,
+                        zOk, thermalOk, shopLimitsOk, lossOk, feasible: zOk && thermalOk && shopLimitsOk && lossOk,
                         autoFitConverged: autoFitConverged !== false,
                         withinBudget: bom.exFactory >= (band.min || 0) && bom.exFactory <= (band.max ?? Infinity),
                       });
@@ -1819,14 +1822,14 @@ function etkPoint(p, rates, k, over, fast = false) {
   const zOk = Math.abs(d.pctZ - p.targetZ) / p.targetZ <= p.zTol / 100;
   const thermalOk = d.compliance.rise.ok && d.compliance.wRise.ok;
   const lossOk = d.compliance.nll.ok && d.compliance.ll.ok;
-  // CALIBRATION.md section 28: without this, a low K that trades an ever
-  // taller, ever thinner (and so unbuildable) coil for lower load loss
-  // looks like a genuine saving to this curve, and fitEtkToCost below
-  // would pick it for every AUTO-K design at this rating, not only a
-  // search candidate.
-  const aspectOk = d.compliance.aspect.ok;
+  // CALIBRATION.md section 44 (was section 28's aspect ratio proxy):
+  // without this, a low K that trades an ever taller, ever thinner (and so
+  // unbuildable) coil for lower load loss looks like a genuine saving to
+  // this curve, and fitEtkToCost below would pick it for every AUTO-K
+  // design at this rating, not only a search candidate.
+  const shopLimitsOk = d.compliance.coilHeight.ok && d.compliance.tankHeight.ok;
   return {
-    etK: k, exFactory: bom.exFactory, feasible: zOk && thermalOk && aspectOk && lossOk,
+    etK: k, exFactory: bom.exFactory, feasible: zOk && thermalOk && shopLimitsOk && lossOk,
     converged: autoFitConverged !== false, fitted,
   };
 }
@@ -1925,7 +1928,8 @@ function fitEtkToCost(p, over = {}, rates = DEFAULT_RATES) {
   if (!zOk) missed.push(`impedance ${d.pctZ.toFixed(2)}% against ${p.targetZ}% declared`);
   if (!d.compliance.rise.ok) missed.push(`top-oil/enclosure rise ${d.compliance.rise.val.toFixed(1)} against ${d.compliance.rise.lim} °C`);
   if (!d.compliance.wRise.ok) missed.push(`winding rise ${d.compliance.wRise.val.toFixed(1)} against ${d.compliance.wRise.lim} °C`);
-  if (!d.compliance.aspect.ok) missed.push(`window aspect ${d.compliance.aspect.val.toFixed(2)} against ${d.compliance.aspect.lim.toFixed(2)} max`);
+  if (!d.compliance.coilHeight.ok) missed.push(`coil height ${Math.round(d.compliance.coilHeight.val)} mm against ${Math.round(d.compliance.coilHeight.lim)} mm shop limit`);
+  if (!d.compliance.tankHeight.ok) missed.push(`tank height ${Math.round(d.compliance.tankHeight.val)} mm against ${Math.round(d.compliance.tankHeight.lim)} mm shop limit`);
   const bFloor = p.coreGrade === "amor" ? 1.20 : 1.42;
   const floorNote = d.B <= bFloor + 0.001
     ? ` Flux is already at the ${bFloor.toFixed(2)} T floor for this core grade -- no lower K closes this; it needs a different loss schedule or a different grade.`

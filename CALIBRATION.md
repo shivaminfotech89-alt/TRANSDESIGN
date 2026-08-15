@@ -2870,3 +2870,97 @@ actually pins something. `classBSolver.ts`'s own material-swap fallback
 real `computeDesign(core, { ...over, ...patch }, rates, [])` per candidate,
 which is the main path this section brings `searchDesigns` up to, not a
 second place that needed the same repair.
+
+
+## 43. Known gap: 10000 kVA does not reach autoFitConverged
+
+`computeDesign({ ...ESSENTIALS, kva: 10000 }, {}, DEFAULT_RATES, [])` at
+`ESSENTIALS`'s own default voltage/vector/standard/level returns
+`autoFitConverged: false`. Confirmed present both before and after section
+41's HV strand-split fix (that section isolated it, did not introduce it),
+so this is not new, only newly visible now that `autoFitConverged` exists
+to say so (section 38). The likely cause, already named in sections 38 and
+40, is `fitToSchedule`'s density-fitting sub-loop struggling to converge
+near a flux value at or close to the core grade's own ceiling -- not
+re-diagnosed fresh here, only logged so a non-converging design at the top
+of the rating range is visible in this document rather than something the
+next person has to rediscover by running the case. A design at this
+rating should be checked with a manual flux/density entry rather than
+trusted on AUTO until this is actually fixed.
+
+
+## 44. Window aspect ratio replaced by two direct shop limits: coil height and tank height
+
+`maxAspect` (window height over window width, sections 28/32) was always a
+proxy for the real question -- does this coil fit the winding machine, does
+this tank fit under the crane -- inferred from two Mehir sheets and two
+furnace core charts because the actual shop limits were not on file. Now
+that they are, the ratio is replaced with the two real limits directly:
+`coilHeightLimit` (880 mm default, checked against the taller of `hLV` and
+`hHV`) and `tankHeightLimit` (1500 mm default, checked against `tankH`,
+which covers the dry-type enclosure too -- both are computed for either
+medium). `compliance.aspect` is gone; `compliance.coilHeight` and
+`compliance.tankHeight` take its place, read by `searchDesigns`,
+`fitEtkToCost`'s own feasibility filter, and the `documentRegister`-style
+"missed" reasons list the same way `.aspect` was.
+
+Deliberately **not** application-aware the way `maxAspect`'s default was.
+A ratio limit varies by application because different duties produce
+different ratios for the same physically buildable coil; a winding
+machine's maximum coil length and a shop's crane/pit height are fixed
+pieces of equipment that do not change with the duty being wound. A job
+on genuinely different tooling still gets its own number, the same as
+before -- both limits stay editable per design.
+
+**A real consequence, not a bug:** because the two new limits are
+numerically independent of the old ratio, they do not agree with it at
+every rating -- a 2500 kVA furnace-duty design that was aspect-compliant
+under `maxAspect`'s old furnace default (5.0) now fails on tank height
+(1572 mm against the 1500 mm default): 630 kVA and 1250 kVA furnace duty
+stay compliant (both comfortably under both new limits), 2500 kVA does
+not. This is the fix doing its job -- a real physical ceiling catching a
+design the inferred ratio did not, not a regression. The default 1000 kVA
+case is unaffected (622 mm coil against 880 mm, 1330 mm tank against
+1500 mm, both comfortably clear).
+
+Because `fitEtkToCost`'s own K search uses this feasibility check to pick
+the AUTO-K design (section 26), and the new limits do not draw the exact
+same feasible/infeasible line the old ratio did, the chosen K -- and so the
+whole downstream geometry -- can shift for a design near that old boundary
+even when both the old and new checks pass. Observed directly: a 5000 kVA,
+33/11 kV power-duty ONAF test case (used only for a value-agnostic
+"fanCount > 0" assertion, not a golden number) moved from 9 to 10 fans.
+Not a defect -- the same bracket-sensitivity cascade `maxAspect`'s own
+default change (section 32, ENGINE_VERSION 1.17.0) already produced at
+2000 kVA's impedance solve. `ENGINE_VERSION` bumped to 1.21.0.
+
+## 45. Furnace duty stray allowance corrected against the designer's stated range
+
+None of the eight application presets' `stray` figures (12/15/24/26/10/20/
+22/14, CALIBRATION.md's own APPS table) had ever been checked against a
+real source -- confirmed by searching this file, DRAWINGS.md, MANUFACTURING.md
+and every code comment near the table: nothing. The designer's own stated
+practice for harmonic-duty loads is 15-25% eddy and stray loss. Checking
+the four presets that duty covers: rectifier (24), solar (20) and ups (22)
+already sat inside that range. Furnace was the one outside it, at 26 -- one
+point past the top, with nothing behind that specific figure either.
+
+**Fix.** Furnace duty's `stray` corrected 26 -> 25, anchored at the top of
+the designer's stated range rather than left one point past it. The top of
+the range, not the middle, because furnace duty (arc furnace supply) is
+the most harmonic-severe of the four -- current chopping and a wide
+harmonic spectrum, more so than a solar inverter or a rectifier's more
+regular ripple. The other seven application presets are unchanged and
+still unsourced; only furnace was checked and fixed this pass.
+
+Current density was not given a separate harmonic correction. `loadLoss =
+(i2rLV + i2rHV) * (1 + stray/100)` already means a higher stray allowance
+raises calculated load loss for the same geometry, and `fitToSchedule`
+(autoFit) responds by targeting a lower current density to stay inside
+the declared loss schedule -- the density correction the designer asked
+to check happens automatically through the stray figure, not as a
+separate mechanism that needed building. No golden number moved: the
+default case is distribution duty, not furnace, and furnace's own two
+reference points (630, 1250 kVA furnace charts used for the Construction B
+cutting-chart test) call `coreCuttingChart` directly with explicit
+geometry, bypassing `stray` entirely.
