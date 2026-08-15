@@ -409,7 +409,7 @@ function deriveSpec(core, over = {}) {
      application; Construction B is selectable, not auto-suggested, until a
      second real chart confirms its own formula away from the one geometry
      it was solved against. */
-  put("coreConstruction", "A", null, [["A", "Limb / half-yoke / full-yoke"], ["B", "V-notch / outer / centre"]], "How the core lamination is cut and stacked. Construction A is confirmed against two real reference builds; Construction B against one furnace core chart -- see CALIBRATION.md section 35 before relying on it away from similar proportions.");
+  put("coreConstruction", "A", null, [["A", "Step-lap mitred (Plate A/B/C)"], ["B", "V-notch mitred (V-notch, outer, centre)"]], "How the core lamination is cut and stacked. Construction A is confirmed against two real reference builds; Construction B against one furnace core chart -- see CALIBRATION.md section 35 before relying on it away from similar proportions.");
   put("aspect", aspectSuggest(umHV), [2.0, 3.8, 0.05], null, "Starting window shape. The final height is solved to hit the declared impedance unless you turn that off.");
   /* CALIBRATION.md section 44: window height over window width (maxAspect,
      sections 28/32) replaced by the two real shop limits it was always a
