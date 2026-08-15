@@ -2872,21 +2872,38 @@ which is the main path this section brings `searchDesigns` up to, not a
 second place that needed the same repair.
 
 
-## 43. Known gap: 10000 kVA does not reach autoFitConverged
+## 43. Correction: 10000 kVA's recorded non-convergence, and why leaving it recorded would have been worse than not recording it
 
-`computeDesign({ ...ESSENTIALS, kva: 10000 }, {}, DEFAULT_RATES, [])` at
-`ESSENTIALS`'s own default voltage/vector/standard/level returns
-`autoFitConverged: false`. Confirmed present both before and after section
-41's HV strand-split fix (that section isolated it, did not introduce it),
-so this is not new, only newly visible now that `autoFitConverged` exists
-to say so (section 38). The likely cause, already named in sections 38 and
-40, is `fitToSchedule`'s density-fitting sub-loop struggling to converge
-near a flux value at or close to the core grade's own ceiling -- not
-re-diagnosed fresh here, only logged so a non-converging design at the top
-of the rating range is visible in this document rather than something the
-next person has to rediscover by running the case. A design at this
-rating should be checked with a manual flux/density entry rather than
-trusted on AUTO until this is actually fixed.
+This section originally logged `computeDesign({ ...ESSENTIALS, kva: 10000 },
+{}, DEFAULT_RATES, [])` as returning `autoFitConverged: false`, attributed
+to `fitToSchedule`'s density sub-loop struggling near the grade ceiling.
+That entry is now wrong and is corrected here rather than deleted, because
+a stale "broken" entry is a worse failure mode than no entry at all: it
+tells the next person a fix is still needed when it either already exists
+or the original diagnosis was itself incomplete.
+
+Two separate things were true and got conflated. First, at the time this
+was written, 10000 kVA's `autoFitConverged: false` was itself a
+side-effect of whichever K `fitEtkToCost` happened to select that day --
+item 5/6's shop-limit change (section 44) shifted the winning K to 0.48,
+which happened to land density away from any discrete-geometry threshold,
+so the rating now reports converged for a reason that has nothing to do
+with the actual bug. Recording that as "fixed" would have been just as
+wrong as recording it as "broken": neither the original K's failure nor
+this K's success says anything about whether the underlying mechanism was
+sound.
+
+Second, and the real finding: that underlying mechanism -- `fitToSchedule`
+oscillating around a discrete geometry threshold (`numGroups`/`layers`,
+`lvAxCount`/`lvRadCount`, `hvAxCount`/`hvRdCount`, `hvDucts`) -- was never
+specific to 10000 kVA or to flux sitting at a grade ceiling. Section 46
+found it common across the whole flux range at both 1000 and 10000 kVA,
+including at 1000 kVA's own default AUTO-K design, which had been
+reporting `autoFitConverged: true` the entire time on a false positive
+(the continuous window-spread check can be satisfied by chance mid-cycle --
+see section 46). Section 46 is the actual fix; this entry is left here,
+corrected, as the record of how "it converges now" was nearly taken at
+face value for the wrong reason.
 
 
 ## 44. Window aspect ratio replaced by two direct shop limits: coil height and tank height
@@ -2964,3 +2981,133 @@ default case is distribution duty, not furnace, and furnace's own two
 reference points (630, 1250 kVA furnace charts used for the Construction B
 cutting-chart test) call `coreCuttingChart` directly with explicit
 geometry, bypassing `stray` entirely.
+
+
+## 46. fitToSchedule oscillating around a discrete geometry threshold -- diagnosed at source, fixed, not worked around a fourth time
+
+Slow Class B pin solves (section 40), the 1250 kVA oscillation (section 38)
+and 10000 kVA's recorded non-convergence (section 43, now corrected) were
+three symptoms of one cause, not three separate faults. Diagnosed before
+any fix, as instructed.
+
+**What actually happens.** In a free fit, flux converges to the grade
+ceiling or floor within 2-4 iterations and stops moving -- confirmed by
+direct trace. With flux fixed, every correction lands on `deltaLV`/
+`deltaHV`, chasing the load-loss target. Changing density changes
+conductor area, which changes `lvAxCount`/`lvRadCount`/`hvAxCount`/
+`hvRdCount`/`numGroups`/`layers` -- integer quantities computed with
+`floor()`/`ceil()`/`round()` inside `designTransformer`, each a step
+function of a continuous input. When density's own fixed point sits near
+one of these integer boundaries, a fractional-percent change in density
+flips the discrete quantity, jumping load loss by roughly 1.5% for no
+real change in conductor size. The corrector reacts to the jump and
+pushes density back across the boundary next iteration -- a genuine
+limit cycle, not slow convergence: traced 30+ iterations at 1000 kVA with
+flux locked at 1.75 T (a plain interior value, not even a grade boundary)
+and it never narrows.
+
+**Why damping alone cannot fix it.** `FIT_RELAX` shrinks the step size of
+a correction toward a *smooth* target. At a step discontinuity the
+fixed-point equation has no solution at the boundary, so any nonzero step
+across it flips the discrete quantity and produces the jump regardless of
+step size -- damping slows the approach, it cannot stop the crossing.
+
+**The correction to the original hypothesis.** This is not narrowly
+"flux stuck at the ceiling." Locking flux at 1.75 T (interior, not a
+boundary) at 1000 kVA reproduced the identical oscillation. A flux sweep
+across the full range through the real `fitToSchedule`, before any fix,
+found it common, not rare: 4 of 8 candidates failed to converge at
+1000 kVA, 1 of 8 at 10000 kVA -- exactly why a Class B pin solve, which
+tries flux candidates across a bisection rather than only the boundary,
+is slow. Flux saturation is real and worth its own report (below), but it
+is not the mechanism that causes the oscillation.
+
+**The fix.** `fitToSchedule` now tracks a discrete geometry signature
+(`discreteGeometrySignature`: `numGroups`, `layers`, `lvAxCount`,
+`lvRadCount`, `hvAxCount`, `hvRdCount`, `hvDucts`) alongside its existing
+continuous window-spread check. If the current signature matches one seen
+2-8 iterations back, with a *different* signature seen strictly in
+between (genuine alternation, not "hasn't changed recently," which the
+continuous check already covers), a cycle is confirmed and the loop exits
+immediately rather than grinding to `FIT_MAX_ITERS`.
+
+Detecting the cycle is not sufficient on its own -- both discrete states a
+fit alternates between are real, buildable designs, and stopping on
+whichever one the loop happened to be at is the same arbitrary snapshot
+the old behaviour produced. `resolveFitCycle` groups the recent history by
+signature (using samples already computed during cycling, no extra
+`designTransformer` calls) and, for each state, keeps the sample closest
+to the intended margin target among that state's own compliant samples --
+or its closest approach, if none of that state's samples are compliant.
+The state closest to the margin target across all compliant states is
+chosen; if no state is compliant, that is reported explicitly rather than
+silently returning one of them anyway. `autoFitCycleNote` names every
+state considered, which one was chosen and why -- the same principle
+`etkNonCompliant` already established, applied to a different failure.
+
+**A second, real bug found while verifying this, fixed before shipping.**
+The chosen state's flux/density were being rounded to 2 decimal places
+for a clean report, and rounding alone could cross back over the exact
+threshold the choice was just made to land on -- found directly: choosing
+(numGroups 7, layers 12, lvRadCount 5) at 5988 W, then rounding, silently
+rebuilt (numGroups 6, layers 14) at 6160 W instead, undoing the
+resolution the whole mechanism exists to provide. Fixed by verifying the
+rounded values reproduce the chosen signature before rounding at all; if
+rounding is unsafe, the unrounded values are returned instead of a
+tidier number that quietly reverts the choice. Regression-tested
+(engine.test.mjs: "returned flux/density reproduce the chosen state").
+
+**Flux saturation, surfaced separately, as requested.** `autoFitFluxLimit`
+is reported whenever flux is free and ends up pinned at the grade's own
+ceiling or floor, regardless of whether density is also cycling --
+`{ at: "ceiling"|"floor", value, noLoad, limit, compliant }`. The two
+directions carry opposite meaning, both reported so the reader does not
+have to work out which matters: saturating at the **ceiling** means the
+fit would use MORE flux (a cheaper core) if the grade allowed it, and
+generally still has no-load margin to spare -- not a compliance problem,
+an economic one. Saturating at the **floor** means the fit would use LESS
+flux if it could, and the design may still not meet its no-load target on
+this grade at this geometry -- the case actually worth a human's
+attention, matching the original hypothesis's own example exactly.
+
+**A finding that changed the default case's own golden numbers.** Tracing
+the OLD code directly at the default case's own winning K (0.46) found it
+was *never* at a genuine fixed point -- `numGroups`/`layers` was still
+alternating between 6 and 7 past iteration 40. The old continuous
+window-spread check happened to be satisfied at iteration 41 anyway,
+because five consecutive damped correction steps can have a small spread
+purely by chance while the discrete signature underneath keeps flipping.
+That is a false-positive convergence, not a real one: `autoFitConverged:
+true` was reported, and a snapshot of whichever state was active at that
+lucky moment became the recorded golden number (load loss 5991 W), with
+no claim to being better than the alternative it was still cycling
+against. `ENGINE_VERSION` bumped to 1.22.0; engine.test.mjs's default-case
+numbers, the four impedance-deviation baselines (bracket-sensitive to any
+change that moves the winning K, the same cascade every prior K-moving
+change in this project has produced -- sections 30, 32, 39 among them),
+and the fan-count/fin-area value-agnostic checks all updated to the new,
+deliberately-chosen, genuinely stable numbers.
+
+**Verified: the flux sweep, re-run after the fix.**
+
+| flux (T) | 1000 kVA before | 1000 kVA after | 10000 kVA before | 10000 kVA after |
+|---|---|---|---|---|
+| 1.42 | converged | converged | converged | converged |
+| 1.48 | oscillated | converged (cycle-resolved) | converged | converged |
+| 1.54 | converged | converged (cycle-resolved) | converged | converged |
+| 1.60 | oscillated | converged (cycle-resolved) | oscillated | converged (cycle-resolved) |
+| 1.66 | converged | converged (cycle-resolved) | converged | converged (cycle-resolved) |
+| 1.72 | oscillated | converged (cycle-resolved) | converged | converged (cycle-resolved) |
+| 1.75 | oscillated | converged (cycle-resolved) | converged | converged |
+| 1.78 | converged | converged (cycle-resolved) | converged | converged |
+
+16 of 16 converge after the fix, against 12 of 16 before. Several points
+that already reported "converged" before the fix are now flagged
+"cycle-resolved" instead -- those were the same false-positive failure
+the default case had (a lucky quiet window mid-cycle), caught now because
+the discrete-signature check does not depend on chance the way the
+continuous-only check did. Per-candidate time fell from 450-580ms (grinding
+to `FIT_MAX_ITERS`) to well under 200ms typically, since a confirmed cycle
+exits the loop immediately rather than running out the full cap -- a real
+benefit for Class B pin solve speed, though re-measuring the full pin
+solve was not part of this section's own scope.
