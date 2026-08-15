@@ -504,33 +504,47 @@ export function CoreCuttingChart({ design, params, project }: Drawings2DProps) {
   );
 }
 
-/** All twenty-one of DRAWINGS.md's drawings, in order. */
+/** All twenty-one of DRAWINGS.md's drawings, in order. Each child below is
+ *  one fully self-contained, independently-numbered drawing (see the
+ *  drawingNo() calls inside each component), so each gets its own
+ *  .drawing-page wrapper -- the print-only rule that keeps a drawing's own
+ *  title block and table together and starts the next drawing on a fresh
+ *  page (index.css, CALIBRATION.md). On screen .drawing-page is a no-op;
+ *  it only does anything under @media print. */
 export function Drawings2D({ design, params, project }: Drawings2DProps) {
+  const drawings = [
+    <OrthographicDrawing key="ga" design={design} params={params} project={project} view="ga" />,
+    <OrthographicDrawing key="front" design={design} params={params} project={project} view="front" />,
+    <OrthographicDrawing key="side" design={design} params={params} project={project} view="side" />,
+    <OrthographicDrawing key="top" design={design} params={params} project={project} view="top" />,
+    <OrthographicDrawing key="bottom" design={design} params={params} project={project} view="bottom" />,
+    <CoreDrawing key="core" design={design} params={params} project={project} />,
+    <CoreCrossSection key="core-xsec" design={design} params={params} project={project} />,
+    <StampingSchedule key="stamping" design={design} params={params} project={project} />,
+    <CoreCuttingChart key="cutting-chart" design={design} params={params} project={project} />,
+    <LvWindingDrawing key="lv-winding" design={design} params={params} project={project} />,
+    <HvWindingDrawing key="hv-winding" design={design} params={params} project={project} />,
+    <TapWindingDrawing key="tap-winding" design={design} params={params} project={project} />,
+    <InsulationDrawing key="insulation" design={design} params={params} project={project} />,
+    <InternalAssemblyDrawing key="internal-assembly" design={design} params={params} project={project} />,
+    <InternalAssemblyDrawing key="internal-assembly-20t" design={design} params={params} project={project} drawingSeq="20T" sheet={20} />,
+    <LongitudinalSectionDrawing key="longitudinal-section" design={design} params={params} project={project} />,
+    <TankFabricationDrawing key="tank-fab" design={design} params={params} project={project} />,
+    <FinOrRadiatorDrawing key="fin-radiator" design={design} params={params} project={project} />,
+    <BushingLayoutDrawing key="bushing-layout" design={design} params={params} project={project} />,
+    <AccessoryLayoutDrawing key="accessory-layout" design={design} params={params} project={project} />,
+    <LeadArrangementDrawing key="lead-arrangement" design={design} params={params} project={project} />,
+    <NamePlateDrawing key="nameplate" design={design} params={params} project={project} />,
+    <ExplodedAssemblyDrawing key="exploded-assembly" design={design} params={params} project={project} />,
+  ];
+
   return (
     <div className="space-y-4">
-      <OrthographicDrawing design={design} params={params} project={project} view="ga" />
-      <OrthographicDrawing design={design} params={params} project={project} view="front" />
-      <OrthographicDrawing design={design} params={params} project={project} view="side" />
-      <OrthographicDrawing design={design} params={params} project={project} view="top" />
-      <OrthographicDrawing design={design} params={params} project={project} view="bottom" />
-      <CoreDrawing design={design} params={params} project={project} />
-      <CoreCrossSection design={design} params={params} project={project} />
-      <StampingSchedule design={design} params={params} project={project} />
-      <CoreCuttingChart design={design} params={params} project={project} />
-      <LvWindingDrawing design={design} params={params} project={project} />
-      <HvWindingDrawing design={design} params={params} project={project} />
-      <TapWindingDrawing design={design} params={params} project={project} />
-      <InsulationDrawing design={design} params={params} project={project} />
-      <InternalAssemblyDrawing design={design} params={params} project={project} />
-      <InternalAssemblyDrawing design={design} params={params} project={project} drawingSeq="20T" sheet={20} />
-      <LongitudinalSectionDrawing design={design} params={params} project={project} />
-      <TankFabricationDrawing design={design} params={params} project={project} />
-      <FinOrRadiatorDrawing design={design} params={params} project={project} />
-      <BushingLayoutDrawing design={design} params={params} project={project} />
-      <AccessoryLayoutDrawing design={design} params={params} project={project} />
-      <LeadArrangementDrawing design={design} params={params} project={project} />
-      <NamePlateDrawing design={design} params={params} project={project} />
-      <ExplodedAssemblyDrawing design={design} params={params} project={project} />
+      {drawings.map((el) => (
+        <div key={el.key} className="drawing-page" data-drawing={el.key}>
+          {el}
+        </div>
+      ))}
     </div>
   );
 }
