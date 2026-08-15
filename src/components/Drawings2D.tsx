@@ -374,8 +374,9 @@ export function StampingSchedule({ design, params, project }: Drawings2DProps) {
  *  useless, and this document is only ever numbers. */
 export function CoreCuttingChart({ design, params, project }: Drawings2DProps) {
   const chart = coreCuttingChart(design, params);
+  const isB = chart.construction === 'B';
 
-  const plateTable = (title: string, key: 'A' | 'B' | 'C', total: number, note?: string) => (
+  const plateTable = (title: string, key: 'A' | 'B' | 'C' | 'V' | 'O', total: number, note?: string) => (
     <div className="mb-3">
       <div className="text-[11px] font-display uppercase tracking-[0.12em] text-copper mb-1">{title}</div>
       {note && <p className="text-[10px] text-steel mb-1">{note}</p>}
@@ -411,7 +412,7 @@ export function CoreCuttingChart({ design, params, project }: Drawings2DProps) {
   return (
     <Card
       title="Core Cutting Chart"
-      subtitle={`Drawing ${drawingNo(project, '22')} · ${chart.thk} mm lamination`}
+      subtitle={`Drawing ${drawingNo(project, '22')} · ${chart.thk} mm lamination · Construction ${chart.construction}`}
     >
       <table className="w-full max-w-md mb-3">
         <tbody>
@@ -421,38 +422,48 @@ export function CoreCuttingChart({ design, params, project }: Drawings2DProps) {
         </tbody>
       </table>
 
-      {plateTable('Plate A -- Limb, Mitred Both Ends', 'A', chart.totalA)}
-      {plateTable(
-        'Plate B -- Half Yoke, Step-Lap', 'B', chart.totalB,
-        'Shift 0/10/20 mm, the 0 mm group carrying half the sheets at each step -- see the shift breakdown below.',
-      )}
-      {plateTable('Plate C -- Full Yoke, Mitred One End', 'C', chart.totalC)}
+      {isB ? (
+        <>
+          {plateTable('V-Notch -- Yoke, Top and Bottom', 'V', chart.totalV)}
+          {plateTable('Outer -- Two Outer Limbs, Mitred Both Ends', 'O', chart.totalO)}
+          {plateTable('Centre -- Centre Limb, Mitred Both Ends', 'C', chart.totalC)}
+        </>
+      ) : (
+        <>
+          {plateTable('Plate A -- Limb, Mitred Both Ends', 'A', chart.totalA)}
+          {plateTable(
+            'Plate B -- Half Yoke, Step-Lap', 'B', chart.totalB,
+            'Shift 0/10/20 mm, the 0 mm group carrying half the sheets at each step -- see the shift breakdown below.',
+          )}
+          {plateTable('Plate C -- Full Yoke, Mitred One End', 'C', chart.totalC)}
 
-      <div className="mb-3">
-        <div className="text-[11px] font-display uppercase tracking-[0.12em] text-ink2 mb-1">Plate B Shift Breakdown</div>
-        <table className="w-full">
-          <thead>
-            <tr>
-              <th className={thCls}>Step</th>
-              <th className={`${thCls} text-right`}>Sheets</th>
-              <th className={`${thCls} text-right`}>Shift 0 mm</th>
-              <th className={`${thCls} text-right`}>Shift 10 mm</th>
-              <th className={`${thCls} text-right`}>Shift 20 mm</th>
-            </tr>
-          </thead>
-          <tbody>
-            {chart.rows.map((r: any) => (
-              <tr key={r.i}>
-                <td className={`${tdCls} text-[11px] text-ink2`}>{r.i}</td>
-                <td className={`${tdCls} text-right font-mono text-[11px]`}>{r.B.sheets}</td>
-                <td className={`${tdCls} text-right font-mono text-[11px]`}>{r.B.shift0}</td>
-                <td className={`${tdCls} text-right font-mono text-[11px]`}>{r.B.shift10}</td>
-                <td className={`${tdCls} text-right font-mono text-[11px]`}>{r.B.shift20}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+          <div className="mb-3">
+            <div className="text-[11px] font-display uppercase tracking-[0.12em] text-ink2 mb-1">Plate B Shift Breakdown</div>
+            <table className="w-full">
+              <thead>
+                <tr>
+                  <th className={thCls}>Step</th>
+                  <th className={`${thCls} text-right`}>Sheets</th>
+                  <th className={`${thCls} text-right`}>Shift 0 mm</th>
+                  <th className={`${thCls} text-right`}>Shift 10 mm</th>
+                  <th className={`${thCls} text-right`}>Shift 20 mm</th>
+                </tr>
+              </thead>
+              <tbody>
+                {chart.rows.map((r: any) => (
+                  <tr key={r.i}>
+                    <td className={`${tdCls} text-[11px] text-ink2`}>{r.i}</td>
+                    <td className={`${tdCls} text-right font-mono text-[11px]`}>{r.B.sheets}</td>
+                    <td className={`${tdCls} text-right font-mono text-[11px]`}>{r.B.shift0}</td>
+                    <td className={`${tdCls} text-right font-mono text-[11px]`}>{r.B.shift10}</td>
+                    <td className={`${tdCls} text-right font-mono text-[11px]`}>{r.B.shift20}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
 
       <table className="w-full max-w-md">
         <tbody>
@@ -468,11 +479,21 @@ export function CoreCuttingChart({ design, params, project }: Drawings2DProps) {
         two totals differ by about 2 percent for that reason (real integer sheets vs. a continuous approximation),
         not because either is wrong.
       </p>
-      <p className="text-[10px] text-steel mt-2">
-        Fitted to the one 1250 kVA core cutting chart on file (CALIBRATION.md section 12) -- not confirmed at any
-        other rating. A second chart, at a different rating, would let these three plate formulas be checked
-        rather than assumed to hold away from ratings near 1250 kVA.
-      </p>
+      {isB ? (
+        <p className="text-[10px] text-steel mt-2">
+          Fitted to the one 1250 kVA (750+500) furnace core chart on file (CALIBRATION.md section 35) -- the
+          plate-count structure is confirmed directly by the designer, but the three mitre-deduction coefficients
+          were solved to reproduce that one chart's totals exactly, which any three coefficients against three
+          totals will do regardless of correctness elsewhere. Not confirmed away from that one chart's own
+          proportions.
+        </p>
+      ) : (
+        <p className="text-[10px] text-steel mt-2">
+          Fitted to the one 1250 kVA core cutting chart on file (CALIBRATION.md section 12) -- not confirmed at any
+          other rating. A second chart, at a different rating, would let these three plate formulas be checked
+          rather than assumed to hold away from ratings near 1250 kVA.
+        </p>
+      )}
       <TitleBlock
         drawingNo={drawingNo(project, '22')} title="Core Cutting Chart" rev={project?.revision ?? 0}
         sheet={22} totalSheets={22} fit={{ scale: 0 } as any} standard={params.standard}

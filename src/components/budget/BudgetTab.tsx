@@ -24,6 +24,10 @@ interface BudgetTabProps {
   design: any;
   bom: any;
   params: any;
+  /** The live design's raw over -- CALIBRATION.md section 42. When it pins
+   *  flux or current density, the search holds that pin on every candidate
+   *  instead of silently refitting around it. */
+  over: Record<string, any>;
   rates: Record<string, number>;
   activePreviewKey: string | null;
   onSelectPreview: (candidate: any | null) => void;
@@ -171,7 +175,7 @@ function KSweepPanel({ params, rates }: { params: any; rates: Record<string, num
   );
 }
 
-export function BudgetTab({ design, bom, params, rates, activePreviewKey, onSelectPreview }: BudgetTabProps) {
+export function BudgetTab({ design, bom, params, over, rates, activePreviewKey, onSelectPreview }: BudgetTabProps) {
   const current = { design, bom, params };
   const [minLakh, setMinLakh] = useState(() => Math.max(0, Math.round((bom.exFactory / 1e5 - 2) * 100) / 100));
   const [maxLakh, setMaxLakh] = useState(() => Math.round((bom.exFactory / 1e5) * 100) / 100);
@@ -184,6 +188,10 @@ export function BudgetTab({ design, bom, params, rates, activePreviewKey, onSele
   // of the sweep because its rate is still at the unsourced DEFAULT_RATES
   // placeholder -- searchDesigns' own excludedNote, forwarded by the worker.
   const [excludedNote, setExcludedNote] = useState<string | null>(null);
+  // CALIBRATION.md section 42: set whenever the live design has flux or
+  // current density pinned -- searchDesigns' own pinnedNote, forwarded by
+  // the worker, same mechanism as excludedNote above.
+  const [pinnedNote, setPinnedNote] = useState<string | null>(null);
   const workerRef = useRef<Worker | null>(null);
 
   // Terminate any still-running search if this tab unmounts -- a worker
@@ -242,6 +250,12 @@ export function BudgetTab({ design, bom, params, rates, activePreviewKey, onSele
         const coolingPriced = rates.coolingFan > 0 && rates.oilPump > 0 && rates.coolingControlGear > 0;
         return params.dry || !coolingPriced ? [params.cooling] : ['ONAN', 'ONAF'];
       })(),
+      // CALIBRATION.md section 42: the live design's own pins, so the search
+      // holds a pinned flux or current density on every candidate rather
+      // than treating it the same as an AUTO-derived value it is free to
+      // move. Undefined entries (nothing pinned) leave searchDesigns'
+      // behaviour exactly as it was before this field existed.
+      over,
     };
     // CALIBRATION.md section 25: runs in a worker, not on this thread --
     // the grid this opts object describes was 179,712 candidates before
@@ -255,6 +269,7 @@ export function BudgetTab({ design, bom, params, rates, activePreviewKey, onSele
     workerRef.current?.terminate();
     setSearchError(null);
     setExcludedNote(null);
+    setPinnedNote(null);
     setSearching(true);
     setProgress({ stage: 1, phase: 'start' });
 
@@ -268,6 +283,7 @@ export function BudgetTab({ design, bom, params, rates, activePreviewKey, onSele
       } else if (msg.type === 'done') {
         setResults(msg.results);
         setExcludedNote(msg.excludedNote ?? null);
+        setPinnedNote(msg.pinnedNote ?? null);
         setBand(b);
         setSearching(false);
         setProgress(null);
@@ -352,6 +368,9 @@ export function BudgetTab({ design, bom, params, rates, activePreviewKey, onSele
         )}
         {excludedNote && (
           <p className="text-[10px] text-alert px-1 pt-2">{excludedNote}</p>
+        )}
+        {pinnedNote && (
+          <p className="text-[10px] text-steel px-1 pt-2">{pinnedNote}</p>
         )}
       </Card>
 

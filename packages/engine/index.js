@@ -8,7 +8,7 @@
  * without bumping it, or old quotations stop reproducing.
  */
 
-export const ENGINE_VERSION = "1.17.0";
+export const ENGINE_VERSION = "1.20.0";
 
 const CONDUCTORS = {
   copper: { name: "Copper, EC grade", rho20: 0.017241, alpha: 0.00393, dens: 8890, dMax: 3.6, short: "Cu", proof: 1.0 },
@@ -393,6 +393,14 @@ function deriveSpec(core, over = {}) {
   const dCoreEst = Math.sqrt((4 * aNetEst) / (Math.PI * 0.94 * CORE_GRADES[gk].sf)) * 1000;
   put("steps", stepsSuggest(dCoreEst), null, Object.keys(STEP_UTIL).map((k) => [+k, k + " steps"]), "More steps fill the coil circle better and save steel, but cost more to cut and stack.");
   put("stepIncrement", 10, [5, 25, 5], null, "Lamination is slit to standard widths, not cut to a continuous optimum. Step widths round down to the nearest multiple of this -- rounding up can put the widest step past the core diameter itself.");
+  /* CALIBRATION.md section 35: Construction A (limb / half-yoke / full-yoke)
+     is the established, better-evidenced pattern -- confirmed against two
+     Mehir Transformers reference designs, not one furnace chart with a
+     tautological three-coefficient fit. Defaults to A regardless of
+     application; Construction B is selectable, not auto-suggested, until a
+     second real chart confirms its own formula away from the one geometry
+     it was solved against. */
+  put("coreConstruction", "A", null, [["A", "Limb / half-yoke / full-yoke"], ["B", "V-notch / outer / centre"]], "How the core lamination is cut and stacked. Construction A is confirmed against two real reference builds; Construction B against one furnace core chart -- see CALIBRATION.md section 35 before relying on it away from similar proportions.");
   put("aspect", aspectSuggest(umHV), [2.0, 3.8, 0.05], null, "Starting window shape. The final height is solved to hit the declared impedance unless you turn that off.");
   /* CALIBRATION.md section 28/32: the design-office aspect check, window
      height over window width, applied as a real constraint rather than
@@ -417,6 +425,19 @@ function deriveSpec(core, over = {}) {
     "Window height over window width. A taller, narrower window needs more turns per unit height and packs an ever-thinner coil -- past this ratio the winding is judged not buildable, not just expensive. Furnace and dual-rated OLTC duty legitimately run taller than distribution.");
   put("autoWindow", true, null, [[true, "Solve height for the declared impedance"], [false, "Use the output equation only"]], "With this on, the window height is adjusted until the calculated impedance matches the declared value, which is what a designer does by hand.");
   put("autoFit", true, null, [[true, "Fit flux and current density to the loss limits"], [false, "Use the rating-based values only"]], "With this on, the flux density and the current densities are trimmed until the calculated losses sit just inside the declared limits, the cheapest core and coil that still passes.");
+  /* CALIBRATION.md section 37: fitToSchedule used to target a flat 0.96 of
+     the declared limit for both no-load and load loss, with no evidence
+     behind that specific number and no way to tell it apart from a real
+     design margin. The HV conductor cross-check (section 37) found the
+     real 630 kVA winding running roughly double the loss-optimal copper
+     this engine's own 0.96 target implied, and the designer's own stated
+     practice explains it directly: 6-8% margin on load loss, 8-10% on
+     no-load, not a uniform 4%. marginTargetLL/NLL replace the hardcode,
+     each independently editable -- a design office with its own tighter or
+     looser practice sets its own number, the same as maxAspect or
+     coilHeightLimit. */
+  put("marginTargetLL", 0.93, [0.85, 0.95, 0.01], null, "Fraction of the declared load-loss limit autoFit targets internally. 0.93 leaves 7% margin -- lower means less margin (cheaper, closer to the declared ceiling), higher means more.");
+  put("marginTargetNLL", 0.90, [0.85, 0.95, 0.01], null, "Fraction of the declared no-load-loss limit autoFit targets internally. 0.90 leaves 10% margin.");
   put("windowSpace", 8, [6, 12, 0.5], null, "Numerator of the window space factor 8/(30+kV). Raise it if your coils pack tighter than average.");
 
   /* --- windings --- */
@@ -585,16 +606,24 @@ function deriveSpec(core, over = {}) {
    tier of the price-source hierarchy (src/lib/pricing.ts): any project
    with its own rate card or item-master prices never reads this.
 
-   CALIBRATION.md section 33: condAl and condCca specifically -- UNSOURCED,
-   not merely "unconfirmed" like the rest of this object. Every Fit to
-   Budget search this project has ever run, at every rating, recommended
-   aluminium or CCA over sheet-confirmed copper by 73-96%, entirely on the
-   strength of these two numbers. CCA physically contains copper and costs
-   more to produce than plain aluminium; 40% of the copper rate cannot be
-   right. See UNSOURCED_RATE_KEYS below -- searchDesigns will not recommend
-   either material while its rate sits at exactly this placeholder. */
+   CALIBRATION.md section 33/36: condAl and condCca were both flagged
+   UNSOURCED here -- every Fit to Budget search this project had run, at
+   every rating, recommended aluminium or CCA over sheet-confirmed copper
+   by 73-96%, entirely on the strength of two numbers nobody had checked.
+   Resolved differently for each. condAl is now sourced: the designer's own
+   supplier range is Rs 380-420/kg, set at 400 -- searchDesigns no longer
+   excludes it (see UNSOURCED_RATE_KEYS below). condCu's own 1415 is
+   confirmed against the same designer range (Rs 1350-1450). condCca stays
+   at its old unsourced placeholder, but the reason it is excluded from the
+   search changed: CCA physically contains copper and costs more to produce
+   than plain aluminium, so 40% of the copper rate was never plausible on
+   its own terms -- but the real reason it does not belong in a
+   recommendation is that standard manufacturers do not buy it at all
+   (MATERIALS_EXCLUDED_FROM_SEARCH below, CALIBRATION.md section 36). No
+   rate would fix that; the number here is left unchanged only because
+   nothing reads it for pricing purposes any more. */
 const DEFAULT_RATES = {
-  core: 240, condCu: 1415, condAl: 340, condCca: 560, insulation: 385,
+  core: 240, condCu: 1415, condAl: 400, condCca: 560, insulation: 385,
   frameMS: 70, tankMS: 86, fin: 152, radiator: 168, fluid: 115,
   paint: 340, bushHV: 2400, bushLV: 1900, octc: 9500, oltc: 465000, dualLink: 12000,
   cableBox: 18000, fittings: 26000, plateSet: 3500, resin: 380, enclosure: 155,
@@ -782,28 +811,65 @@ function designTransformer(p) {
          the 1250 kVA reference's 44 discs almost exactly; see its own
          put() note for why it isn't simply the sheet's stated 97.5 mm
          over 43 gaps. */
-    let axHV, rdHV;
-    if (aHVreq > 6) { rdHV = Math.sqrt(aHVreq / 2.1); axHV = 2.1 * rdHV; }
-    else { const dia = Math.sqrt((4 * aHVreq) / Math.PI); axHV = dia; rdHV = dia; }
+    /* CALIBRATION.md section 41: axHV/rdHV are ONE strand's own dimensions,
+       same meaning as before -- but above HV_STRAND_MAX_MM2, aHVreq is now
+       split into hvAxCount x hvRdCount parallel strands the same way
+       conductorSchedule has always displayed (same formula, moved here so
+       there is only one place it is computed, not two that can disagree).
+       hvTurnAx/hvTurnRd are what a whole TURN actually occupies -- every
+       parallel strand stacked with its own covering, not one strand's
+       footprint standing in for all of them. These, not axHV/rdHV plus one
+       hvPaper, are what the group/layer count and the radial build below
+       use: the window-height solve, tank sizing and (through the mean turn
+       length this radial build feeds) load loss all previously sized
+       themselves against a single conductor's footprint regardless of how
+       many actually run in parallel. */
+    let axHV, rdHV, hvAxCount, hvRdCount;
+    if (aHVreq > HV_STRAND_MAX_MM2) {
+      const hvAspect = 2.1;
+      let n = Math.ceil(aHVreq / HV_STRAND_MAX_MM2);
+      hvRdCount = Math.max(1, Math.round(Math.sqrt(n / hvAspect)));
+      hvAxCount = Math.ceil(n / hvRdCount);
+      n = hvAxCount * hvRdCount;
+      const strandArea = aHVreq / n;
+      rdHV = Math.sqrt(strandArea / hvAspect);
+      axHV = hvAspect * rdHV;
+    } else {
+      hvAxCount = 1; hvRdCount = 1;
+      if (aHVreq > 6) { rdHV = Math.sqrt(aHVreq / 2.1); axHV = 2.1 * rdHV; }
+      else { const dia = Math.sqrt((4 * aHVreq) / Math.PI); axHV = dia; rdHV = dia; }
+    }
+    /* CALIBRATION.md section 41: every parallel strand gets its own full
+       covering allowance, the same convention LV's own multi-strand split
+       already uses (lvRadial = lvTurnLayers * lvRadCount * (tLV + lvIns),
+       every strand counted, not gaps between them) -- reused here for
+       consistency within this engine, not independently confirmed for HV
+       multi-strand practice. Real construction may use a lighter
+       inter-strand covering than a full outer wrap on each strand; there
+       is no reference sheet with a multi-strand HV winding to check
+       against (both existing references stay under HV_STRAND_MAX_MM2,
+       single strand). Flagged, not guessed past. */
+    const hvTurnAx = hvAxCount * (axHV + p.hvPaper);
+    const hvTurnRd = hvRdCount * (rdHV + p.hvPaper);
 
     let groupTurns, groupGap, numGroups;
     if (p.hvConstruction === "crossover") {
       groupTurns = Math.max(1, Math.round(p.hvCrossoverTurnsPerLayer));
       groupGap = p.hvCoilGap;
-      numGroups = Math.max(1, Math.floor((hHV + groupGap) / (groupTurns * (axHV + p.hvPaper) + groupGap)));
+      numGroups = Math.max(1, Math.floor((hHV + groupGap) / (groupTurns * hvTurnAx + groupGap)));
     } else if (p.hvConstruction === "disc") {
       groupTurns = 1;
       groupGap = p.hvDiscGap;
-      numGroups = Math.max(2, Math.floor((hHV + groupGap) / ((axHV + p.hvPaper) + groupGap)));
+      numGroups = Math.max(2, Math.floor((hHV + groupGap) / (hvTurnAx + groupGap)));
     } else {
-      groupTurns = Math.max(1, Math.floor(hHV / (axHV + p.hvPaper)));
+      groupTurns = Math.max(1, Math.floor(hHV / hvTurnAx));
       groupGap = 0;
       numGroups = 1;
     }
     const turnsPerLayer = groupTurns;
     const layers = Math.max(1, Math.ceil(nHVmax / (numGroups * groupTurns)));
     const hvDucts = layers >= p.ductLayers2 ? 2 : layers >= p.ductLayers1 ? 1 : 0;
-    const hvRadial = layers * (rdHV + p.hvPaper) + (layers - 1) * p.hvInterlayer + hvDucts * p.ductWidth;
+    const hvRadial = layers * hvTurnRd + (layers - 1) * p.hvInterlayer + hvDucts * p.ductWidth;
 
     const tLVin = clr.coreLvClr, tLVout = tLVin + lvRadial;
     const tHVin = tLVout + clr.lvHvClr, tHVout = tHVin + hvRadial;
@@ -832,7 +898,7 @@ function designTransformer(p) {
       pctX, pctR, pctZ: Math.sqrt(pctX * pctX + pctR * pctR),
       voltsPerLayer: et * turnsPerLayer,
       numGroups, groupGap,
-      lvAxCount, lvRadCount,
+      lvAxCount, lvRadCount, hvAxCount, hvRdCount,
     };
   };
 
@@ -868,16 +934,17 @@ function designTransformer(p) {
      same geometry lvRadial already builds from (line ~584), so the extra
      area per elementary conductor is foilW x lvIns, not lvIns added to the
      axial dimension -- there is no covering on that edge. HV: p.hvPaper is
-     already documented as the full "on diameter" addition and is what the
-     build() geometry itself adds to axHV/rdHV for group and layer spacing
-     (lines ~627, 633, 640), so covered area is (axHV+hvPaper)(rdHV+hvPaper)
-     against the single full-section aHVreq -- not conductorSchedule's later
-     per-strand split, which is its own unconfirmed heuristic
-     (HV_STRAND_MAX_MM2) and is not fed back into this geometry either.
-     Paper/pressboard density 1150 kg/m^3 is the same figure wIns already
-     uses for cylinder insulation, not a new constant. */
+     already documented as the full "on diameter" addition, applied per
+     STRAND now (CALIBRATION.md section 41) -- covered area is
+     hvAxCount*hvRdCount strands, each (axHV+hvPaper)(rdHV+hvPaper), against
+     the single full-section aHVreq, the same split conductorSchedule
+     displays and build()'s own hvTurnAx/hvTurnRd size the winding from, not
+     a second, disagreeing count. Paper/pressboard density 1150 kg/m^3 is
+     the same figure wIns already uses for cylinder insulation, not a new
+     constant. */
   const wLVCovered = wLV + 3 * nLV * g.lmtLV * (g.lvAxCount * g.lvRadCount * g.foilW * p.lvIns) * 1e-6 * 1150;
-  const wHVCovered = wHV + 3 * nHVmax * g.lmtHV * ((g.axHV + p.hvPaper) * (g.rdHV + p.hvPaper) - aHVreq) * 1e-6 * 1150;
+  const hvN = g.hvAxCount * g.hvRdCount;
+  const wHVCovered = wHV + 3 * nHVmax * g.lmtHV * (hvN * (g.axHV + p.hvPaper) * (g.rdHV + p.hvPaper) - aHVreq) * 1e-6 * 1150;
   const yokeDepth = shape === "circ" ? 0.86 * dCore : coreD;
   /* CALIBRATION.md section 15: the limb term used to be aGross x 3 x Hw,
      treating every lamination as if it ran the full window height
@@ -892,14 +959,25 @@ function designTransformer(p) {
      reference checked, so there was nothing there to fix. */
   const coreSteps = stepWidths(p.steps, dCore, p.stepIncrement);
   const lamThk = grade.thk || 0.27;
-  let wLimb = 0;
-  coreSteps.rows.forEach((s, i) => {
-    const stack = i === 0 ? s.t : 2 * s.t;
-    const nSheets = Math.max(2, Math.round(stack / lamThk));
-    const lenA = 2 * s.w;
-    wLimb += ((s.w * lenA * lamThk) / 1e9) * 7650 * nSheets * 3; // 3 limbs
-  });
-  const wYoke = aGross * 2 * ((2 * g.cc + (shape === "circ" ? dCore : coreD)) / 1000) * 7650;
+  let wLimb, wYoke;
+  if (p.coreConstruction === "B") {
+    // CALIBRATION.md section 35: same function coreCuttingChart() calls for
+    // Construction B's own drawing, so the priced core and the steel-order
+    // document always agree on the same core, the same principle section
+    // 15 established for Construction A's own limb term.
+    const cb = coreConstructionB(dCore, g.cc, Hw, coreSteps, lamThk);
+    wYoke = cb.totalV;
+    wLimb = cb.totalO + cb.totalC;
+  } else {
+    wLimb = 0;
+    coreSteps.rows.forEach((s, i) => {
+      const stack = i === 0 ? s.t : 2 * s.t;
+      const nSheets = Math.max(2, Math.round(stack / lamThk));
+      const lenA = 2 * s.w;
+      wLimb += ((s.w * lenA * lamThk) / 1e9) * 7650 * nSheets * 3; // 3 limbs
+    });
+    wYoke = aGross * 2 * ((2 * g.cc + (shape === "circ" ? dCore : coreD)) / 1000) * 7650;
+  }
   const wCore = wLimb + wYoke;
   const coreHeight = Hw + 2 * yokeDepth;
   const coreWidth = 2 * g.cc + (shape === "circ" ? dCore : coreD);
@@ -1120,6 +1198,7 @@ function designTransformer(p) {
     lvTurnLayers: g.lvTurnLayers, hvDucts: g.hvDucts, i2r: g.i2rLV + g.i2rHV,
     tLVin: g.tLVin, tLVout: g.tLVout, tHVin: g.tHVin, tHVout: g.tHVout,
     lvAxCount: g.lvAxCount, lvRadCount: g.lvRadCount,
+    hvAxCount: g.hvAxCount, hvRdCount: g.hvRdCount,
     lvConstruction: p.kva < p.lvFoilMaxKva ? "foil" : "strip",
   };
 }
@@ -1317,34 +1396,64 @@ function fluxRange(gradeKey) {
 
 const DEFAULT_GAPSCALES = [0.9, 1.0, 1.12];
 
-/* CALIBRATION.md section 33: condAl and condCca have never been confirmed
-   against a real quote (DEFAULT_RATES' own comment) -- every search this
-   project has run recommended one or the other over sheet-confirmed copper
-   by 73-96%, entirely on the strength of two placeholder numbers nobody
-   ever checked. An unsourced rate that silently wins every search it is
-   offered in is worse than a missing one, so it is excluded here rather
-   than trusted -- unless a project's own rate card has actually moved the
-   rate away from this exact placeholder, which counts as a real, entered
-   figure like any other. */
-const UNSOURCED_RATE_KEYS = new Set(["condAl", "condCca"]);
+/* CALIBRATION.md section 36: CCA is excluded from the search permanently,
+   not for its rate -- standard manufacturers do not buy copper-clad
+   aluminium winding wire, for galvanic corrosion (a copper-aluminium
+   junction under load-cycling thermal stress is a known failure point) and
+   creep (aluminium's own long-term deformation under clamping pressure,
+   which a copper cladding does not fix). No rate, however well sourced,
+   re-enables it -- this is a manufacturability exclusion, the same class
+   as the aspect-ratio and coil/tank-height limits, not a pricing one. */
+const MATERIALS_EXCLUDED_FROM_SEARCH = new Set(["cca"]);
+
+/* CALIBRATION.md section 33/36: condAl was unsourced (never confirmed
+   against a real quote) when this mechanism was built -- section 36
+   confirms it against the designer's own supplier range (Rs 380-420/kg,
+   set at 400) and it is no longer gated here. Kept as a general mechanism,
+   not retired, since a future rate could equally go unsourced again. */
+const UNSOURCED_RATE_KEYS = new Set([]);
 function unsourcedConductorRate(cond, rates) {
   const rk = rkCond(cond);
   return UNSOURCED_RATE_KEYS.has(rk) && rates[rk] === DEFAULT_RATES[rk];
 }
 function unsourcedConductorNote(conds, rates) {
-  const excluded = conds.filter((c) => unsourcedConductorRate(c, rates));
-  if (!excluded.length) return null;
-  const names = excluded.map((c) => `${CONDUCTORS[c].name} (${rkCond(c)})`).join(", ");
-  return `${names} excluded from this search: rate not sourced from a real quote. `
-    + `Enter your own ${excluded.map((c) => rkCond(c)).join("/")} rate in the rate card to include `
-    + `${excluded.length > 1 ? "them" : "it"}.`;
+  const excludedUnsourced = conds.filter((c) => unsourcedConductorRate(c, rates));
+  const excludedMaterial = conds.filter((c) => MATERIALS_EXCLUDED_FROM_SEARCH.has(c));
+  const parts = [];
+  if (excludedUnsourced.length) {
+    const names = excludedUnsourced.map((c) => `${CONDUCTORS[c].name} (${rkCond(c)})`).join(", ");
+    parts.push(`${names} excluded: rate not sourced from a real quote. `
+      + `Enter your own ${excludedUnsourced.map((c) => rkCond(c)).join("/")} rate in the rate card to include `
+      + `${excludedUnsourced.length > 1 ? "them" : "it"}.`);
+  }
+  if (excludedMaterial.length) {
+    const names = excludedMaterial.map((c) => CONDUCTORS[c].name).join(", ");
+    parts.push(`${names} excluded: not offered as a winding material (galvanic corrosion, creep -- CALIBRATION.md section 36). Not a pricing question; no rate re-enables it.`);
+  }
+  return parts.length ? parts.join(" ") : null;
 }
 
 function searchDesigns(base, rates, band, opts) {
   const results = [];
+  /* CALIBRATION.md section 42: a pin is the user saying they have a reason,
+     often a tender requirement -- searchDesigns used to call fitToSchedule
+     with an empty over on every candidate regardless of what the live
+     design actually had pinned, so a search launched from a design with
+     flux or density pinned would silently explore candidates that ignore
+     the pin, then could recommend one of them. opts.over is the live
+     design's own over (undefined/{} for callers that don't pass one,
+     matching every existing call site's behaviour unchanged). Locked
+     dimensions use the design's own pinned value as the candidate's
+     starting point -- not the grade-clamped/conductor-anchored estimate
+     below, which exists only to give an UNLOCKED bisection a sane start --
+     and are then passed through to fitToSchedule so its own lock checks
+     (identical to the main design path) hold them for real. */
+  const over = opts.over || {};
+  const lockFlux = over.flux !== undefined;
+  const lockDensity = over.deltaLV !== undefined || over.deltaHV !== undefined;
   const grades = opts.grades.length ? opts.grades : [base.coreGrade];
   const condsRequested = opts.conds.length ? opts.conds : [base.condLV];
-  const conds = condsRequested.filter((c) => !unsourcedConductorRate(c, rates));
+  const conds = condsRequested.filter((c) => !MATERIALS_EXCLUDED_FROM_SEARCH.has(c) && !unsourcedConductorRate(c, rates));
   const tanks = opts.tanks.length ? opts.tanks : [base.tankType];
   const cores = opts.cores.length ? opts.cores : [base.coreType];
   /* CALIBRATION.md section 2: K (etK) trades core steel for winding copper
@@ -1403,12 +1512,17 @@ function searchDesigns(base, rates, band, opts) {
       // base.flux can easily sit outside a different grade's own bMax/bMin.
       const bMaxG = CORE_GRADES[g].bMax - 0.02;
       const bMinG = g === "amor" ? 1.20 : 1.42;
-      const startFlux = Math.min(bMaxG, Math.max(bMinG, base.flux));
+      // A pinned flux is the design's own current value, held exactly as
+      // the main path holds it -- not reclamped into whatever grade is
+      // being tried here, since a candidate the pin does not actually fit
+      // is honestly infeasible, not something to quietly bend the pin for.
+      const startFlux = lockFlux ? base.flux : Math.min(bMaxG, Math.max(bMinG, base.flux));
       for (const cond of conds) {
         // anchor the current-density ladder on the conductor being tried, not on the
-        // one already in the design: aluminium needs a far lower density than copper
-        const anchLV = cond === base.condLV ? base.deltaLV : densitySuggest(base.kva, cond, base.medium === "dry", false);
-        const anchHV = cond === base.condHV ? base.deltaHV : densitySuggest(base.kva, cond, base.medium === "dry", true);
+        // one already in the design: aluminium needs a far lower density than copper --
+        // unless density is pinned, in which case the pin is held regardless of conductor.
+        const anchLV = lockDensity ? base.deltaLV : cond === base.condLV ? base.deltaLV : densitySuggest(base.kva, cond, base.medium === "dry", false);
+        const anchHV = lockDensity ? base.deltaHV : cond === base.condHV ? base.deltaHV : densitySuggest(base.kva, cond, base.medium === "dry", true);
         for (const tk of tanks) {
           for (const gs of gapScales) {
             for (const cl of coolings) {
@@ -1435,7 +1549,12 @@ function searchDesigns(base, rates, band, opts) {
                         // a stage-1 winner actually used.
                         gapScale: gs,
                       };
-                      const fitted = fitToSchedule(candBase, {});
+                      // autoFitConverged (CALIBRATION.md section 38) is
+                      // reporting, not a design parameter -- stripped
+                      // before candBase merges into cand, same as
+                      // computeDesign keeps it off designTransformer's own
+                      // params. Carried on the result below instead.
+                      const { autoFitConverged, ...fitted } = fitToSchedule(candBase, over);
                       const cand = { ...candBase, ...fitted };
                       const d = designTransformer(cand);
                       if (!isFinite(d.wCore) || d.wCore <= 0) continue;
@@ -1455,6 +1574,7 @@ function searchDesigns(base, rates, band, opts) {
                       results.push({
                         inputs: cand, d, bom, price: bom.exFactory, tco: bom.tco,
                         zOk, thermalOk, aspectOk, lossOk, feasible: zOk && thermalOk && aspectOk && lossOk,
+                        autoFitConverged: autoFitConverged !== false,
                         withinBudget: bom.exFactory >= (band.min || 0) && bom.exFactory <= (band.max ?? Infinity),
                       });
                     }
@@ -1479,6 +1599,13 @@ function searchDesigns(base, rates, band, opts) {
   const out = [...best.values()];
   const note = unsourcedConductorNote(condsRequested, rates);
   if (note) out.excludedNote = note;
+  if (lockFlux || lockDensity) {
+    const pinned = [];
+    if (lockFlux) pinned.push(`flux density (${base.flux.toFixed(2)} T)`);
+    if (lockDensity) pinned.push(`current density (LV ${base.deltaLV.toFixed(2)}, HV ${base.deltaHV.toFixed(2)} A/mm²)`);
+    out.pinnedNote = `Every candidate holds the design's own pinned ${pinned.join(" and ")} -- `
+      + `candidates where that pin does not fit the grade or conductor being tried are reported infeasible, not silently refitted around it.`;
+  }
   return out;
 }
 
@@ -1623,6 +1750,7 @@ function stagedSearchDesigns(base, rates, band, opts, onProgress, shouldCancel) 
   }
   const out = [...best.values()];
   if (conductorNote) out.excludedNote = conductorNote;
+  if (stage1.pinnedNote) out.pinnedNote = stage1.pinnedNote;
   return out;
 }
 
@@ -1642,24 +1770,106 @@ function stagedSearchDesigns(base, rates, band, opts, onProgress, shouldCancel) 
    both of which want one clean line, not one point out of the big grid's
    many thousands. */
 const ETK_RANGE = Array.from({ length: 16 }, (_, i) => Math.round((0.40 + i * 0.02) * 100) / 100);
-function etkCurve(p, rates, range = ETK_RANGE) {
-  const pts = [];
-  for (const k of range) {
-    const d = designTransformer({ ...p, etK: k });
-    if (!isFinite(d.wCore) || d.wCore <= 0) continue;
-    const bom = buildBOM(d, rates);
-    const zOk = Math.abs(d.pctZ - p.targetZ) / p.targetZ <= p.zTol / 100;
-    const thermalOk = d.compliance.rise.ok && d.compliance.wRise.ok;
-    const lossOk = d.compliance.nll.ok && d.compliance.ll.ok;
-    // CALIBRATION.md section 28: without this, a low K that trades an ever
-    // taller, ever thinner (and so unbuildable) coil for lower load loss
-    // looks like a genuine saving to this curve, and fitEtkToCost below
-    // would pick it for every AUTO-K design at this rating, not only a
-    // search candidate.
-    const aspectOk = d.compliance.aspect.ok;
-    pts.push({ etK: k, exFactory: bom.exFactory, feasible: zOk && thermalOk && aspectOk && lossOk });
+
+/* CALIBRATION.md section 39: one candidate's own worth at one K -- flux and
+   density are re-fitted for THIS K (not held at whatever a different K's
+   own fit left them at), so the point returned is self-consistent and, if
+   selected, IS the design that gets built, not a preview of a cheaper K
+   that a stale flux/density made look cheaper than it will actually be.
+   Extracted so both the coarse and refine stages of etkCurve below call
+   the exact same fit-then-build logic, never a stale shortcut for one
+   stage and not the other. Returns the fitted flux/deltaLV/deltaHV
+   alongside etK -- fitEtkToCost's own return must carry these too, or the
+   winning K would be selected on a correct fit and then built with a
+   different, stale one, the same bug one level further down. */
+// CALIBRATION.md section 39: a loose, fast fit used purely to RANK K
+// candidates against each other -- 15 iterations, 1% tolerance, against
+// the real fit's 60 iterations and 0.2%. Never used for a number anyone
+// sees: fitEtkToCost always re-fits the winning K at full precision
+// before returning it (below), so this only ever affects which K wins,
+// not what gets reported for it.
+const ETK_SCAN_MAX_ITERS = 8, ETK_SCAN_TOL = 0.02;
+function etkPoint(p, rates, k, over, fast = false) {
+  // CALIBRATION.md section 39: start every K's own fit from the same,
+  // K-independent point rather than wherever a DIFFERENT K's own fit left
+  // flux/density -- fitToSchedule is a local iterative corrector, not a
+  // global solve, so the same K can converge to a different fixed point
+  // depending on where it started. A CLAMP of p's own carried-over value
+  // is not a reset -- if that value already sits inside the grade's
+  // bounds (the common case), the clamp is a no-op and the dependency on
+  // whichever K happened to run first stays exactly as it was (found
+  // directly: clamping alone left the default case's own K=0.46 point
+  // unchanged, still non-converging). fluxSuggest/densitySuggest recompute
+  // a genuinely fresh estimate, the same ones deriveSpec itself uses,
+  // independent of any prior K's own fit. Locked dimensions keep the
+  // caller's own explicit value, not reset.
+  const lockF = over.flux !== undefined;
+  const lockD = over.deltaLV !== undefined || over.deltaHV !== undefined;
+  const dry = p.medium === "dry";
+  const startFlux = lockF ? p.flux : fluxSuggest(p.coreGrade, p.effLevel, p.kva);
+  const startDLV = lockD ? p.deltaLV : densitySuggest(p.kva, p.condLV, dry, false);
+  const startDHV = lockD ? p.deltaHV : densitySuggest(p.kva, p.condHV, dry, true);
+  const pk = { ...p, etK: k, flux: startFlux, deltaLV: startDLV, deltaHV: startDHV };
+  const { autoFitConverged, ...fitted } = fast
+    ? fitToSchedule(pk, over, ETK_SCAN_MAX_ITERS, ETK_SCAN_TOL)
+    : fitToSchedule(pk, over);
+  const d = designTransformer({ ...pk, ...fitted });
+  if (!isFinite(d.wCore) || d.wCore <= 0) return null;
+  const bom = buildBOM(d, rates);
+  const zOk = Math.abs(d.pctZ - p.targetZ) / p.targetZ <= p.zTol / 100;
+  const thermalOk = d.compliance.rise.ok && d.compliance.wRise.ok;
+  const lossOk = d.compliance.nll.ok && d.compliance.ll.ok;
+  // CALIBRATION.md section 28: without this, a low K that trades an ever
+  // taller, ever thinner (and so unbuildable) coil for lower load loss
+  // looks like a genuine saving to this curve, and fitEtkToCost below
+  // would pick it for every AUTO-K design at this rating, not only a
+  // search candidate.
+  const aspectOk = d.compliance.aspect.ok;
+  return {
+    etK: k, exFactory: bom.exFactory, feasible: zOk && thermalOk && aspectOk && lossOk,
+    converged: autoFitConverged !== false, fitted,
+  };
+}
+
+/* CALIBRATION.md section 39: this curve used to hold flux and current
+   density fixed at whatever fitToSchedule had settled for the design's
+   OWN starting K, then sweep etK across every point with that stale fit --
+   comparing 16 candidates on 15 of them using a fit that was never actually
+   theirs. A K that only looked cheap because the flux/density fitted for a
+   different K happened to undersize its core could win, and the design
+   built at that K afterward would not actually hold the declared margin
+   (found directly: 630 kVA's own achieved load-loss margin collapsed from
+   a correctly-fitted 7.11% to 0.59% once fitEtkToCost moved K away from
+   what fitToSchedule had fitted). Re-fitting at every K point closes this,
+   but costs roughly 10x more per point (fitToSchedule's own convergence
+   loop, section 38, not one designTransformer call) -- too slow for every
+   interactive computeDesign at the full 16-point range (measured: ~1.9s).
+   Staged the same way stagedSearchDesigns is (CALIBRATION.md section 25):
+   a coarse pass across the full range, refine with a full-resolution
+   window around the coarse winner -- both stages call etkPoint() above,
+   so every comparison this function ever makes is self-consistent, never
+   the stale shortcut that caused the problem. Falls back to the full range
+   only when the caller explicitly asks for a range shorter than the coarse
+   count (search's own narrower K windows, already small). */
+const ETK_CURVE_COARSE_N = 5;
+function etkCurve(p, rates, over = {}, range = ETK_RANGE) {
+  // CALIBRATION.md section 39: every point here is the fast scan (this
+  // curve is for ranking and for the K Sweep chart's own shape, not a
+  // number anyone adopts directly) -- fitEtkToCost re-fits its own winner
+  // at full precision separately, below.
+  if (range.length <= ETK_CURVE_COARSE_N) {
+    return range.map((k) => etkPoint(p, rates, k, over, true)).filter(Boolean);
   }
-  return pts;
+  const coarseK = Array.from({ length: ETK_CURVE_COARSE_N }, (_, i) =>
+    range[Math.round((i * (range.length - 1)) / (ETK_CURVE_COARSE_N - 1))]);
+  const coarse = coarseK.map((k) => etkPoint(p, rates, k, over, true)).filter(Boolean);
+  if (!coarse.length) return [];
+  const coarsePool = coarse.filter((pt) => pt.feasible);
+  const coarseBest = (coarsePool.length ? coarsePool : coarse).reduce((a, b) => (b.exFactory < a.exFactory ? b : a));
+  const fineWindow = windowAround(range, coarseBest.etK, ETK_CURVE_COARSE_N + 2);
+  const seen = new Set(coarseK);
+  const refined = fineWindow.filter((k) => !seen.has(k)).map((k) => etkPoint(p, rates, k, over, true)).filter(Boolean);
+  return [...coarse, ...refined];
 }
 
 /* Raises the AUTO etK from deriveSpec's fixed per-application multiplier
@@ -1692,16 +1902,22 @@ function etkCurve(p, rates, range = ETK_RANGE) {
    still non-compliant instead. */
 function fitEtkToCost(p, over = {}, rates = DEFAULT_RATES) {
   if (over.etK !== undefined) return {};
-  const curve = etkCurve(p, rates);
+  const curve = etkCurve(p, rates, over);
   if (!curve.length) return {};
   const pool = curve.filter((pt) => pt.feasible);
   if (pool.length) {
-    const best = pool.reduce((a, b) => (b.exFactory < a.exFactory ? b : a));
-    return { etK: best.etK };
+    const fastBest = pool.reduce((a, b) => (b.exFactory < a.exFactory ? b : a));
+    // CALIBRATION.md section 39: the curve's own points are all fast scans
+    // (ranking only) -- re-fit the actual winner at full precision before
+    // returning anything, so what gets reported and built is never the
+    // loose-tolerance number that merely won the ranking pass.
+    const best = etkPoint(p, rates, fastBest.etK, over, false) || fastBest;
+    return { etK: best.etK, ...best.fitted, etkFitConverged: best.converged };
   }
 
-  const best = curve.reduce((a, b) => (b.exFactory < a.exFactory ? b : a));
-  const d = designTransformer({ ...p, etK: best.etK });
+  const fastBest = curve.reduce((a, b) => (b.exFactory < a.exFactory ? b : a));
+  const best = etkPoint(p, rates, fastBest.etK, over, false) || fastBest;
+  const d = designTransformer({ ...p, etK: best.etK, ...best.fitted });
   const zOk = Math.abs(d.pctZ - p.targetZ) / p.targetZ <= p.zTol / 100;
   const missed = [];
   if (!d.compliance.nll.ok) missed.push(`no-load loss ${Math.round(d.compliance.nll.val)} W against ${Math.round(d.compliance.nll.lim)} W declared`);
@@ -1716,6 +1932,8 @@ function fitEtkToCost(p, over = {}, rates = DEFAULT_RATES) {
     : "";
   return {
     etK: best.etK,
+    ...best.fitted,
+    etkFitConverged: best.converged,
     etkNonCompliant: true,
     etkSearchNote: `No K from ${ETK_RANGE[0]} to ${ETK_RANGE[ETK_RANGE.length - 1]} keeps this design within every declared limit at ${p.kva} kVA. `
       + `Built at the cheapest point on the curve, K = ${best.etK}, ${inr(best.exFactory)} ex-works, rather than the fixed AUTO suggestion -- `
@@ -2196,9 +2414,80 @@ function stampingSchedule(d, steps) {
    rating, before trusting any of these three formulas away from ratings
    near 1250 kVA -- exactly the caveat every other single-chart-fitted
    constant in this engine already carries. */
+
+/* CALIBRATION.md section 35: Construction B, the V-notch/outer/centre
+   pattern the 1250 kVA (750+500) OLTC furnace chart uses (sections 28, 34)
+   -- a genuinely different lamination pattern from Construction A above,
+   not a relabelling of it. Plate-count structure confirmed directly by the
+   designer, not inferred: two V-notch plates per layer (the yoke, top and
+   bottom), two outer plates per layer (the two outer limbs), one centre
+   plate per layer (the one centre limb) -- centre's own total comes out
+   near half the others because there is one centre limb against two of
+   everything else, not because centre plates are physically thinner.
+
+   The three stated lengths (2*cc+w for V-notch, Hw+2*w for outer, outer-52
+   for centre) are OUTER edges, not the mean length the mass calculation
+   needs -- reproducing them literally overstates every plate (checked
+   directly: Construction A's own already-validated yoke formula, applied
+   unchanged to this geometry, gives 562.77 kg against the real 397.69 kg,
+   +41.5%). The gap scales linearly with each step's own width, consistent
+   with a 45 degree mitre (section 15's own "long - short = 2w"), so each
+   length is corrected by k*w before use.
+
+   MITRE_K's three coefficients are solved exactly against the one chart
+   available, once the plate-count structure above was pinned by the
+   designer -- three equations (the three plate totals: V-notch 397.69 kg,
+   outer 500.25 kg, centre 223.73 kg), three unknowns, solved to reproduce
+   them exactly. This is NOT the same as an independently derived formula:
+   with exactly as many free coefficients as target totals, an exact match
+   is guaranteed by the algebra regardless of whether the underlying
+   per-step model is fully correct away from this one geometry. Pure
+   45-degree-mitre-only geometry (2 ends per plate, w/2 per end) predicts
+   1.0 for V-notch and outer, 0.5 for centre -- the solved values (1.446,
+   1.275, 1.465) are well above that, meaning there is a real additional
+   deduction (the V-notch cutout itself, a limb-yoke joint allowance, or
+   both) this engine cannot separate out from one chart's three aggregate
+   totals alone. Unconfirmed at any rating besides this one -- a second
+   real Construction B chart, at different proportions, would let these
+   three numbers actually be checked rather than assumed to hold, the same
+   caveat every other single-chart-fitted constant in this engine already
+   carries. */
+const MITRE_K = { vNotch: 1.44585, outer: 1.27514, centre: 1.46509 };
+function coreConstructionB(dCore, cc, Hw, steps, thk, dens = 7650) {
+  const rows = steps.rows.map((s, i) => {
+    const stack = i === 0 ? s.t : 2 * s.t;
+    const nSheets = Math.max(2, Math.round(stack / thk));
+
+    const lenVNotch = (2 * cc + s.w) - MITRE_K.vNotch * s.w;
+    const vSheets = nSheets * 2; // top + bottom yoke
+    const massV = ((s.w * lenVNotch * thk) / 1e9) * dens * vSheets;
+
+    const lenOuterStated = Hw + 2 * s.w;
+    const lenOuter = lenOuterStated - MITRE_K.outer * s.w;
+    const oSheets = nSheets * 2; // two outer limbs
+    const massO = ((s.w * lenOuter * thk) / 1e9) * dens * oSheets;
+
+    const lenCentre = (lenOuterStated - 52) - MITRE_K.centre * s.w;
+    const cSheets = nSheets * 1; // one centre limb
+    const massC = ((s.w * lenCentre * thk) / 1e9) * dens * cSheets;
+
+    return {
+      i: i + 1, w: s.w, stack, nSheets,
+      V: { length: +lenVNotch.toFixed(1), weight: massV, sheets: vSheets },
+      O: { length: +lenOuter.toFixed(1), weight: massO, sheets: oSheets },
+      C: { length: +lenCentre.toFixed(1), weight: massC, sheets: cSheets },
+    };
+  });
+  const totalV = rows.reduce((s, r) => s + r.V.weight, 0);
+  const totalO = rows.reduce((s, r) => s + r.O.weight, 0);
+  const totalC = rows.reduce((s, r) => s + r.C.weight, 0);
+  return { construction: "B", rows, thk, totalV, totalO, totalC, chartTotal: totalV + totalO + totalC };
+}
+
 function coreCuttingChart(d, p) {
   const steps = stepWidths(p.steps, d.dCore, p.stepIncrement);
   const thk = d.grade.thk || 0.27;
+  if (p.coreConstruction === "B") return coreConstructionB(d.dCore, d.cc, d.Hw, steps, thk);
   const dens = 7650;
   const cc = d.cc;
   const rows = steps.rows.map((s, i) => {
@@ -2229,7 +2518,7 @@ function coreCuttingChart(d, p) {
   const totalA = rows.reduce((s, r) => s + r.A.weight, 0);
   const totalB = rows.reduce((s, r) => s + r.B.weight, 0);
   const totalC = rows.reduce((s, r) => s + r.C.weight, 0);
-  return { rows, thk, totalA, totalB, totalC, chartTotal: totalA + totalB + totalC };
+  return { construction: "A", rows, thk, totalA, totalB, totalC, chartTotal: totalA + totalB + totalC };
 }
 
 /* CALIBRATION.md section 24: finLayout is now the corrugated-fin-wall
@@ -2422,6 +2711,14 @@ function tappingSchedule(d, p) {
    layers" for the notation example's 2-radial arrangement) -- applied to
    both windings now, not just HV. */
 const HV_STRAND_MAX_MM2 = 37.6;
+/* CALIBRATION.md section 41: axHV/rdHV/hvAxCount/hvRdCount are read
+   directly off d here, not recomputed -- this used to run its own,
+   independent copy of the split formula, which is exactly section 15's
+   "two documents disagreeing" problem: the winding this schedule showed
+   and the winding designTransformer actually sized (window height, radial
+   build, resistance) were never guaranteed to be the same split. They
+   agree by construction now, the same principle section 15 established
+   for the core cutting chart's own limb term. */
 function conductorSchedule(d, p) {
   const lvParallel = d.lvAxCount * d.lvRadCount;
   const lv = {
@@ -2436,26 +2733,13 @@ function conductorSchedule(d, p) {
     weight: { bare: +d.wLV.toFixed(1), covered: +d.wLVCovered.toFixed(1) },
   };
 
-  const aspect = 2.1;
-  let hvW, hvT, n, axCount, rdCount;
-  if (d.aHVreq <= HV_STRAND_MAX_MM2) {
-    n = 1; axCount = 1; rdCount = 1;
-    hvW = d.axHV; hvT = d.rdHV;
-  } else {
-    n = Math.ceil(d.aHVreq / HV_STRAND_MAX_MM2);
-    rdCount = Math.max(1, Math.round(Math.sqrt(n / aspect)));
-    axCount = Math.ceil(n / rdCount);
-    n = axCount * rdCount;
-    const strandArea = d.aHVreq / n;
-    hvT = Math.sqrt(strandArea / aspect);
-    hvW = aspect * hvT;
-  }
+  const hvN = d.hvAxCount * d.hvRdCount;
   const hv = {
-    bare: { w: +hvW.toFixed(2), t: +hvT.toFixed(2) },
-    covered: { w: +(hvW + p.hvPaper).toFixed(2), t: +(hvT + p.hvPaper).toFixed(2) },
+    bare: { w: +d.axHV.toFixed(2), t: +d.rdHV.toFixed(2) },
+    covered: { w: +(d.axHV + p.hvPaper).toFixed(2), t: +(d.rdHV + p.hvPaper).toFixed(2) },
     covering: `${p.hvPaper.toFixed(2)} mm paper covering, on diameter`,
-    parallel: n, arrangement: n > 1 ? `${axCount}A x ${rdCount}R` : null,
-    transposition: rdCount > 2,
+    parallel: hvN, arrangement: hvN > 1 ? `${d.hvAxCount}A x ${d.hvRdCount}R` : null,
+    transposition: d.hvRdCount > 2,
     weight: { bare: +d.wHV.toFixed(1), covered: +d.wHVCovered.toFixed(1) },
   };
   return { lv, hv };
@@ -2759,7 +3043,12 @@ export {
 
 export function computeDesign(core, over = {}, rates = DEFAULT_RATES, extras = []) {
   const spec = deriveSpec(core, over);
-  const fitted = fitToSchedule(spec.S, over);
+  // CALIBRATION.md section 38: autoFitConverged is reporting, not a design
+  // parameter -- kept off of p/fitted so it never reaches designTransformer,
+  // same as etkSearchNote/etkNonCompliant below. Absent (autoFit off, or
+  // both flux and density locked) reads as converged: there was nothing to
+  // fail to converge.
+  const { autoFitConverged, ...fitted } = fitToSchedule(spec.S, over);
   const p0 = { ...spec.S, ...fitted };
   // CALIBRATION.md section 2: runs after fitToSchedule so the K search sees
   // the same flux and current density the actual build will use, and before
@@ -2767,16 +3056,68 @@ export function computeDesign(core, over = {}, rates = DEFAULT_RATES, extras = [
   // fixed-multiplier guess when the project's own rates say otherwise.
   // etkSearchNote/etkNonCompliant (no compliant K found) are reporting, not
   // design parameters -- kept off of p/fitted so they never reach
-  // designTransformer.
-  const { etkSearchNote, etkNonCompliant, ...etkOverride } = fitEtkToCost(p0, over, rates);
+  // designTransformer. etkFitConverged (section 39) is the WINNING K's own
+  // fit convergence -- supersedes autoFitConverged above, which was for
+  // whatever K fitToSchedule started from and fitEtkToCost may have since
+  // moved away from. Only present when fitEtkToCost actually ran (etK was
+  // AUTO, not locked) -- undefined otherwise, in which case the original
+  // autoFitConverged is the right, and only, answer.
+  const { etkSearchNote, etkNonCompliant, etkFitConverged, ...etkOverride } = fitEtkToCost(p0, over, rates);
   const fittedAll = { ...fitted, ...etkOverride };
   const p = { ...p0, ...etkOverride };
   const design = designTransformer(p);
   const bom = buildBOM(design, rates, extras);
-  return { spec, params: p, fitted: fittedAll, design, bom, engineVersion: ENGINE_VERSION, etkSearchNote, etkNonCompliant: !!etkNonCompliant };
+  const finalConverged = etkFitConverged !== undefined ? etkFitConverged : autoFitConverged;
+  return {
+    spec, params: p, fitted: fittedAll, design, bom, engineVersion: ENGINE_VERSION, etkSearchNote,
+    etkNonCompliant: !!etkNonCompliant, autoFitConverged: finalConverged !== false,
+  };
 }
 
-export function fitToSchedule(S, over = {}) {
+/* CALIBRATION.md section 38: this loop used to take a full, undamped
+   correction step every iteration for a fixed 10 iterations, no
+   convergence check at all -- whatever flux/deltaLV/deltaHV it held after
+   iteration 10 was returned, converged or not, with no way to tell which.
+   Raising the margin targets (section 37) surfaced a real, pre-existing
+   fault this had been hiding: at some ratings (1250 kVA specifically,
+   traced in detail) the load-loss correction does not settle to a fixed
+   point at all. The cause is not flux and density fighting each other --
+   flux was found pinned dead flat at the grade ceiling the whole time,
+   not moving. It is the density correction chasing a DISCONTINUITY in
+   designTransformer's own geometry: lvAxCount/lvRadCount (the LV parallel-
+   conductor split) flips between two configurations (4x6 and 5x5 in the
+   traced case) at nearly identical deltaLV, each giving a meaningfully
+   different load loss for the same current density. The corrector
+   overshoots across that threshold every pass -- traced to a clean
+   period-6 cycle, hundreds of watts wide, never narrowing.
+
+   Fixed two ways. First, damping (RELAX = 0.6): each iteration moves only
+   60% of the way from the current value to what an undamped correction
+   would ask for, the standard remedy for a fixed-point iteration
+   overshooting past a target repeatedly -- a smaller step is less likely
+   to cross a threshold it would otherwise bounce off on both sides.
+   Second, and more important: the loop now exits on an actual convergence
+   check (flux, deltaLV and deltaHV all within CONVERGE_TOL relative spread
+   across the last CONVERGE_WINDOW iterations), not a fixed count, and
+   caps at MAX_ITERS as a safety bound rather than a target -- checked
+   across six ratings (100 to 5000 kVA) with the new margin targets, five
+   settle cleanly in 5-15 iterations; 1250 kVA does not settle within 60
+   even damped, confirming this is a genuine structural difficulty at that
+   specific configuration, not a tuning artefact fixable by adjusting the
+   damping factor or the tolerance. When that happens the loop still
+   returns its last values, usable but not exact -- and sets
+   autoFitConverged: false so this is visible on the design, the same
+   principle etkNonCompliant already established: a result that failed to
+   settle must never be indistinguishable from one that did. */
+const FIT_RELAX = 0.6, FIT_MAX_ITERS = 60, FIT_CONVERGE_WINDOW = 5, FIT_CONVERGE_TOL = 0.002;
+/* CALIBRATION.md section 39: maxIters/tol are overridable so etkCurve can
+   scan many K candidates at a loose, fast tolerance purely to rank them,
+   then run ONE final call at the real (tight) precision for whichever K
+   wins -- never comparing candidates on a stale fit (section 39's original
+   fault), but not paying full convergence cost for every candidate a
+   ranking pass immediately discards either. The default (no args) is
+   still the full-precision fit computeDesign's own main path uses. */
+export function fitToSchedule(S, over = {}, maxIters = FIT_MAX_ITERS, tol = FIT_CONVERGE_TOL) {
   if (!S.autoFit) return {};
   const lockF = over.flux !== undefined;
   const lockD = over.deltaLV !== undefined || over.deltaHV !== undefined;
@@ -2785,19 +3126,35 @@ export function fitToSchedule(S, over = {}) {
   const bMin = S.coreGrade === "amor" ? 1.20 : 1.42;
   const cl = (x, lo, hi) => Math.min(hi, Math.max(lo, x));
   let flux = S.flux, dLV = S.deltaLV, dHV = S.deltaHV;
-  for (let i = 0; i < 10; i++) {
+  const window = [];
+  let converged = false;
+  for (let i = 0; i < maxIters; i++) {
     const t = designTransformer({ ...S, flux, deltaLV: dLV, deltaHV: dHV });
+    window.push({ flux, dLV, dHV });
+    if (window.length > FIT_CONVERGE_WINDOW) window.shift();
+    if (window.length === FIT_CONVERGE_WINDOW) {
+      const spread = (arr) => (Math.max(...arr) - Math.min(...arr)) / Math.max(...arr.map(Math.abs), 1e-6);
+      if (spread(window.map((w) => w.flux)) < tol
+        && spread(window.map((w) => w.dLV)) < tol
+        && spread(window.map((w) => w.dHV)) < tol) { converged = true; break; }
+    }
     if (!lockF && t.noLoad > 0) {
-      flux = cl(flux * Math.pow(Math.pow((0.96 * t.sch.nll) / t.noLoad, 1 / 0.9), 0.55), bMin, bMax);
+      const fluxTarget = cl(flux * Math.pow(Math.pow((S.marginTargetNLL * t.sch.nll) / t.noLoad, 1 / 0.9), 0.55), bMin, bMax);
+      flux += FIT_RELAX * (fluxTarget - flux);
     }
     if (!lockD && t.loadLoss > 0) {
-      const k = Math.pow((0.96 * t.sch.ll) / t.loadLoss, 0.6);
-      dLV = cl(dLV * k, 0.7, CONDUCTORS[S.condLV].dMax);
-      dHV = cl(dHV * k, 0.7, CONDUCTORS[S.condHV].dMax);
+      const k = Math.pow((S.marginTargetLL * t.sch.ll) / t.loadLoss, 0.6);
+      const dLVTarget = cl(dLV * k, 0.7, CONDUCTORS[S.condLV].dMax);
+      const dHVTarget = cl(dHV * k, 0.7, CONDUCTORS[S.condHV].dMax);
+      dLV += FIT_RELAX * (dLVTarget - dLV);
+      dHV += FIT_RELAX * (dHVTarget - dHV);
     }
   }
   const r2 = (x) => Math.round(x * 100) / 100;
-  const o = {};
+  // A locked dimension never moves in this loop, so it trivially satisfies
+  // the window-spread check above -- autoFitConverged correctly reflects
+  // whichever dimension is actually being fitted, locked or not.
+  const o = { autoFitConverged: converged };
   if (!lockF) o.flux = r2(flux);
   if (!lockD) { o.deltaLV = r2(dLV); o.deltaHV = r2(dHV); }
   return o;

@@ -2332,3 +2332,541 @@ output for a given input is unchanged (conductor selection there comes
 from `condSuggest`, untouched by this section); only what `searchDesigns`
 and `stagedSearchDesigns` are willing to recommend moved, the same
 reasoning applied throughout sections 17, 23, 25, 27 and 31.
+## 34. A second core plate construction exists (V-notch/outer/centre), not yet verified -- Construction A remains the only one implemented
+
+The furnace core charts (section 28) use a genuinely different lamination
+pattern from the two Mehir Transformers references this engine's existing
+`coreCuttingChart()` already models. Reference for what Construction A
+(limb / half-yoke / full-yoke, sections 12 and 15-16) already implements;
+this section is the second pattern, from the 1250 kVA (750+500) OLTC
+furnace chart specifically -- 224 mm core, 698 mm window, 375 mm limb
+centre, 15 steps, three plate totals V-notch 397.69 kg, outer 500.25 kg,
+centre 223.73 kg, core 1121.67 kg.
+
+**Established, from the chart's own arithmetic (not inferred):**
+
+- The three stated plate lengths (V-notch `2*cc + w`, outer `Hw + 2*w`,
+  centre `outer - 52 mm`) are OUTER edges, not the mean/effective length
+  the weight calculation actually needs -- reproducing the stated lengths
+  literally overstates every plate by a wide margin (the first attempt at
+  this, using Construction A's own already-validated yoke formula
+  unchanged for V-notch, gave 562.77 kg against the real 397.69 kg, +41.5%).
+  Same class of error as `wCore`'s own limb term before section 15's fix.
+- The gap between stated and effective length scales linearly with each
+  step's own width `w`, not a fixed mm figure -- consistent with a 45
+  degree mitre (removes `w^2/2` area per mitred end, `w/2` off the mean
+  length per end), the same geometric relationship Construction A's own
+  limb term already established (section 15-16, "long - short = 2w").
+- The centre plate's own stack (thickness column) is exactly half of
+  V-notch's and outer's at every one of the fifteen steps -- confirms
+  "two half-thickness plates per layer" as a real, checkable fact from the
+  chart, not a guess.
+
+**Not established -- inferred, and the inference does not verify clean:**
+
+Coefficients backed out from the three chart totals to fit the mitre
+deduction (V-notch `1.34w`, outer `1.12w`, centre `0.61w`) were fitted
+against the totals, not derived from mitre geometry independently of them
+-- "roughly two mitred ends plus an allowance" for outer, "roughly one"
+for centre, but the allowance itself (~0.11-0.12w on both) has no
+independent geometric basis yet, and V-notch's own residual (0.34w beyond
+two plain mitred ends) was assumed to be the V-notch cutout without a
+cutout dimension to check it against.
+
+Combined with a further inference -- that "outer" and "centre" designate
+LIMB POSITION (outer applies to the two outer limbs, centre to the one
+centre limb) rather than a radial split within every limb's own cross
+section -- these coefficients reproduce V-notch to +3.04% and outer to
++3.54%, close enough to confirm the general diagnosis (mitre deduction,
+scaling with width) is the right class of fix, but not exact. Centre
+missed by +21.8% to -38.6% across every stack/limb-count combination
+tried (1/2/3 limbs, full/half stack depth before rounding) -- the gap does
+not move like a rounding artefact, meaning a real piece of the geometry is
+still missing, not a coefficient needing one more decimal place.
+
+**Open questions, unresolved -- do not guess at these:**
+
+1. What "outer" and "centre" actually designate: limb position (two outer
+   limbs vs the one centre limb, as inferred above) or a radial split
+   within each limb's own cross section (the original reading). The 3%
+   residual on V-notch and outer even under the limb-position reading
+   means this has not actually been confirmed either way.
+2. The per-step plate count for outer and centre -- how many of each per
+   step, and across how many limbs. "Two half plates per layer" fixes the
+   mass-per-layer relationship for centre but not how many layers, or on
+   how many limbs.
+3. The exact geometric basis for the mitre-deduction coefficients
+   themselves (1.34w / 1.12w / 0.61w), independent of fitting them against
+   the three known totals -- what the V-notch cutout itself removes, and
+   what the ~0.11-0.12w "allowance" on outer and centre actually is.
+
+**Decision: Construction A remains the only implemented core plate
+construction.** No `coreConstruction` parameter, no Construction B code,
+no fitted coefficient shipped as a formula. A construction selectable in
+the UI with a silently-fitted formula behind it is worse than not having
+the option at all -- exactly this project's own standing rule against
+inventing engineering data. Waiting on the designer to confirm what
+"outer" and "centre" designate and the real per-step plate count before
+any of this is implemented.
+## 35. Construction B implemented -- V-notch/outer/centre, selectable alongside Construction A
+
+Section 34 left this open pending the designer's answer. Answered directly:
+
+- V-notch is the yoke, both top and bottom.
+- Outer is the two outer limb plates.
+- Centre is the single centre limb plate.
+- Per layer: 2 V-notch, 2 outer, 1 centre. The centre stack column is half
+  the others because there is one centre limb against two of everything
+  else -- not half-thickness plates, section 34's own guess was wrong.
+
+With the plate-count structure pinned, the length-deduction problem
+(section 34: stated lengths are outer edges, the deduction scales with
+width like a 45 degree mitre) became exactly determined -- three plate
+totals, three unknown coefficients, solved directly rather than fitted
+against noise. `MITRE_K = { vNotch: 1.44585, outer: 1.27514,
+centre: 1.46509 }` (`packages/engine/index.js`) reproduces the chart's
+three totals exactly: V-notch 397.69 kg, outer 500.25 kg, centre
+223.73 kg, core 1121.67 kg, checked directly in `engine.test.mjs`.
+
+**What this does and does not confirm.** Solving three coefficients
+against three totals ALWAYS reproduces those totals exactly, regardless
+of whether the underlying per-step model is correct away from this one
+geometry -- that is arithmetic, not verification. Pure 45-degree-mitre
+geometry alone (two ends, w/2 each) predicts 1.0 for V-notch and outer,
+0.5 for centre; the solved values are well above that, meaning a real
+additional deduction exists (the V-notch cutout itself, a limb-yoke joint
+allowance, or both) that this engine cannot separate out from three
+aggregate numbers alone. Unconfirmed at any rating besides this one 1250
+kVA (750+500) furnace chart -- the same caveat drawing 22's own note
+already carries for Construction A, extended here rather than invented
+fresh. A second real Construction B chart, at different proportions,
+would let these three coefficients actually be checked.
+
+**Implementation.** `coreConstruction` (put(), options "A"/"B", default
+"A" regardless of application -- Construction A is confirmed against two
+real reference builds, Construction B against one furnace chart with a
+tautological fit, so it is selectable, not auto-suggested). One shared
+function, `coreConstructionB()`, computes both the priced core mass
+(`wCore` inside `designTransformer`, via `wYoke = totalV`,
+`wLimb = totalO + totalC`) and the cutting-chart display
+(`coreCuttingChart()`) -- the same principle section 15 established for
+Construction A's own limb term: the price and the steel-order document
+always agree on the same core, by construction, not by coincidence.
+`Drawings2D.tsx`'s cutting-chart drawing renders V-notch/outer/centre
+tables when Construction B is selected, Plate A/B/C with the step-lap
+shift breakdown otherwise.
+
+**Cost comparison, same design, both constructions:**
+
+| Design | Construction A wCore | Construction B wCore | A ex-works | B ex-works | wCore diff | ex-works diff |
+|---|---|---|---|---|---|---|
+| 1250 kVA furnace duty | 2022.8 kg | 2538.7 kg | Rs 33,72,502 | Rs 33,31,328 | +25.51% | -1.22% |
+| 1000 kVA distribution (default) | 1444.6 kg | 1653.3 kg | Rs 21,78,588 | Rs 23,38,467 | +14.45% | +7.34% |
+
+Construction B is not simply better or worse -- it is a different steel
+distribution (much more limb, much less yoke, following directly from a
+V-notch yoke needing far less steel than Construction A's split yoke
+while the limb plates spanning the full window height need far more).
+On furnace duty, where the chart it is fitted to actually comes from, it
+uses noticeably more core steel but autoFit finds a net-cheaper design
+anyway (a different flux/etK/tank trade becomes available). On a normal
+distribution proportion it is straightforwardly worse on both counts.
+Selecting Construction B for a design should follow what the works
+actually intends to build, not a search result -- it is not a free lever
+a cost search should be allowed to discover on its own merit given how
+thin the evidence behind its own coefficients still is.
+
+No `ENGINE_VERSION` bump: default is Construction A, byte-identical to
+before this section for every existing design. Construction B only
+activates when explicitly selected.
+## 36. CCA removed from the search permanently; aluminium and copper rates confirmed
+
+Section 33 excluded CCA and aluminium from `searchDesigns` for lack of a
+sourced rate. The designer has since answered both, and they resolve
+differently, not the same way:
+
+- **Copper (`condCu`, Rs 1415/kg): confirmed.** Designer's own supplier
+  range is Rs 1350-1450/kg -- the existing sheet-sourced figure sits
+  inside it. No change.
+- **Aluminium (`condAl`): now sourced, re-enters the search.** Designer's
+  range is Rs 380-420/kg, set at 400 (was the unsourced placeholder, 340).
+  `UNSOURCED_RATE_KEYS` no longer includes it -- `searchDesigns` will
+  recommend aluminium again wherever it is genuinely cheaper.
+- **CCA: excluded permanently, not a pricing question any more.**
+  Standard manufacturers do not buy copper-clad aluminium winding wire --
+  galvanic corrosion (a copper-aluminium junction under load-cycling
+  thermal stress is a known failure point) and creep (aluminium's own
+  long-term deformation under clamping pressure, which copper cladding
+  does not fix). `MATERIALS_EXCLUDED_FROM_SEARCH` (`packages/engine/
+  index.js`) excludes it unconditionally -- unlike the unsourced-rate
+  mechanism, entering a real `condCca` rate does not re-enable it, checked
+  directly (a Rs 900/kg entered rate still excludes it). `condCca`'s own
+  rate figure in `DEFAULT_RATES` is left at its old placeholder (560) only
+  because nothing reads it for pricing purposes any more, not because it
+  is now considered sourced.
+
+`unsourcedConductorNote()` now reports both exclusion reasons separately
+when relevant -- "rate not sourced, enter one to include it" for a future
+unsourced material, "not offered as a winding material... no rate
+re-enables it" for CCA specifically, so a user reading the search UI
+never mistakes a manufacturability exclusion for a pricing gap they could
+close themselves.
+
+No `ENGINE_VERSION` bump: `condSuggest` (the AUTO material choice on the
+main design path) never offered CCA and is untouched; only what
+`searchDesigns` explores and what `condAl` prices at moved.
+## 37. Design margin: marginTargetLL/NLL replace the hardcoded 0.96
+
+The HV conductor cross-check (this conversation, not yet its own section
+until now) found the real 630 kVA winding running roughly double the
+loss-optimal copper this engine's own fitToSchedule target implied --
+1.475 A/mm2 against 2.95 A/mm2 -- and the designer's own stated practice
+explains the gap directly: 6-8% margin on load loss, 8-10% on no-load,
+not the flat 4% margin (0.96 target) `fitToSchedule` had hardcoded with
+no evidence behind that specific number.
+
+`marginTargetLL` (default 0.93, 7% margin) and `marginTargetNLL` (default
+0.90, 10% margin) replace it, each independently editable -- a design
+office with its own tighter or looser practice sets its own number, the
+same as `maxAspect` or the coil/tank-height limits (section 39).
+
+ENGINE_VERSION 1.18.0 (bundled with section 38's convergence fix below --
+the margin change surfaced a real, pre-existing convergence fault that
+needed fixing before this change's own numbers could be trusted, so both
+ship under one version rather than shipping a known-broken intermediate).
+
+## 38. fitToSchedule did not converge at every rating -- fixed with damping and a real exit condition
+
+Raising the margin targets doubled as a stress test on the fitting loop
+itself, and it failed one: at some ratings (1250 kVA specifically) the
+load-loss correction never settled. Traced in detail before choosing a
+fix, per instruction. Flux was NOT part of the instability -- pinned dead
+flat at the grade ceiling every iteration, because the no-load schedule
+genuinely cannot be met at any flux the grade allows at this rating (a
+real infeasibility, already visible via `compliance.nll`, not a numerical
+fault). The oscillation was entirely on the density side, and not "two
+fits fighting" in the way first suspected -- it is the density corrector
+chasing a DISCONTINUITY in `designTransformer`'s own geometry:
+`lvAxCount`/`lvRadCount` (the LV parallel-conductor split) flips between
+two configurations (4x6 and 5x5 in the traced case) at nearly identical
+`deltaLV`, each giving a meaningfully different load loss for the same
+current density. The corrector overshoots across that threshold every
+pass -- a clean period-6 cycle, confirmed present under the OLD 0.96
+target too (smaller amplitude, easy to miss at a fixed 10-iteration cutoff,
+but the same fault), not something the margin change introduced.
+
+**Fix.** Damping (`FIT_RELAX = 0.6`): each iteration moves only 60% of the
+way from the current value toward what an undamped correction would ask
+for, so a step is less likely to cross a threshold it would otherwise
+bounce off both sides of. Real convergence check, not a fixed count: flux,
+`deltaLV` and `deltaHV` must all stay within 0.2% relative spread across a
+rolling window of the last 5 iterations (`FIT_CONVERGE_WINDOW`,
+`FIT_CONVERGE_TOL`) before the loop exits early. Capped at
+`FIT_MAX_ITERS = 60` as a safety bound, not a target -- checked across six
+ratings (100 to 5000 kVA), five settle cleanly in 5-20 iterations; 1250 kVA
+does not settle within 60 even damped, confirming this is a genuine
+structural difficulty at that specific configuration, not fixable by
+tuning the damping factor or tolerance further.
+
+**Visibility, the part that matters most.** `autoFitConverged` (boolean)
+is now returned from `fitToSchedule`, threaded through `computeDesign`
+and every `searchDesigns` candidate, the same principle `etkNonCompliant`
+already established: a result that failed to settle must never be
+indistinguishable from one that did. Absent/locked dimensions (autoFit
+off, or flux/density explicitly overridden) read as converged -- there was
+nothing to fail to converge. `engine.test.mjs`'s default case now asserts
+`autoFitConverged === true` directly.
+
+Default case golden numbers moved again on top of section 37's own move --
+the earlier post-margin numbers were themselves an under-converged
+snapshot at the old fixed 10-iteration count, not a different design.
+## 39. fitEtkToCost compared K candidates on a stale fit -- fixed, and it changed the true optimum
+
+Section 38 fixed fitToSchedule's own convergence. Re-running the density
+check it was meant to establish surfaced a second, separate fault: the K
+search compared sixteen candidates using flux and density fitted for
+whichever K fitToSchedule had started from, not their own. Traced
+directly at 630 kVA -- fitToSchedule itself converges cleanly to a 7.11%
+load-loss margin at K = 0.545, then fitEtkToCost moves K to 0.500 (cheaper
+on the stale comparison) and the SAME flux/density, now built into a
+different winding geometry, achieves only 0.59% margin. The margin
+targets (section 37) were being honoured at the K they were fitted
+against, then silently abandoned the moment a cheaper K was found.
+
+**Fix: every K candidate is now re-fitted for itself.** `etkPoint()`
+(new, shared by both stages of `etkCurve`) calls `fitToSchedule` fresh
+for each K, so a candidate's reported cost is the cost of the design that
+K would actually build, not a preview using someone else's fit.
+`fitEtkToCost`'s own return now carries the winning point's fitted
+flux/deltaLV/deltaHV alongside etK -- returning etK alone (the old
+behaviour) would have left p0's stale values in place regardless of how
+correctly the winner was chosen, the same bug one level further down.
+
+**A second, subtler fault, found while verifying the first fix.** Simply
+re-fitting at each K was not enough on its own: `fitToSchedule` is a
+local iterative corrector, not a global solve, so the SAME K can settle
+on a different fixed point depending on where the iteration started.
+Starting every K's fit from `p`'s own carried-over flux/density (whatever
+a DIFFERENT K's fit had left them at) reintroduced a version of the exact
+problem being fixed -- checked directly on the default 1000 kVA case,
+where this left K = 0.46 landing on a non-converging trajectory
+(`autoFitConverged: false`) even after the stale-comparison fix, because
+a plain clamp of the carried-over value into the grade's bounds is not a
+reset -- it is a no-op whenever that value already sits inside them,
+which it usually does. `etkPoint` now starts every K from
+`fluxSuggest`/`densitySuggest`'s own fresh estimate (the same ones
+`deriveSpec` itself uses), independent of whatever K the search happened
+to run first. Locked flux/density (an explicit `over`) are exempted --
+they keep the caller's own value, never reset.
+
+**This changed the true optimum, not just the reported margin.** The
+default 1000 kVA case's own cost-optimal K moved from 0.52 (the stale
+comparison's answer) to 0.46 -- a genuinely different, cheaper design
+(core mass 1640 -> 1040 kg, ex-works Rs 23,86,765 -> Rs 21,81,359, -8.6%)
+that the old comparison could not see, confirmed against a full
+16-point, full-precision, neutral-start scan of the whole K range (not
+just the staged/fast one below). `ENGINE_VERSION` 1.19.0 -- every
+AUTO-K, autoFit design's numbers move again, on top of sections 37 and
+38's own moves, because the earlier K search was answering the wrong
+question, not just answering the right one imprecisely.
+
+**Performance, measured and reported as asked, not silently absorbed.**
+A full re-fit at every one of the 16 `ETK_RANGE` points, at the same
+precision `computeDesign`'s own main fit uses, costs roughly 3.7 s per
+`computeDesign` call -- unusable on the interactive path. Two measures,
+both keeping every comparison self-consistent (never the stale shortcut
+section 39 exists to remove):
+
+1. **Staged, the same way `stagedSearchDesigns` already is** (section
+   25): 5 coarse points across the full range, refine with a
+   full-resolution window around the coarse winner -- roughly 11 points
+   instead of 16, both stages calling the same `etkPoint()`.
+2. **A fast, loose-tolerance scan for ranking only** (`ETK_SCAN_MAX_ITERS
+   = 8`, `ETK_SCAN_TOL = 0.02`, against the real fit's 60 iterations and
+   0.2%) -- cheap enough to run at every staged point, used purely to
+   decide which K wins. `fitEtkToCost` always re-fits the winner at full
+   precision before returning anything, so a loose scan only ever
+   affects which K is selected, never what gets reported for it.
+
+Net: ~3.7 s -> ~1.5-1.7 s for the default case, confirmed to still find
+the same true optimum as the full 16-point full-precision scan. Slower
+than the original (incorrect) ~200 ms, and still not instant -- flagged
+plainly rather than left implicit. Further speedup would mean fewer
+staged points or a looser scan, at growing risk of misranking two closely
+costed K candidates; not attempted without deciding that trade is worth
+it first.
+
+**Verified against the 1.475 A/mm2 HV target the whole investigation was
+chasing, with the achieved margin alongside so the fit can be seen
+actually holding this time:**
+
+| kVA | LV density | HV density | Achieved LL margin | autoFitConverged |
+|---|---|---|---|---|
+| 630 | 1.640 A/mm2 | 1.740 A/mm2 | 6.92% (target ~7%) | true |
+| 1250 | 1.770 A/mm2 | 1.880 A/mm2 | 6.95% (target ~7%) | true |
+
+HV density is closer to the 1.475 A/mm2 target than section 37's own
+first (uncoordinated) reading (1.86-1.89 A/mm2) but still meaningfully
+above it, at 1.74-1.88 A/mm2 -- and this time the margin is genuinely
+holding at both ratings, not silently abandoned the way it was before
+this section's fix. The remaining gap to 1.475 A/mm2 is what section 37
+always expected it to be: short-circuit or stray-loss allowance, not
+something margin alone should close, and not investigated further here.
+
+**Open, named rather than fixed here:** the same class of fault --
+"something downstream silently recomputes geometry an earlier stage
+fitted against" -- may exist elsewhere in this engine. Worth a sweep
+before assuming this was the only instance.
+## 40. Silent-invalidation sweep, and the Class B pin solver fix it found first
+
+Section 39's own fix (every K candidate re-fitted for itself) was itself
+an instance of a pattern worth naming directly: one stage of a pipeline
+recomputing or overriding a quantity an earlier stage already solved or
+fitted against, without checking that the earlier result still holds. A
+deliberate sweep for other instances, prompted by three that had already
+surfaced by accident (the K search on stale fits, the search ranking on
+infeasible candidates, section 12/15/16's two cutting documents on
+different limb formulas) found four more. Report only below; three are
+addressed in this and the following two sections, one (item 4, unequal
+turn distribution across HV groups) is left as already self-documented
+and dependent on work not yet done (tap-section placement).
+
+**The Class B pin solver (`src/lib/classBSolver.ts`), found first and
+worst.** `bisectToTarget` calls `computeDesign()` up to 44 times per pin
+solve. Section 39's own fix means every one of those 44 calls now runs a
+full K search (~1.5-1.7s) unless `etK` happens to already be pinned --
+measured directly before any fix: ~92s for a single pin solve, ~918s (15+
+minutes) worst case for `solveAllPins` with two pins across its own
+convergence passes. `solveAllPins` sits inside `App.tsx`'s own main
+`useMemo`, so the entire app would freeze for 90+ seconds on every edit
+whenever even one Class B pin is active -- a real feature this project
+had shipped, and a real regression section 39's own fix introduced
+without anyone checking the pin solver's own call pattern against it.
+
+**Diagnosis, checked before choosing a fix, per instruction.** Was the
+right fix "make computeDesign faster," or "stop re-running the K search
+at all"? The second: a Class B solve is asking what lever value hits one
+target. Re-optimising K inside every bisection step is not just slow, it
+is wrong on its own terms -- K can jump between steps and move the design
+through a second, uncontrolled channel, breaking the monotonic-in-the-
+lever assumption bisection depends on. Confirmed against SOLVER.md
+section 3 itself: a Class B solve moves exactly one lever.
+
+**Fix.** `etK` is held at whatever the design already resolves to -- one
+`computeDesign()` call to discover it, not 44 -- for the entire solve,
+bisection and final result alike, and carried in the returned `overPatch`
+so the persisted design does not silently revert to AUTO K (and pay the
+search again) the moment the patch is applied. Not re-optimised at the
+end either: doing so would move the design away from the value the solve
+just reported as reaching the target, making a "reachable" result untrue
+by the time it is shown. A design office that wants K re-optimised for
+cost after solving a loss figure runs Fit to Budget for that,
+deliberately -- not as a silent side effect of pinning something else.
+`searchCatalog` (the material/grade-swap fallback when a target is not
+reachable on the primary lever) holds the same pinned K across every
+candidate it tries, rather than re-discovering it per candidate.
+
+**Result, measured, not assumed reachable.** ~92s -> ~22-47s depending on
+target, a real 50-75% cut, but this is NOT under the ~2s target and is
+reported as such rather than accepted. The remaining cost is a different,
+genuine bottleneck: `fitToSchedule`'s own density-fitting sub-loop
+(section 38) is itself slow to converge -- up to the full 60-iteration
+cap, ~660ms -- near a flux value at or close to the core grade's own
+ceiling, and the default case's own current flux already sits exactly
+there (1.78 T, m0h's own bMax). Any realistic no-load-loss target on this
+design requires the bisection to evaluate points in or near that slow
+region repeatedly. This is the same class of convergence difficulty
+section 38 already named, in a new context (a bisection sweeping flux
+across its full range, which section 38's own testing never had reason
+to exercise this exhaustively) -- not fixed here, since it is a different
+problem from what this section set out to solve, and speeding it up
+further was not asked for.
+
+## 41. HV multi-strand split fed back into the radial build and resistance calculation
+
+`conductorSchedule` (the document/drawing generator) has always independently
+recomputed an HV multi-parallel-strand split above `HV_STRAND_MAX_MM2` (37.6
+mm2, the same practical single-conductor ceiling used elsewhere in this
+engine) for display. `designTransformer` never saw that split: its own window-
+height solve, radial build (`hvRadial`) and, through the mean turn length,
+load loss and resistance were all sized against a single conductor's
+footprint standing in for the whole turn, regardless of how many strands
+actually run in parallel. This is the same shape of fault as the two cutting
+documents in section 15/16: one stage computing a quantity that another,
+earlier stage never got to see. Both existing reference sheets (630 kVA,
+1250 kVA) stay under the 37.6 mm2 threshold, so neither reference caught it.
+It only shows up at 5000 kVA and above, which is a real part of the rating
+range this engine is asked to cover.
+
+**Fix.** The strand-split computation moved into `designTransformer`'s own
+`build()` closure -- the same formula `conductorSchedule` used to run on its
+own (`hvAspect = 2.1`, `n = ceil(aHVreq / HV_STRAND_MAX_MM2)`, then
+`hvRdCount`/`hvAxCount` from that) -- computed once, in one place, and
+exposed on the design (`hvAxCount`, `hvRdCount`) for `conductorSchedule` to
+read rather than recompute. The two can no longer disagree because there is
+only one calculation left to disagree with itself.
+
+The turn-level dimensions used everywhere downstream -- group/layer count,
+`hvRadial`, and (through `wHVCovered`) the covering-copper cost -- changed
+from a single strand's footprint plus one `hvPaper` covering to
+`hvTurnAx = hvAxCount * (axHV + hvPaper)` and
+`hvTurnRd = hvRdCount * (rdHV + hvPaper)`: every parallel strand gets its own
+full covering, not a shared one. That convention is borrowed directly from
+LV's own multi-strand split, which has used exactly this pattern
+(`lvRadial = lvTurnLayers * lvRadCount * (tLV + lvIns)`) throughout this
+engine already. It is reused here for consistency within the engine, not
+because it has been independently confirmed for HV. Real construction may
+use a lighter inter-strand covering than a full outer wrap per strand --
+there is no reference sheet with a multi-strand HV winding to check against.
+Flagged, not guessed past.
+
+**Does a multi-strand winding need more radial space than the solid-block
+formula assumed? Measured, not assumed either way.** The two ratings tested
+do not move the same way, because the window-height bisection re-solves the
+whole geometry jointly rather than simply padding the old design:
+
+| | 5000 kVA before | 5000 kVA after | 10000 kVA before | 10000 kVA after |
+|---|---|---|---|---|
+| hvAxCount x hvRdCount | 1 x 1 | 3 x 1 | 1 x 1 | 4 x 1 |
+| layers | 8 | 13 | 7 | 12 |
+| hvRadial | 67.7 mm | 70.1 mm | 77.2 mm | 72.5 mm |
+| load loss | 20282 W | 20273 W | 34623 W | 34475 W |
+| ex-works | Rs 64.70 lakh | Rs 65.06 lakh | Rs 98.12 lakh | Rs 1.09 crore |
+
+("before" is this engine with sections 37-40 applied but the strand split
+still unfed -- isolated by reverting only the split logic, not by comparing
+against a stale pre-section-37 baseline, so the numbers above are the split
+itself, not bundled with the margin or convergence changes.)
+
+At 5000 kVA, `hvRadial` grew by 2.4 mm (+3.5%): more strands, more layers,
+and the per-strand covering nets out as more radial depth, matching the
+naive expectation. At 10000 kVA, `hvRadial` fell by 4.7 mm despite covering
+four strands instead of one: layer count rose from 7 to 12, and the
+resulting per-layer radial thickness fell by enough to more than offset the
+extra covering. So the honest answer is: it depends on how the strand split
+reshapes the group/layer trade-off at that specific rating, not a fixed
+"multi-strand always needs more room" rule -- the window-height solve moves
+other dimensions in response, and which way the net radial figure goes is
+an outcome of that solve, not a separate assumption this fix makes. Ex-works
+moved +0.6% at 5000 kVA and +11.1% at 10000 kVA; the two ratings are not a
+consistent multiple of each other because the discrete layer-count jump (7
+to 12) changes duct count and mean turn length as well as radial depth.
+
+**A separate, pre-existing problem surfaced while isolating this, not
+caused by it.** 10000 kVA does not reach `autoFitConverged: true` either
+before or after this fix -- confirmed by testing the reverted-split code
+path directly rather than inferring it. This is the same slow-density-fit-
+near-bMax problem section 40 already named at the default rating; 10000 kVA
+was already in that regime before this change touched it. Left open, named
+here so it is not mistaken for something this fix introduced.
+
+Both existing reference designs (630 kVA, 1250 kVA) stay under
+`HV_STRAND_MAX_MM2` and are byte-identical to before this change;
+`reference-designs.test.mjs` and `card-cost.test.mjs` confirm it.
+
+
+## 42. Search now holds a pinned flux or current density, instead of silently ignoring it
+
+`searchDesigns` called `fitToSchedule(candBase, {})` on every candidate --
+an empty `over`, regardless of what the live design being searched from
+actually had pinned. `fitToSchedule`'s own lock checks (`over.flux`,
+`over.deltaLV`/`over.deltaHV`) have worked correctly on the main design
+path since section 38; the search simply never gave them anything to see.
+A user who pins flux or current density is saying they have a reason --
+often a tender requirement -- and a search that quietly explores and can
+recommend candidates that ignore that reason is wrong in the same way the
+K search comparing candidates on stale fits was wrong (section 39): the
+search silently invalidating something the user, not even an earlier
+search stage, deliberately fixed.
+
+**Fix.** `searchDesigns(base, rates, band, opts)` reads `opts.over`
+(defaulting to `{}`, so every existing call site that does not pass one is
+unaffected). When it pins flux, the grade-clamped starting estimate
+(`startFlux`, needed only to give an unlocked bisection a sane starting
+point per grade) is skipped in favour of the design's own pinned value
+exactly, and likewise for current density against the conductor-anchored
+estimate. The real `over` is then passed to `fitToSchedule` itself, so its
+own lock logic holds the pin on every candidate the same way it holds one
+on the live design. `stagedSearchDesigns` needed no separate fix: it
+passes `opts` through to both its stage-1 and stage-2 `searchDesigns`
+calls via spread, so `opts.over` already reaches both.
+
+A pinned value is not reclamped into a grade it does not actually fit --
+a candidate the pin does not fit is honestly infeasible on the pin, not
+quietly bent to make the grade look viable. `searchDesigns` now also
+attaches `pinnedNote` to the results array it returns (same mechanism as
+the existing `excludedNote`) naming which value is pinned and at what
+figure, threaded through `searchWorker.ts` and surfaced on the Budget tab
+exactly where `excludedNote` already is.
+
+**Verified.** A 1.55 T flux pin held exactly (`|B - 1.55| < 0.001`) across
+every candidate in a 3-grade x 1-conductor test grid, including grades
+whose own bMax would have clamped an unpinned flux to a different value.
+The unpinned case was re-checked on the same grid immediately after: flux
+still varies freely across grades (2+ distinct values seen), so the fix
+does not accidentally lock the search for everyone, only for a design that
+actually pins something. `classBSolver.ts`'s own material-swap fallback
+(`searchCatalog`) needed no equivalent fix -- it has always called the
+real `computeDesign(core, { ...over, ...patch }, rates, [])` per candidate,
+which is the main path this section brings `searchDesigns` up to, not a
+second place that needed the same repair.
