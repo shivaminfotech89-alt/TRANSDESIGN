@@ -3242,3 +3242,106 @@ Construction A (the default) and unaffected. `ENGINE_VERSION` bumped to
 1.24.0 regardless, since this is a real formula change reachable by any
 design that selects Construction B, even though the default case does
 not move -- the same principle as section 41's HV strand-split fix.
+
+## 49. The K search was picking sample points on a staircase, not the optimum -- fixed to find the plateau and report it as a range
+
+A fine-resolution sweep (CALIBRATION.md is not the place that sweep itself
+is reported -- see the conversation that requested it) showed the ex-works-
+vs-K curve is not smooth. It is a staircase: flat plateaus, each one a single
+discrete winding configuration (numGroups/layers/lvRadCount and the rest),
+separated by sharp transitions where the configuration flips. At 630 kVA the
+winning plateau spans roughly K = 0.443-0.463; a coarse grid landing inside
+it is luck, not a property of the search. The old `fitEtkToCost` evaluated a
+fixed 0.02-step grid, refined around the cheapest point, and returned that
+point's own K verbatim -- a point that can sit anywhere in its plateau,
+including right at an edge, where the next small change to anything else
+(a rate, a clearance, a schedule revision) tips the design into a different,
+more expensive configuration for no engineering reason.
+
+**Fix: find the plateau, not the sample.** `etkPoint` (`packages/engine/
+index.js`) now returns its own discrete configuration `signature` --
+`discreteGeometrySignature(d)`, the same function `fitToSchedule`'s own
+cycle detector already used (section 46) -- alongside its cost. The existing
+coarse-then-refine grid scan (`etkCurve`) is unchanged and still finds the
+cheapest feasible sample, `fastBest`. What changes is what happens next:
+
+- `pickPlateauMidpoint` first checks whether the curve already sampled a
+  point with a *different* signature on each side of `fastBest` -- the
+  refine window usually has, since it brackets the coarse winner tightly.
+  If so, that point is reused directly, at zero extra cost.
+- Where no such point exists, `findPlateauEdge` walks outward from
+  `fastBest.etK` in fixed small steps until it finds one, then bisects
+  between the last point still inside the plateau and the first point
+  outside it -- on **signature**, not on cost. Cost is not monotonic near a
+  transition (the diagnostic that motivated this fix found genuine local
+  dips just past a boundary), so bisecting on cost would not reliably find
+  the edge; the signature is a clean step function and bisects exactly.
+- The two edges bracket the plateau. `fitEtkToCost` reports it as a range,
+  `etkPlateauLo`/`etkPlateauHi` (both now threaded through `computeDesign`'s
+  return, alongside `params.etK`), and builds the final design at the
+  **midpoint**, rounded to three decimals -- not at `fastBest.etK` itself.
+  A midpoint design keeps its configuration under a small perturbation from
+  any direction; an edge design does not.
+- The midpoint's own signature and feasibility are checked against
+  `fastBest`'s before being accepted. If the midpoint calculation somehow
+  lands outside the plateau it was built to represent (a narrow plateau,
+  or a rounding artefact at three decimals), `fitEtkToCost` falls back to a
+  precise refit of `fastBest.etK` itself rather than ship a design that
+  silently is not what the range claims it is.
+
+**Cost is provably unaffected.** Every point on a plateau shares the same
+discrete configuration, so ex-works at the midpoint equals ex-works at
+`fastBest` to within normal fit tolerance -- confirmed directly: the default
+1000 kVA case's ex-works is unchanged (Rs 21,00,057, the same figure
+engine.test.mjs already pinned) even though the reported `etK` moved from
+the old grid winner (0.46) to the plateau midpoint (0.453). What moves is
+only which K is *reported and built at* within a cost-equivalent range --
+exactly the point of the fix.
+
+**Performance, measured honestly.** The bisection adds real cost: roughly
+a dozen extra fast `etkPoint` evaluations per design (two directions, each
+walking to a confirmed opposite-signature point and then bisecting a fixed
+number of iterations against it). Measured on the default 1000 kVA case,
+`computeDesign` end-to-end: ~1449 ms before this fix, ~2732 ms after --
+about 1.9x. Confirmed by instrumenting the expansion step directly that the
+added cost is the bisection phase only; the expansion phase itself does not
+fire for this case, because the refine window already contains a usable
+opposite-signature point on both sides (the common case, not a fortunate
+one -- the refine window is built specifically to bracket the coarse
+winner). Iteration counts were tuned down from an initial, uncritically-set
+10 per phase to 6, which recovers most of the difference without giving up
+meaningful precision -- the plateau edges move by a few thousandths of K at
+most between 7 and 6 iterations, well inside the range the search itself is
+reporting as flat.
+
+**Scope check: flux and density were swept too, report only.** Holding K
+fixed at its plateau midpoint and sweeping flux (0.01 T steps, 1.42-1.72 T)
+and separately deltaLV (0.05 A/mm2 steps) at the default 1000 kVA case shows
+the same underlying structure -- long runs of one discrete signature with
+cost falling smoothly inside each, interrupted by sharp transitions, and,
+near several of those transitions, genuine local non-monotonicity (for
+example deltaLV: Rs 16,87,327 at 2.30, Rs 17,26,591 at 2.35, back down to
+Rs 16,69,516 at 2.40 -- a real dip just past the boundary, not sweep noise,
+the same signature the K curve showed). The cause is the same one behind
+section 46 and this fix: numGroups/layers/lvRadCount and the rest are
+floor()/ceil()/round() of a continuous fit variable.
+
+This does not currently need the same plateau-finding fix, for a narrower
+reason than "it isn't a staircase": flux and density are not searched for a
+cost optimum today. `fitToSchedule` fits them to satisfy the loss schedule
+(with the 1.42 T floor), not to minimise ex-works, so there is no grid scan
+over flux or density that a boundary sample could mislead the way the K
+grid could. If a future change adds an explicit cost sweep over either --
+the same class of feature this section's fix was written for -- it will
+need the same treatment: bisect on `discreteGeometrySignature`, report a
+range, build at the midpoint. Flagged here so that need is not rediscovered
+from scratch; not implemented, because nothing today searches on this axis.
+
+`ENGINE_VERSION` bumped to 1.25.0. No golden number in engine.test.mjs,
+reference-designs.test.mjs or card-cost.test.mjs moved -- every plateau
+sampled by an existing golden design keeps the same signature and,
+therefore, the same cost at its midpoint as it had at the old grid winner.
+What changed is real and reachable by any AUTO-`etK` design: the specific
+`etK` value `computeDesign` reports and builds at, and the new
+`etkPlateauLo`/`etkPlateauHi` fields now present whenever `fitEtkToCost`
+actually ran.
