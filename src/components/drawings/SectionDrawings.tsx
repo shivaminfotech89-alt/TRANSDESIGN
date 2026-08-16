@@ -89,7 +89,7 @@ export function InsulationDrawing({ design, params, project }: Props) {
       </div>
       <TitleBlock
         drawingNo={drawingNo(project, '11')} title="Insulation Drawing" rev={project?.revision ?? 0}
-        sheet={11} totalSheets={21} fit={fit} standard={params.standard}
+        sheet={11} totalSheets={23} fit={fit} standard={params.standard}
         projectName={project?.projectName} customer={project?.customer} ratingLabel={ratingLabel(params)}
       />
     </Card>
@@ -193,7 +193,7 @@ export function InternalAssemblyDrawing({ design, params, project, drawingSeq = 
       </div>
       <TitleBlock
         drawingNo={drawingNo(project, drawingSeq)} title="Internal Assembly Drawing" rev={project?.revision ?? 0}
-        sheet={sheet} totalSheets={21} fit={fit} standard={params.standard}
+        sheet={sheet} totalSheets={23} fit={fit} standard={params.standard}
         projectName={project?.projectName} customer={project?.customer} ratingLabel={ratingLabel(params)}
         material={design.grade.name} partNumber={PART_NUMBERS.core}
       />
@@ -326,7 +326,7 @@ export function LongitudinalSectionDrawing({ design, params, project }: Props) {
       </div>
       <TitleBlock
         drawingNo={drawingNo(project, '20L')} title="Cross-Sectional Drawing, Longitudinal" rev={project?.revision ?? 0}
-        sheet={20} totalSheets={21} fit={fit} standard={params.standard}
+        sheet={20} totalSheets={23} fit={fit} standard={params.standard}
         projectName={project?.projectName} customer={project?.customer} ratingLabel={ratingLabel(params)}
       />
     </Card>

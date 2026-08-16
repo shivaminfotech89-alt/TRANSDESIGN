@@ -21,7 +21,7 @@ export function NamePlateDrawing({ design, params, project }: Props) {
       <NamePlate design={design} params={params} project={project} docNo={docNo} />
       <TitleBlock
         drawingNo={docNo} title="Rating Name Plate" rev={project?.revision ?? 0}
-        sheet={18} totalSheets={21} fit={{ scale: 0, offsetX: 0, offsetY: 0 }} standard={params.standard}
+        sheet={18} totalSheets={23} fit={{ scale: 0, offsetX: 0, offsetY: 0 }} standard={params.standard}
         projectName={project?.projectName} customer={project?.customer} ratingLabel={ratingLabel(params)}
         material="Anodised aluminium" partNumber={PART_NUMBERS.namePlate}
       />

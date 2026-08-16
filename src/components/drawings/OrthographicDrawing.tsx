@@ -338,7 +338,7 @@ export function OrthographicDrawing({ design, params, project, view }: Props) {
 
       <TitleBlock
         drawingNo={drawingNo(project, meta.seq)} title={meta.title} rev={project?.revision ?? 0}
-        sheet={meta.sheet} totalSheets={21} fit={fit} standard={params.standard}
+        sheet={meta.sheet} totalSheets={23} fit={fit} standard={params.standard}
         projectName={project?.projectName} customer={project?.customer} ratingLabel={ratingLabel(params)}
       />
     </Card>
