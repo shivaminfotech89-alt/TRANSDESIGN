@@ -286,15 +286,35 @@ const r = E.computeDesign(E.ESSENTIALS, {}, E.DEFAULT_RATES, []);
 // stable fixed point before -- it only looked converged. The new number is
 // the deliberately-chosen, compliant, margin-closest state, not a
 // regression: see section 46 for the full diagnosis and fix.
-eq("ex-works", Math.round(r.bom.exFactory), 2100057, 800);
-eq("delivered", Math.round(r.bom.withGst), 2478067, 900);
-eq("tank length mm", Math.round(r.design.tankL), 1506, 2);
-eq("no-load loss W", Math.round(r.design.noLoad), 1076, 5);
-eq("load loss W", Math.round(r.design.loadLoss), 6088, 30);
-eq("impedance %", +r.design.pctZ.toFixed(2), 4.87, 0.02);
-eq("efficiency %", +r.design.eff100.toFixed(2), 99.29, 0.02);
-eq("core mass kg", Math.round(r.design.wCore), 1021, 15);
-eq("autoFit converged", r.autoFitConverged, true);
+// ENGINE_VERSION 1.26.0 (CALIBRATION.md section 51): fitToSchedule's own
+// cycle resolution used to pick a winner from whichever states its damped,
+// path-dependent trajectory happened to visit while cycling -- and never
+// ran at all when the trajectory converged cleanly, even a fraction of a
+// percent from a cheaper compliant neighbour. A starting-point sweep found
+// this made the reported price depend on where the fit started, not on
+// the enquiry -- a >9% swing at 630 kVA with nothing else changed. Fixed
+// by actively enumerating the real nearby discrete states (deltaLV/deltaHV
+// scaled together along the canonical, seed-independent densitySuggest
+// ray, refined by bisection onto each state's own compliance ceiling) and
+// selecting the cheapest one that meets the declared loss limits --
+// verified starting-point invariant at 630, 1000 and 1250 kVA. This
+// default case is itself one of the cases that used to cycle, so its own
+// numbers move again here, to the new, actively-chosen state rather than
+// wherever the old trajectory happened to land.
+eq("ex-works", Math.round(r.bom.exFactory), 2039020, 800);
+eq("delivered", Math.round(r.bom.withGst), 2406044, 900);
+eq("tank length mm", Math.round(r.design.tankL), 1498, 2);
+eq("no-load loss W", Math.round(r.design.noLoad), 1074, 5);
+eq("load loss W", Math.round(r.design.loadLoss), 6317, 30);
+eq("impedance %", +r.design.pctZ.toFixed(2), 4.88, 0.02);
+eq("efficiency %", +r.design.eff100.toFixed(2), 99.27, 0.02);
+eq("core mass kg", Math.round(r.design.wCore), 1017, 15);
+// autoFitConverged is now purely a dynamics fact (CALIBRATION.md section
+// 51): did the damped iteration reach a stable point WITHOUT cycling. This
+// default case does cycle (see autoFitCycleNote below), so this is
+// correctly false -- whether the point ultimately built is any good is
+// fitResolutionNote's question, not this one's, and is checked below.
+eq("autoFit converged (dynamics only)", r.autoFitConverged, false);
 eq("compliant", r.design.compliant, true);
 // ENGINE_VERSION 1.21.0 (CALIBRATION.md section 44): compliance.aspect (the
 // window height/width ratio) replaced by two direct shop limits. This
@@ -303,23 +323,27 @@ eq("compliant", r.design.compliant, true);
 // different design can now clear the old ratio while missing one of these,
 // or the reverse) -- see section 44 for the 2500 kVA furnace case that
 // flips to non-compliant under this default.
-eq("coil height mm", Math.round(r.design.compliance.coilHeight.val), 616, 3);
+eq("coil height mm", Math.round(r.design.compliance.coilHeight.val), 608, 3);
 eq("coil height limit mm", r.design.compliance.coilHeight.lim, 880);
-eq("tank height mm", Math.round(r.design.compliance.tankHeight.val), 1324, 3);
+eq("tank height mm", Math.round(r.design.compliance.tankHeight.val), 1315, 3);
 eq("tank height limit mm", r.design.compliance.tankHeight.lim, 1500);
 eq("HV construction", r.design.hvConstruction, "crossover");
 eq("LV construction", r.design.lvConstruction, "strip");
 eq("etK non-compliant, flagged", r.etkNonCompliant, false);
-// ENGINE_VERSION 1.22.0: cycle resolution reports which discrete winding
-// states it chose between, exactly as etkNonCompliant reports a saturated
-// K search -- this default case does cycle (see the note above), so the
-// note must be present and name the chosen state.
+// CALIBRATION.md section 51: autoFitCycleNote is now purely descriptive
+// (a cycle was observed, exited early) -- it no longer names a chosen
+// state, since resolveFitCycle's own choosing role is gone. The actual
+// choice, with its margin, is fitResolutionNote's job, checked next.
 eq("autoFit cycle note present", typeof r.autoFitCycleNote, "string");
-if (r.autoFitCycleNote && !r.autoFitCycleNote.includes("Chose")) {
+console.log(`  ok   autoFit cycle note: "${r.autoFitCycleNote}"`);
+if (!r.fitBoundaryFound || !r.fitResolutionNote) {
   failures++;
-  console.log(`  FAIL autoFit cycle note does not name a chosen state: "${r.autoFitCycleNote}"`);
+  console.log(`  FAIL expected fitBoundaryFound/fitResolutionNote at the default case (a known boundary case) -- got fitBoundaryFound=${r.fitBoundaryFound}`);
+} else if (!/does not depend on where the fit started/.test(r.fitResolutionNote)) {
+  failures++;
+  console.log(`  FAIL fitResolutionNote does not assert starting-point invariance: "${r.fitResolutionNote}"`);
 } else {
-  console.log(`  ok   autoFit cycle note: "${r.autoFitCycleNote}"`);
+  console.log(`  ok   fitResolutionNote: "${r.fitResolutionNote}"`);
 }
 
 console.log("\nstepped core utilisation matches the classical table");
@@ -422,9 +446,17 @@ const impedanceDev = (kva, baselinePct) => {
 // a real shift, not a defect in the impedance solve: 2.79% sits inside the
 // same range this table already accepted for 100 and 2000 kVA. 2500 kVA
 // stays exact.
-impedanceDev(100, -1.76);
-impedanceDev(630, 2.79);
-impedanceDev(2000, -3.79);
+// ENGINE_VERSION 1.26.0 (CALIBRATION.md section 51): fitToSchedule's own
+// cycle resolution moves from trajectory-limited to an actively chosen
+// cheapest-compliant state -- the same bracket-sensitivity cascade as
+// every earlier K/density-moving change in this file, not a new kind of
+// effect. 100 kVA moves from -1.76% to 2.25%, 630 kVA from 2.79% to
+// -3.78%, both real shifts from a genuinely different, correctly resolved
+// design, still inside the range this table already accepts. 2000 kVA
+// improves, -3.79% to -0.95%; 2500 kVA stays exact.
+impedanceDev(100, 2.25);
+impedanceDev(630, -3.78);
+impedanceDev(2000, -0.95);
 impedanceDev(2500, 0.00);
 
 console.log("\ncooling equipment: fan and pump count follow cooling type, not a fixed number");
@@ -579,28 +611,72 @@ console.log("\nwCoreAssembled: purchased vs assembled core mass, and the K-searc
   eq("Construction B's own optimal etK now matches Construction A's at the same design", rB.params.etK, rA2.params.etK);
 }
 
-console.log("\nfit stability: a converged fit that still sits at a discrete boundary is reported, not silent (CALIBRATION.md section 50)");
+console.log("\nfit resolution: the fitted density is actively resolved to its cheapest compliant nearby state, not left at wherever the trajectory landed (CALIBRATION.md section 51)");
 {
-  // 630 and 1000 kVA are known unstable at this rate card -- a starting-
-  // point sweep (reported alongside this fix) found a >9% ex-works swing
-  // at 630 kVA purely from where the density fit started, nothing else
-  // changed. Both must be flagged, with a real, buildable alternate design
-  // and its own price, not just a boolean.
-  for (const kva of [630, 1000]) {
-    const r630 = E.computeDesign({ ...E.ESSENTIALS, kva }, { coreConstruction: "A" }, E.DEFAULT_RATES, []);
-    if (r630.fitStable) { failures++; console.log(`  FAIL ${kva} kVA: expected fitStable=false (known boundary case), got true`); }
-    else if (typeof r630.fitAlternateExFactory !== "number" || !r630.fitInstabilityNote) {
-      failures++; console.log(`  FAIL ${kva} kVA: fitStable=false but missing fitAlternateExFactory/fitInstabilityNote`);
-    } else console.log(`  ok   ${kva} kVA flagged unstable, alternate ${E.inr(r630.fitAlternateExFactory)} ex-works against ${E.inr(r630.bom.exFactory)} here`);
+  // 630, 1000 and 1250 kVA all have other real winding configurations
+  // within reach of this rate card's own densitySuggest anchor -- the
+  // 1250 kVA case, previously reported as having nothing nearby, only
+  // looked that way at the old, much narrower probe radius. What matters
+  // now is not whether alternates exist (they usually do) but whether the
+  // one built is genuinely the cheapest compliant one, verified below by
+  // starting-point invariance, not asserted here as a plateau story.
+  for (const [kva, ex] of [[630, 1557654], [1000, 2039020], [1250, 2297544]]) {
+    const r = E.computeDesign({ ...E.ESSENTIALS, kva }, { coreConstruction: "A" }, E.DEFAULT_RATES, []);
+    if (!r.fitBoundaryFound || !r.fitResolutionNote) {
+      failures++; console.log(`  FAIL ${kva} kVA: expected fitBoundaryFound/fitResolutionNote, got fitBoundaryFound=${r.fitBoundaryFound}`);
+    } else {
+      eq(`${kva} kVA ex-works`, Math.round(r.bom.exFactory), ex, 500);
+    }
   }
-  // 1250 kVA is the known-stable control -- a wide, flat plateau with no
-  // cycle and no nearby boundary within the probed range.
-  const r1250 = E.computeDesign({ ...E.ESSENTIALS, kva: 1250 }, { coreConstruction: "A" }, E.DEFAULT_RATES, []);
-  eq("1250 kVA reports stable (known wide, flat plateau)", r1250.fitStable, true);
 
   // Both flux and density locked: nothing was auto-fit, so nothing to probe.
   const rLocked = E.computeDesign(E.ESSENTIALS, { flux: 1.65, deltaLV: 2.2, deltaHV: 2.2 }, E.DEFAULT_RATES, []);
-  eq("fully locked flux/density reports stable (nothing was auto-fit)", rLocked.fitStable, true);
+  eq("fully locked flux/density reports no boundary (nothing was auto-fit)", rLocked.fitBoundaryFound, false);
+}
+
+console.log("\nstarting-point invariance: the same enquiry at the same K resolves to the same state and price regardless of where the density fit starts (CALIBRATION.md section 51)");
+// This is the actual regression test for the bug the user's own
+// starting-point sweep found: before this section, a >9% ex-works swing
+// at 630 kVA came purely from where fitToSchedule's damped iteration
+// happened to start, nothing else about the enquiry changed. Reproduces
+// that exact sweep -- same ratings, same K, same spread of starting
+// multipliers on the natural densitySuggest anchor -- and asserts every
+// start now lands on the same discrete signature, and the same price to
+// within a small tolerance, not the rupee: flux is fit jointly with
+// density in the same iteration (both feed the same window-height solve),
+// so a different density starting point can leave the iteration's own
+// converged flux a few thousandths of a tesla off a different one before
+// resolution ever runs -- a genuine, small, physical coupling, not the
+// discrete-signature instability this section fixes. Checked directly:
+// the residual spread this leaves is under 0.1% of ex-works, two orders
+// of magnitude below the >9% the discrete instability caused.
+{
+  const sig = (d) => [d.numGroups, d.layers, d.lvAxCount, d.lvRadCount, d.hvAxCount, d.hvRdCount, d.hvDucts].join("|");
+  const startMults = [0.85, 0.92, 1.0, 1.08, 1.15, 1.25, 1.4];
+  for (const [kva, K] of [[630, 0.453], [1000, 0.465], [1250, 0.472]]) {
+    const core = { ...E.ESSENTIALS, kva };
+    const spec = E.deriveSpec(core, { coreConstruction: "A", etK: K });
+    const natDLV = spec.S.deltaLV, natDHV = spec.S.deltaHV;
+    const results = startMults.map((m) => {
+      const S = { ...spec.S, etK: K, deltaLV: natDLV * m, deltaHV: natDHV * m };
+      const fit = E.fitToSchedule(S, { coreConstruction: "A", etK: K }, undefined, undefined, E.DEFAULT_RATES, true);
+      const d = E.designTransformer({ ...S, ...fit });
+      return { sig: sig(d), exFactory: Math.round(E.buildBOM(d, E.DEFAULT_RATES).exFactory) };
+    });
+    const sigs = new Set(results.map((r) => r.sig));
+    const prices = results.map((r) => r.exFactory);
+    const spread = Math.max(...prices) - Math.min(...prices);
+    const spreadPct = (100 * spread) / (prices.reduce((a, b) => a + b, 0) / prices.length);
+    if (sigs.size !== 1) {
+      failures++;
+      console.log(`  FAIL ${kva} kVA: varies with starting point -- ${sigs.size} distinct discrete states across ${startMults.length} starts`);
+    } else if (spreadPct > 0.5) {
+      failures++;
+      console.log(`  FAIL ${kva} kVA: same state but price spread ${spreadPct.toFixed(2)}% across starts (Rs ${spread}) -- too wide to be the flux-density coupling this test expects`);
+    } else {
+      console.log(`  ok   ${kva} kVA: all ${startMults.length} starts converge to ${[...sigs][0]}, Rs ${Math.round(prices.reduce((a, b) => a + b, 0) / prices.length)} +/- ${spreadPct.toFixed(3)}% ex-works`);
+    }
+  }
 }
 
 console.log("\nstaged search finds close to the same minimum as the full grid, at a fraction of the candidates");
@@ -672,7 +748,7 @@ console.log("\nstaged search finds close to the same minimum as the full grid, a
   else console.log(`  ok   cancelling after stage 1 stops before stage 2 and still returns ${cancelled.length} stage-1 candidates`);
 }
 
-console.log("\nfitToSchedule resolves a discrete-geometry limit cycle instead of running to the iteration cap (CALIBRATION.md section 46)");
+console.log("\nfitToSchedule detects a discrete-geometry limit cycle and exits early, resolution then picks the actual state (CALIBRATION.md sections 46/51)");
 {
   const kva = 1000;
   const core = { ...E.ESSENTIALS, kva };
@@ -683,25 +759,29 @@ console.log("\nfitToSchedule resolves a discrete-geometry limit cycle instead of
   // bisection steps.
   const over = { flux: 1.75 };
   const spec = E.deriveSpec(core, over);
-  const r = E.fitToSchedule(spec.S, over);
+  const r = E.fitToSchedule(spec.S, over, undefined, undefined, E.DEFAULT_RATES, true);
   if (!r.autoFitCycleNote) { failures++; console.log("  FAIL expected a detected limit cycle at flux=1.75, 1000 kVA -- got none (has the underlying geometry changed?)"); }
   else console.log(`  ok   cycle detected: "${r.autoFitCycleNote}"`);
-  if (r.autoFitConverged !== true) { failures++; console.log(`  FAIL expected the resolved cycle to report converged (a compliant state was found), got ${r.autoFitConverged}`); }
-  else console.log("  ok   resolved to a compliant state, reported converged");
+  // CALIBRATION.md section 51: autoFitConverged is now purely a dynamics
+  // fact -- a cycle was, in fact, detected here, so this is correctly
+  // false. Whether a good state was ultimately built is fitResolutionNote's
+  // question, checked below, not this one's.
+  eq("autoFit converged (dynamics only, cycled)", r.autoFitConverged, false);
+  if (!r.fitResolutionNote) { failures++; console.log("  FAIL expected fitResolutionNote once resolution ran -- got none"); }
+  else console.log(`  ok   resolution note: "${r.fitResolutionNote}"`);
 
-  // Regression check for a real bug found while building this: rounding
-  // the chosen state's flux/density to 2 decimals for a clean report can,
-  // on its own, cross back over the exact threshold the choice was made
-  // to land on, silently reverting to the OTHER discrete state. Verify the
-  // returned values, fed straight back into designTransformer, still
-  // produce the state the note claims was chosen.
+  // Regression check for a real bug found while building this: pushing a
+  // resolved state right to its own compliance ceiling and then rounding
+  // the result to 2 decimals for a clean report can, on its own, cross
+  // back over the limit -- found directly, the very first design tried
+  // after adding the ceiling refinement. Verify the returned values, fed
+  // straight back into designTransformer, are still actually compliant.
   const built = E.designTransformer({ ...spec.S, flux: over.flux, deltaLV: r.deltaLV, deltaHV: r.deltaHV });
-  const chosenLoadLoss = Number((r.autoFitCycleNote.match(/Chose .*?\((\d+) W/) || [])[1]);
-  if (!chosenLoadLoss || Math.abs(built.loadLoss - chosenLoadLoss) > 5) {
+  if (built.loadLoss > built.sch.ll) {
     failures++;
-    console.log(`  FAIL returned flux/density do not reproduce the chosen state -- rounding reverted it: built loadLoss ${Math.round(built.loadLoss)} W vs chosen ${chosenLoadLoss} W`);
+    console.log(`  FAIL returned flux/density are not compliant once rebuilt -- rounding pushed them over: ${Math.round(built.loadLoss)} W against ${Math.round(built.sch.ll)} W limit`);
   } else {
-    console.log(`  ok   returned flux/density reproduce the chosen state exactly (built ${Math.round(built.loadLoss)} W vs chosen ${chosenLoadLoss} W)`);
+    console.log(`  ok   returned flux/density rebuild compliant: ${Math.round(built.loadLoss)} W against ${Math.round(built.sch.ll)} W limit`);
   }
 }
 

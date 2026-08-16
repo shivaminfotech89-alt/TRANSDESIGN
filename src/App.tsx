@@ -551,12 +551,13 @@ export default function App() {
   // preview is discarded or adopted.
   const activeEtkWarning = viewingRevision ? viewedResult!.etkNonCompliant : budgetPreview ? false : result.etkNonCompliant;
   const activeEtkNote = viewingRevision ? viewedResult!.etkSearchNote : budgetPreview ? undefined : result.etkSearchNote;
-  // CALIBRATION.md section 50: same reasoning as the etk warning above -- a
+  // CALIBRATION.md section 51: same reasoning as the etk warning above -- a
   // budget preview candidate comes from searchDesigns/designTransformer
-  // directly, never through fitToSchedule, so there is no fit to have
-  // landed near a boundary; nothing to show while one is previewed.
-  const activeFitWarning = viewingRevision ? !viewedResult!.fitStable : budgetPreview ? false : !result.fitStable;
-  const activeFitNote = viewingRevision ? viewedResult!.fitInstabilityNote : budgetPreview ? undefined : result.fitInstabilityNote;
+  // directly, never through fitToSchedule, so there is no fit for a
+  // neighbourhood search to have resolved; nothing to show while one is
+  // previewed.
+  const activeFitBoundary = viewingRevision ? !!viewedResult!.fitBoundaryFound : budgetPreview ? false : !!result.fitBoundaryFound;
+  const activeFitNote = viewingRevision ? viewedResult!.fitResolutionNote : budgetPreview ? undefined : result.fitResolutionNote;
 
   const handleAdoptBudget = () => {
     if (!budgetPreview || readOnlyLive) return;
@@ -726,10 +727,10 @@ export default function App() {
           </div>
         )}
 
-        {activeFitWarning && (
+        {activeFitBoundary && (
           <div className="bg-white border border-amber rounded-[2px] px-4 py-3 print:hidden">
             <div className="text-[11px] font-display uppercase tracking-[0.14em] text-amber mb-1">
-              This Price Sits Right At A Winding Configuration Boundary
+              Winding Configuration Resolved By Neighbourhood Search
             </div>
             <p className="text-[11px] text-ink2">{activeFitNote}</p>
           </div>

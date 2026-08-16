@@ -8,7 +8,7 @@
  * without bumping it, or old quotations stop reproducing.
  */
 
-export const ENGINE_VERSION = "1.25.0";
+export const ENGINE_VERSION = "1.26.0";
 
 const CONDUCTORS = {
   copper: { name: "Copper, EC grade", rho20: 0.017241, alpha: 0.00393, dens: 8890, dMax: 3.6, short: "Cu", proof: 1.0 },
@@ -1865,9 +1865,16 @@ function etkPoint(p, rates, k, over, fast = false) {
   const startDLV = lockD ? p.deltaLV : densitySuggest(p.kva, p.condLV, dry, false);
   const startDHV = lockD ? p.deltaHV : densitySuggest(p.kva, p.condHV, dry, true);
   const pk = { ...p, etK: k, flux: startFlux, deltaLV: startDLV, deltaHV: startDHV };
-  const { autoFitConverged, autoFitCycleNote, autoFitFluxLimit, ...fitted } = fast
-    ? fitToSchedule(pk, over, ETK_SCAN_MAX_ITERS, ETK_SCAN_TOL)
-    : fitToSchedule(pk, over);
+  // CALIBRATION.md section 51: resolve only on the one full-precision call
+  // (fast=false) -- this is the call whose flux/density actually gets
+  // built if its K wins, so it is the one call in this whole scan that
+  // needs the active neighbourhood search, not a shortcut of it. The 15
+  // fast candidates a coarse+refine scan evaluates purely to rank K
+  // against itself never resolve; multiplying their own already-repeated
+  // cost by this search's own would be the section 39 mistake again.
+  const { autoFitConverged, autoFitCycleNote, autoFitFluxLimit, fitResolutionNote, fitBoundaryFound, ...fitted } = fast
+    ? fitToSchedule(pk, over, ETK_SCAN_MAX_ITERS, ETK_SCAN_TOL, rates, false)
+    : fitToSchedule(pk, over, undefined, undefined, rates, true);
   const d = designTransformer({ ...pk, ...fitted });
   if (!isFinite(d.wCore) || d.wCore <= 0) return null;
   const bom = buildBOM(d, rates);
@@ -1882,7 +1889,8 @@ function etkPoint(p, rates, k, over, fast = false) {
   const shopLimitsOk = d.compliance.coilHeight.ok && d.compliance.tankHeight.ok;
   return {
     etK: k, exFactory: bom.exFactory, feasible: zOk && thermalOk && shopLimitsOk && lossOk,
-    converged: autoFitConverged !== false, cycleNote: autoFitCycleNote, fluxLimit: autoFitFluxLimit, fitted,
+    converged: autoFitConverged !== false, cycleNote: autoFitCycleNote, fluxLimit: autoFitFluxLimit,
+    resolutionNote: fitResolutionNote, boundaryFound: fitBoundaryFound, fitted,
     // CALIBRATION.md section 49: the same discrete-geometry signature
     // fitToSchedule's own cycle detection uses (discreteGeometrySignature,
     // defined below) -- one discrete winding configuration per signature,
@@ -2013,11 +2021,21 @@ function pickPlateauMidpoint(p, rates, over, curve, fastBest, rangeMin, rangeMax
   const mid = Math.round(((lo + hi) / 2) * 1000) / 1000;
   const fallback = () => etkPoint(p, rates, fastBest.etK, over, false) || fastBest;
   let best = etkPoint(p, rates, mid, over, false);
-  // Only require the midpoint to be feasible if fastBest itself was --
-  // the non-compliant fallback path this also serves is deliberately
-  // choosing the cheapest point regardless of compliance, and must not
-  // be made stricter than the point it started from.
-  if (!best || best.signature !== fastBest.signature || (fastBest.feasible && !best.feasible)) best = fallback();
+  // CALIBRATION.md section 51: this used to also require
+  // best.signature === fastBest.signature -- right when this only ever
+  // refit at full precision, wrong now that the full-precision call
+  // (fast=false) also actively resolves density to its own cheapest
+  // compliant nearby state (section 51), which frequently, correctly,
+  // is not the same discrete configuration the coarse/refine scan's own
+  // unresolved sample happened to land on. Requiring them to match would
+  // reject the resolution's own improvement on every design where it
+  // found one, silently falling back to the unresolved, boundary-luck
+  // point this whole mechanism exists to avoid. Only require the midpoint
+  // to be feasible if fastBest itself was -- the non-compliant fallback
+  // path this also serves is deliberately choosing the cheapest point
+  // regardless of compliance, and must not be made stricter than the
+  // point it started from.
+  if (!best || (fastBest.feasible && !best.feasible)) best = fallback();
   return { best, lo, hi };
 }
 
@@ -2067,6 +2085,7 @@ function fitEtkToCost(p, over = {}, rates = DEFAULT_RATES) {
     return {
       etK: best.etK, ...best.fitted, etkFitConverged: best.converged,
       etkFitCycleNote: best.cycleNote, etkFitFluxLimit: best.fluxLimit,
+      etkFitResolutionNote: best.resolutionNote, etkFitBoundaryFound: best.boundaryFound,
       etkPlateauLo: lo, etkPlateauHi: hi,
     };
   }
@@ -2093,6 +2112,7 @@ function fitEtkToCost(p, over = {}, rates = DEFAULT_RATES) {
     etkFitConverged: best.converged,
     etkFitCycleNote: best.cycleNote,
     etkFitFluxLimit: best.fluxLimit,
+    etkFitResolutionNote: best.resolutionNote, etkFitBoundaryFound: best.boundaryFound,
     etkPlateauLo: lo, etkPlateauHi: hi,
     etkNonCompliant: true,
     etkSearchNote: `No K from ${ETK_RANGE[0]} to ${ETK_RANGE[ETK_RANGE.length - 1]} keeps this design within every declared limit at ${p.kva} kVA. `
@@ -3216,13 +3236,21 @@ export {
 
 export function computeDesign(core, over = {}, rates = DEFAULT_RATES, extras = []) {
   const spec = deriveSpec(core, over);
+  // CALIBRATION.md section 51: this initial fit only resolves its own
+  // neighbourhood when etK is locked -- when it is AUTO, fitEtkToCost's own
+  // etkPoint calls reset flux/density fresh regardless (section 39), so
+  // this fit's own result is discarded either way and resolving it here
+  // would be pure waste, paid on every single computeDesign call.
+  const willSearchK = over.etK === undefined;
   // CALIBRATION.md section 38: autoFitConverged is reporting, not a design
   // parameter -- kept off of p/fitted so it never reaches designTransformer,
   // same as etkSearchNote/etkNonCompliant below. Absent (autoFit off, or
   // both flux and density locked) reads as converged: there was nothing to
-  // fail to converge. autoFitCycleNote/autoFitFluxLimit (section 46) are
-  // the same kind of reporting-only fact, kept off p the same way.
-  const { autoFitConverged, autoFitCycleNote, autoFitFluxLimit, ...fitted } = fitToSchedule(spec.S, over);
+  // fail to converge. autoFitCycleNote/autoFitFluxLimit (section 46) and
+  // fitResolutionNote/fitBoundaryFound (section 51) are the same kind of
+  // reporting-only fact, kept off p the same way.
+  const { autoFitConverged, autoFitCycleNote, autoFitFluxLimit, fitResolutionNote, fitBoundaryFound, ...fitted } =
+    fitToSchedule(spec.S, over, undefined, undefined, rates, !willSearchK);
   const p0 = { ...spec.S, ...fitted };
   // CALIBRATION.md section 2: runs after fitToSchedule so the K search sees
   // the same flux and current density the actual build will use, and before
@@ -3236,8 +3264,12 @@ export function computeDesign(core, over = {}, rates = DEFAULT_RATES, extras = [
   // moved away from. Only present when fitEtkToCost actually ran (etK was
   // AUTO, not locked) -- undefined otherwise, in which case the original
   // autoFitConverged is the right, and only, answer. etkFitCycleNote/
-  // etkFitFluxLimit supersede the base pair the same way, for the same reason.
-  const { etkSearchNote, etkNonCompliant, etkFitConverged, etkFitCycleNote, etkFitFluxLimit, etkPlateauLo, etkPlateauHi, ...etkOverride } = fitEtkToCost(p0, over, rates);
+  // etkFitFluxLimit/etkFitResolutionNote/etkFitBoundaryFound supersede the
+  // base set the same way, for the same reason.
+  const {
+    etkSearchNote, etkNonCompliant, etkFitConverged, etkFitCycleNote, etkFitFluxLimit,
+    etkFitResolutionNote, etkFitBoundaryFound, etkPlateauLo, etkPlateauHi, ...etkOverride
+  } = fitEtkToCost(p0, over, rates);
   const fittedAll = { ...fitted, ...etkOverride };
   const p = { ...p0, ...etkOverride };
   const design = designTransformer(p);
@@ -3245,14 +3277,8 @@ export function computeDesign(core, over = {}, rates = DEFAULT_RATES, extras = [
   const finalConverged = etkFitConverged !== undefined ? etkFitConverged : autoFitConverged;
   const finalCycleNote = etkFitConverged !== undefined ? etkFitCycleNote : autoFitCycleNote;
   const finalFluxLimit = etkFitConverged !== undefined ? etkFitFluxLimit : autoFitFluxLimit;
-  // CALIBRATION.md section 50: only meaningful when something was actually
-  // auto-fit -- a design with both flux and density locked, or autoFit off
-  // entirely, was never at risk of landing near a boundary by chance.
-  const lockF = over.flux !== undefined;
-  const lockD = over.deltaLV !== undefined || over.deltaHV !== undefined;
-  const stability = p.autoFit && !(lockF && lockD)
-    ? checkFitStability(p, design, bom, rates, lockF, lockD)
-    : { fitStable: true };
+  const finalResolutionNote = etkFitConverged !== undefined ? etkFitResolutionNote : fitResolutionNote;
+  const finalBoundaryFound = etkFitConverged !== undefined ? etkFitBoundaryFound : fitBoundaryFound;
   return {
     spec, params: p, fitted: fittedAll, design, bom, engineVersion: ENGINE_VERSION, etkSearchNote,
     // CALIBRATION.md section 49: the plateau K itself sits inside, as a
@@ -3262,13 +3288,11 @@ export function computeDesign(core, over = {}, rates = DEFAULT_RATES, extras = [
     etkPlateauLo, etkPlateauHi,
     etkNonCompliant: !!etkNonCompliant, autoFitConverged: finalConverged !== false,
     autoFitCycleNote: finalCycleNote, autoFitFluxLimit: finalFluxLimit,
-    // CALIBRATION.md section 50: fitStable defaults true (nothing found
-    // nearby, or nothing to probe) -- absent-reads-as-fine, the same
-    // convention as autoFitConverged above.
-    fitStable: stability.fitStable !== false, fitInstabilityNote: stability.fitInstabilityNote,
-    fitAlternateExFactory: stability.fitAlternateExFactory, fitAlternateSignature: stability.fitAlternateSignature,
-    fitAlternateAxis: stability.fitAlternateAxis, fitAlternateDelta: stability.fitAlternateDelta,
-    fitAlternateCompliant: stability.fitAlternateCompliant,
+    // CALIBRATION.md section 51: present whenever the active neighbourhood
+    // search actually ran and found more than just the seed's own state
+    // nearby -- absent (fitBoundaryFound falsy) reads as "comfortably
+    // interior, nothing nearby," the same convention as autoFitConverged.
+    fitBoundaryFound: !!finalBoundaryFound, fitResolutionNote: finalResolutionNote,
   };
 }
 
@@ -3301,18 +3325,14 @@ export function computeDesign(core, over = {}, rates = DEFAULT_RATES, extras = [
    is slow: a large fraction of what it evaluates hits this.
 
    Fixed by detecting the cycle directly on the discrete geometry signature
-   (discreteGeometrySignature/resolveFitCycle below), which the continuous
-   window-spread check above cannot see -- dLV/dHV can sit in a narrow,
-   non-shrinking band while the discrete signature underneath keeps
-   flipping. Once confirmed, both discrete states the fit is alternating
-   between are real, buildable designs, not noise: resolveFitCycle picks
-   whichever state actually meets the schedule and is closest to the
-   intended margin, using samples already computed during cycling (no
-   extra designTransformer calls), and the choice is reported
-   (autoFitCycleNote) rather than left as an arbitrary stopping point --
-   the same principle etkNonCompliant already established, applied to a
-   different failure. If neither state is compliant, that is reported
-   instead of silently returning one anyway. */
+   (discreteGeometrySignature below), which the continuous window-spread
+   check above cannot see -- dLV/dHV can sit in a narrow, non-shrinking
+   band while the discrete signature underneath keeps flipping. Once
+   confirmed, the loop simply stops (no point burning the remaining
+   iteration budget bouncing between two states) and hands its current
+   point on to the resolution step below, exactly as a clean convergence
+   would -- CALIBRATION.md section 51 explains why picking a winner here,
+   from the trajectory alone, was itself the fault, not the fix. */
 const FIT_RELAX = 0.6, FIT_MAX_ITERS = 60, FIT_CONVERGE_WINDOW = 5, FIT_CONVERGE_TOL = 0.002;
 const FIT_CYCLE_MIN_SAMPLES = 6, FIT_CYCLE_MAX_LAG = 8, FIT_CYCLE_LOOKBACK = 12;
 /* CALIBRATION.md section 39: maxIters/tol are overridable so etkCurve can
@@ -3328,123 +3348,234 @@ function discreteGeometrySignature(t) {
   return FIT_CYCLE_FIELDS.map((f) => t[f]).join("|");
 }
 
-/* Groups the recent history by discrete signature -- each distinct
-   signature is a genuinely different winding construction the fit
-   actually visited, not a numerical artefact. For each state, keeps the
-   sample closest to the intended margin target among that state's own
-   compliant samples (or, if none of that state's samples are compliant,
-   its closest approach) -- already computed during cycling, no re-fit.
-   Then picks the compliant state closest to the margin target across all
-   states, or -- if none are compliant -- the closest approach overall,
-   named as such rather than presented as a success. */
-function resolveFitCycle(history, S) {
-  const groups = new Map();
-  for (const h of history) {
-    if (!groups.has(h.sig)) groups.set(h.sig, []);
-    groups.get(h.sig).push(h);
-  }
-  const target = S.marginTargetLL * history[history.length - 1].t.sch.ll;
-  const closestTo = (arr) => arr.reduce((a, b) => (Math.abs(b.t.loadLoss - target) < Math.abs(a.t.loadLoss - target) ? b : a));
-  const states = [...groups.entries()].map(([sig, samples]) => {
-    const compliantSamples = samples.filter((h) => h.t.loadLoss <= h.t.sch.ll);
-    const best = closestTo(compliantSamples.length ? compliantSamples : samples);
-    return { sig, best, compliant: best.t.loadLoss <= best.t.sch.ll };
-  });
-  const compliantStates = states.filter((s) => s.compliant);
-  const chosen = closestTo((compliantStates.length ? compliantStates : states).map((s) => s.best));
-  return { states, chosen: states.find((s) => s.best === chosen), anyCompliant: compliantStates.length > 0 };
-}
-
-function describeFitCycle(cycle, S) {
-  const target = S.marginTargetLL * cycle.chosen.best.t.sch.ll;
-  const parsed = cycle.states.map((s) => s.sig.split("|"));
-  const diffIdx = FIT_CYCLE_FIELDS.map((_, i) => i).filter((i) => new Set(parsed.map((v) => v[i])).size > 1);
-  const stateDesc = (s) => {
-    const vals = s.sig.split("|");
-    const label = diffIdx.length ? diffIdx.map((i) => `${FIT_CYCLE_FIELDS[i]}=${vals[i]}`).join(", ") : s.sig;
-    return `${label} (${Math.round(s.best.t.loadLoss)} W${s.compliant ? "" : ", over the schedule"})`;
-  };
-  const list = cycle.states.map(stateDesc).join(" vs ");
-  return cycle.anyCompliant
-    ? `Load loss fit was cycling between discrete winding configurations without settling: ${list}. `
-      + `Chose ${stateDesc(cycle.chosen)}, the compliant option closest to the ${Math.round(target)} W margin target.`
-    : `Load loss fit was cycling between discrete winding configurations without settling: ${list}. `
-      + `Neither meets the ${Math.round(cycle.chosen.best.t.sch.ll)} W schedule limit -- returning the closer of the two, ${stateDesc(cycle.chosen)}.`;
-}
-
-/* CALIBRATION.md section 50: autoFitCycleNote (above) only reports a
-   boundary when the fit's OWN damped iteration happened to visibly cross it
-   -- a trajectory that converges cleanly on its first pass never triggers
-   resolveFitCycle at all, even when the point it settled on sits a
-   fraction of a percent from a different, equally real winding
-   configuration. Checked directly (a starting-point sweep at 630 and 1000
-   kVA, reported alongside this fix): the final discrete state, and so the
-   price, can depend on where the fit happened to start, not only on the
-   enquiry -- a >9% ex-works swing at 630 kVA across a realistic spread of
-   starting points, with no other input changed.
-
-   This probes the CONVERGED point's own immediate neighbourhood directly
-   (designTransformer only, never a re-fit -- this asks "is the point I
-   already have fragile", not "search for a better one") and reports the
-   nearest opposite-signature point found, with its own price, so the
-   uncertainty a single quoted price hides is visible. Distinct from
-   autoFitCycleNote: that says a boundary was crossed and which side was
-   chosen; this says the chosen side, crossed or not, is this close to the
-   other one. Both can fire together, and did in every case checked so
-   far -- a state resolveFitCycle had to arbitrate between is, unsurprisingly,
-   also a state sitting right at a boundary. */
-const FIT_STABILITY_DENSITY_STEPS = [0.005, 0.01, 0.015, 0.02, 0.025, 0.03];
-const FIT_STABILITY_FLUX_STEPS = [0.005, 0.01, 0.015, 0.02];
-
 function describeSignatureDiff(sigA, sigB) {
   const a = sigA.split("|"), b = sigB.split("|");
   return FIT_CYCLE_FIELDS.map((f, i) => (a[i] !== b[i] ? `${f} ${a[i]} vs ${b[i]}` : null)).filter(Boolean).join(", ");
 }
 
-function checkFitStability(p, design, bom, rates, lockF, lockD) {
-  const baseSig = discreteGeometrySignature(design);
-  const bMax = CORE_GRADES[p.coreGrade].bMax - 0.02;
-  const bMin = p.coreGrade === "amor" ? 1.20 : 1.42;
-  const axes = [];
+/* CALIBRATION.md section 51: replaces the old resolveFitCycle. That
+   function only ever compared states the fit's own damped, path-dependent
+   trajectory happened to visit while genuinely cycling -- and never ran at
+   all when the trajectory converged cleanly, even onto a point sitting a
+   fraction of a percent from a cheaper compliant neighbour. Checked
+   directly with a starting-point sweep at 630, 1000 and 1250 kVA (holding
+   K, rates and everything else fixed, varying only where the density fit
+   started): the final discrete state, and so the reported price, depended
+   on the starting point, not on the enquiry -- a >9% ex-works swing at
+   630 kVA. Swapping resolveFitCycle's comparator (closest-to-target) for
+   "cheapest compliant" would not have fixed this on its own, because the
+   instability was never in which rule ranks states -- it is in which
+   states get compared at all.
+
+   This actively probes the neighbourhood instead of waiting for the
+   trajectory to reveal it by chance, the same principle section 49 applied
+   to K: a coupled sweep (deltaLV and deltaHV scaled together, matching how
+   this fit's own damped correction moves them -- see the single `k` factor
+   below) covers the region a different starting point could actually
+   converge into; independent per-axis probes catch a boundary reachable by
+   one axis alone. designTransformer only for the sweep (cheap, no BOM) --
+   buildBOM runs once per DISTINCT signature found, not per probe point, so
+   the real cost stays bounded to a handful of calls regardless of how fine
+   the sweep is. Cheapest compliant state wins; ties are not expected (a
+   different signature is a genuinely different design) but favour the
+   smaller |flux-seed| change if they occur, since that is closest to what
+   the fit was already trying to do. Reported with its own margin, and with
+   what the raw, unresolved trajectory endpoint would have cost, so the
+   size of what was corrected is visible, not just the fact of it. */
+const FIT_RESOLVE_COUPLED_LO = 0.4, FIT_RESOLVE_COUPLED_HI = 1.8, FIT_RESOLVE_COUPLED_STEP = 0.08;
+const FIT_RESOLVE_DENSITY_STEPS = [0.01, 0.02, 0.03];
+const FIT_RESOLVE_FLUX_STEPS = [0.005, 0.01, 0.015, 0.02];
+
+function resolveDiscreteNeighbourhood(S, seedFlux, seedDLV, seedDHV, rates, lockF, lockD) {
+  const bMax = CORE_GRADES[S.coreGrade].bMax - 0.02;
+  const bMin = S.coreGrade === "amor" ? 1.20 : 1.42;
+  const clF = (x) => Math.min(bMax, Math.max(bMin, x));
+  const clLV = (x) => Math.min(CONDUCTORS[S.condLV].dMax, Math.max(0.7, x));
+  const clHV = (x) => Math.min(CONDUCTORS[S.condHV].dMax, Math.max(0.7, x));
+  // CALIBRATION.md section 51: anchored on the CANONICAL suggestion
+  // (fluxSuggest/densitySuggest -- a pure function of S, not of wherever
+  // this particular fit happened to start), the same reset etkPoint
+  // already applies for the same reason (section 39). Anchoring on the
+  // seed instead was checked directly and does not work: fitToSchedule's
+  // own damped correction scales deltaLV/deltaHV by one shared factor
+  // each step, so it preserves whatever LV:HV ratio the seed started
+  // with, and different seeds converge onto different ratios once
+  // per-axis clamping (each conductor's own dMax) engages differently --
+  // refining along the seed's own ray only reproduces that same
+  // seed-dependence one level down, not removed it. Anchoring on the
+  // canonical ray removes the dependency at its root: the discovery
+  // sweep and the refinement below both use it, so which signature is
+  // found and where it is refined to are both functions of S alone.
+  // Flux does not get this treatment: checked directly (a flux sweep at
+  // fixed K with density locked, reported alongside this section), flux
+  // does not move discreteGeometrySignature at all -- at fixed K it mainly
+  // resizes the core cross-section, not the turn count the signature
+  // tracks. The seed's own flux is already correctly fit (including
+  // saturating at the grade ceiling/floor when that is where the no-load
+  // target puts it, autoFitFluxLimit above) -- re-deriving it from
+  // fluxSuggest here would silently discard that and, checked directly,
+  // did: it broke the ceiling-saturation report for a 1250 kVA design that
+  // has always saturated there.
+  const dry = S.medium === "dry";
+  const canonDLV = lockD ? seedDLV : densitySuggest(S.kva, S.condLV, dry, false);
+  const canonDHV = lockD ? seedDHV : densitySuggest(S.kva, S.condHV, dry, true);
+
+  const found = new Map();
+  const consider = (flux, dLV, dHV) => {
+    const t = designTransformer({ ...S, flux, deltaLV: dLV, deltaHV: dHV });
+    const sig = discreteGeometrySignature(t);
+    const target = S.marginTargetLL * t.sch.ll;
+    const dist = Math.abs(t.loadLoss - target);
+    const compliant = t.loadLoss <= t.sch.ll && t.noLoad <= t.sch.nll;
+    const prev = found.get(sig);
+    if (!prev || dist < prev.dist) found.set(sig, { flux, dLV, dHV, t, sig, dist, compliant });
+  };
+
+  // The seed is deliberately NOT fed into `consider` -- it exists only to
+  // report what the raw, unresolved trajectory would have cost, below.
+  // Letting it compete for a signature's own discovery entry would let a
+  // seed-derived (and so seed-dependent) sample win over a canonical one
+  // whenever it happened to sit closer to the margin target, undoing the
+  // whole point of anchoring discovery on the canonical ray.
+  const seedT = designTransformer({ ...S, flux: seedFlux, deltaLV: seedDLV, deltaHV: seedDHV });
+  const seedSig = discreteGeometrySignature(seedT);
+  consider(seedFlux, canonDLV, canonDHV);
+
   if (!lockD) {
-    axes.push(["deltaLV", FIT_STABILITY_DENSITY_STEPS, 0.5, CONDUCTORS[p.condLV].dMax]);
-    axes.push(["deltaHV", FIT_STABILITY_DENSITY_STEPS, 0.5, CONDUCTORS[p.condHV].dMax]);
-  }
-  if (!lockF) axes.push(["flux", FIT_STABILITY_FLUX_STEPS, bMin, bMax]);
-  let nearest = null;
-  for (const [axis, steps, lo, hi] of axes) {
-    for (const dir of [1, -1]) {
-      for (const step of steps) {
-        const val = p[axis] + dir * step;
-        if (val < lo || val > hi) break;
-        const d = designTransformer({ ...p, [axis]: val });
-        const sig = discreteGeometrySignature(d);
-        if (sig !== baseSig) {
-          if (!nearest || step < nearest.step) nearest = { axis, dir, step, sig, d };
-          break;
-        }
+    for (let m = FIT_RESOLVE_COUPLED_LO; m <= FIT_RESOLVE_COUPLED_HI + 1e-9; m += FIT_RESOLVE_COUPLED_STEP) {
+      consider(seedFlux, clLV(canonDLV * m), clHV(canonDHV * m));
+    }
+    for (const step of FIT_RESOLVE_DENSITY_STEPS) {
+      for (const dir of [1, -1]) {
+        consider(seedFlux, clLV(canonDLV + dir * step), canonDHV);
+        consider(seedFlux, canonDLV, clHV(canonDHV + dir * step));
       }
     }
   }
-  if (!nearest) return { fitStable: true };
-  const altBom = buildBOM(nearest.d, rates);
-  const unit = nearest.axis === "flux" ? "T" : "A/mm²";
-  const altCompliant = nearest.d.compliance.ll.ok && nearest.d.compliance.nll.ok;
-  return {
-    fitStable: false,
-    fitInstabilityNote: `This fit sits only ${nearest.step.toFixed(3)} ${unit} of ${nearest.axis} from a different, `
-      + `real winding configuration (${describeSignatureDiff(baseSig, nearest.sig)}), priced at ${inr(altBom.exFactory)} `
-      + `ex-works against ${inr(bom.exFactory)} here` + (altCompliant ? "" : " -- though that alternate does not itself meet the declared loss limits")
-      + `. A change this small in the enquiry, the rate card, or simply where the fit starts from can move the design between the two.`,
-    fitAlternateExFactory: altBom.exFactory,
-    fitAlternateSignature: nearest.sig,
-    fitAlternateAxis: nearest.axis,
-    fitAlternateDelta: nearest.dir * nearest.step,
-    fitAlternateCompliant: altCompliant,
+  if (!lockF) {
+    for (const step of FIT_RESOLVE_FLUX_STEPS) {
+      for (const dir of [1, -1]) consider(clF(seedFlux + dir * step), canonDLV, canonDHV);
+    }
+  }
+
+  // CALIBRATION.md section 51: the discovery sweep above finds WHICH
+  // signatures exist nearby, but "closest sample to the margin target"
+  // depends on exactly which grid points a given seed happened to land
+  // on -- checked directly, this alone left a ~1-3% price spread across
+  // starting points even when every start agreed on the winning
+  // signature. Cost falls smoothly as density rises within one signature
+  // (more permitted loss, less copper) right up to whichever binds
+  // first: the loss schedule, or the signature's own edge -- a genuine
+  // root of the underlying physics, not a sampling artefact, so refining
+  // onto it by bisection (not just keeping the nearest grid sample) is
+  // seed-independent. refineWithinSignature walks the SAME coupled
+  // direction outward from wherever a signature was first found until it
+  // either exceeds the schedule or leaves the signature, then bisects
+  // between the last good point and that one.
+  const refineWithinSignature = (entry) => {
+    const evalAt = (m) => designTransformer({
+      ...S, flux: entry.flux, deltaLV: clLV(entry.dLV * m), deltaHV: clHV(entry.dHV * m),
+    });
+    const okAt = (t) => discreteGeometrySignature(t) === entry.sig && t.loadLoss <= t.sch.ll;
+    let inM = 1, inT = entry.t;
+    if (!okAt(inT)) {
+      // The discovered sample is already over the schedule -- walk inward
+      // (less density, less loss) until compliant, same signature.
+      let step = 0.02;
+      for (let i = 0; i < 12; i++) {
+        const cand = inM - step;
+        if (cand <= 0.1) break;
+        const t = evalAt(cand);
+        if (discreteGeometrySignature(t) !== entry.sig) break; // signature itself this thin -- give up, keep what we have
+        inM = cand; inT = t; step *= 1.4;
+        if (t.loadLoss <= t.sch.ll) break;
+      }
+    }
+    let outM = null;
+    let step = 0.02;
+    for (let i = 0; i < 12 && outM === null; i++) {
+      const cand = inM + step;
+      const t = evalAt(cand);
+      if (!okAt(t)) { outM = cand; break; }
+      inM = cand; inT = t; step *= 1.4;
+    }
+    if (outM === null) return inT; // schedule/signature extends beyond the search range -- furthest confirmed point
+    let lo = inM, hi = outM;
+    for (let i = 0; i < 10; i++) {
+      const mid = (lo + hi) / 2;
+      const t = evalAt(mid);
+      if (okAt(t)) { lo = mid; inT = t; } else hi = mid;
+    }
+    return inT;
   };
+
+  const entries = [...found.values()].map((e) => {
+    const refinedT = refineWithinSignature(e);
+    const compliant = refinedT.loadLoss <= refinedT.sch.ll && refinedT.noLoad <= refinedT.sch.nll;
+    // designTransformer's own output names these B/dLV/dHV, not the
+    // flux/deltaLV/deltaHV it takes as input -- refinedT is its output.
+    return { ...e, t: refinedT, flux: refinedT.B, dLV: refinedT.dLV, dHV: refinedT.dHV, compliant };
+  });
+  const compliantEntries = entries.filter((e) => e.compliant);
+  const pool = compliantEntries.length ? compliantEntries : entries;
+  const priced = pool.map((e) => ({ ...e, exFactory: buildBOM(e.t, rates).exFactory }));
+  const winner = compliantEntries.length
+    ? priced.reduce((a, b) => (b.exFactory < a.exFactory ? b : a))
+    : priced.reduce((a, b) => (a.dist < b.dist ? a : b));
+
+  // Refinement deliberately parks right at the compliance ceiling (the
+  // cheapest a compliant state gets) -- which means a plain 2-decimal
+  // round, same concern as section 46, can tip a point that IS compliant
+  // at full precision just over the limit once rounded. Checked directly:
+  // this happened on the very first design tried. Verify the rounded
+  // point keeps both the signature AND compliance before accepting it;
+  // keep full precision otherwise, same principle as always.
+  const r2 = (x) => Math.round(x * 100) / 100;
+  let flux = winner.flux, dLV = winner.dLV, dHV = winner.dHV;
+  const roundedT = designTransformer({ ...S, flux: r2(flux), deltaLV: r2(dLV), deltaHV: r2(dHV) });
+  const roundedOk = discreteGeometrySignature(roundedT) === winner.sig
+    && (!winner.compliant || (roundedT.loadLoss <= roundedT.sch.ll && roundedT.noLoad <= roundedT.sch.nll));
+  if (roundedOk) { flux = r2(flux); dLV = r2(dLV); dHV = r2(dHV); }
+
+  const seedExFactory = buildBOM(seedT, rates).exFactory;
+  const seedCompliant = seedT.loadLoss <= seedT.sch.ll && seedT.noLoad <= seedT.sch.nll;
+  const marginPct = (100 * (winner.t.sch.ll - winner.t.loadLoss)) / winner.t.sch.ll;
+  let note;
+  if (entries.length > 1) {
+    if (!compliantEntries.length) {
+      note = `A neighbourhood search found ${entries.length} distinct nearby winding configurations; none meets the `
+        + `${Math.round(winner.t.sch.ll)} W load-loss / ${Math.round(winner.t.sch.nll)} W no-load schedule here. `
+        + `Returning the closest approach, ${inr(winner.exFactory)} ex-works.`;
+    } else if (winner.sig !== seedSig) {
+      note = `The fit's own iteration settled on a different, more expensive configuration `
+        + `(${inr(seedExFactory)} ex-works${seedCompliant ? "" : ", not itself compliant"}). A neighbourhood search of `
+        + `${entries.length} distinct nearby configurations found this one is the cheapest that still meets the `
+        + `declared loss limits, ${marginPct.toFixed(1)}% load-loss margin, at ${inr(winner.exFactory)} ex-works. `
+        + `This choice does not depend on where the fit started.`;
+    } else {
+      note = `A neighbourhood search found ${entries.length - 1} other nearby winding configuration(s); none price `
+        + `lower while meeting the declared loss limits, so this one is kept: ${marginPct.toFixed(1)}% load-loss margin `
+        + `at ${inr(winner.exFactory)} ex-works. This choice does not depend on where the fit started.`;
+    }
+  }
+  return { flux, deltaLV: dLV, deltaHV: dHV, boundaryFound: entries.length > 1, compliant: winner.compliant, note };
 }
 
-export function fitToSchedule(S, over = {}, maxIters = FIT_MAX_ITERS, tol = FIT_CONVERGE_TOL) {
+/* CALIBRATION.md section 51: `resolve` is off by default -- deliberately.
+   The active neighbourhood search below is bounded but not free (roughly
+   sixty cheap designTransformer probes plus a handful of real buildBOM
+   calls), and this function is called far more often than once per
+   design: every fast K-ranking candidate inside etkPoint, and every one
+   of searchDesigns' many thousands of budget-search candidates, both call
+   it purely to rank options against each other, not to decide what gets
+   built. Multiplying either by this search's own cost would be the same
+   mistake section 39 already found and fixed once (comparing many
+   candidates on work that was too expensive to redo per candidate, so it
+   didn't get redone and the comparison went stale) -- pointed the other
+   direction. Only the calls that decide what actually gets built --
+   computeDesign's own initial fit when etK is locked, and etkPoint's one
+   full-precision call for whichever K wins the search -- opt in. */
+export function fitToSchedule(S, over = {}, maxIters = FIT_MAX_ITERS, tol = FIT_CONVERGE_TOL, rates = DEFAULT_RATES, resolve = false) {
   if (!S.autoFit) return {};
   const lockF = over.flux !== undefined;
   const lockD = over.deltaLV !== undefined || over.deltaHV !== undefined;
@@ -3455,7 +3586,7 @@ export function fitToSchedule(S, over = {}, maxIters = FIT_MAX_ITERS, tol = FIT_
   let flux = S.flux, dLV = S.deltaLV, dHV = S.deltaHV;
   const window = [];
   const history = [];
-  let converged = false, cycle = null;
+  let converged = false, cycled = false;
   for (let i = 0; i < maxIters; i++) {
     const t = designTransformer({ ...S, flux, deltaLV: dLV, deltaHV: dHV });
     const sig = discreteGeometrySignature(t);
@@ -3477,16 +3608,19 @@ export function fitToSchedule(S, over = {}, maxIters = FIT_MAX_ITERS, tol = FIT_
     // the current signature within the lookback window, with at least one
     // DIFFERENT signature seen strictly in between, is genuine alternation
     // rather than "hasn't changed recently" (which the continuous check
-    // already covers).
+    // already covers). Once seen, there is no point burning the rest of
+    // the iteration budget bouncing between states -- stop and hand the
+    // current point on to the resolution step below, same as a clean
+    // convergence would (CALIBRATION.md section 51).
     if (history.length >= FIT_CYCLE_MIN_SAMPLES) {
       for (let back = 2; back <= Math.min(FIT_CYCLE_MAX_LAG, history.length - 1); back++) {
         const earlier = history[history.length - 1 - back];
         if (earlier.sig === sig && history.slice(history.length - back, history.length - 1).some((h) => h.sig !== sig)) {
-          cycle = resolveFitCycle(history, S);
+          cycled = true;
           break;
         }
       }
-      if (cycle) break;
+      if (cycled) break;
     }
 
     if (!lockF && t.noLoad > 0) {
@@ -3502,40 +3636,52 @@ export function fitToSchedule(S, over = {}, maxIters = FIT_MAX_ITERS, tol = FIT_
     }
   }
 
-  const r2 = (x) => Math.round(x * 100) / 100;
   const o = {};
-  let finalFlux = flux, finalDLV = dLV, finalDHV = dHV, finalT = history.length ? history[history.length - 1].t : null;
-  let roundSafe = true;
-  if (cycle) {
-    finalFlux = cycle.chosen.best.flux; finalDLV = cycle.chosen.best.dLV; finalDHV = cycle.chosen.best.dHV;
-    finalT = cycle.chosen.best.t;
-    o.autoFitConverged = cycle.anyCompliant;
-    o.autoFitCycleNote = describeFitCycle(cycle, S);
-    // Rounding to 2 decimals for a clean report can, on its own, cross
-    // back over the exact discrete threshold this choice was just made to
-    // land on -- these thresholds can be a fraction of a percent wide
-    // (CALIBRATION.md section 46). Verify the rounded values still
-    // produce the chosen state before rounding anything: found directly,
-    // rounding chosen (7, 12, lvRad 5) at 6088 W back to r2 precision
-    // silently landed on (6, 14, lvRad 5) at 6160 W instead -- the exact
-    // failure this resolution exists to prevent, reintroduced by display
-    // rounding. When rounding is unsafe, keep full precision instead of a
-    // tidier number that quietly reverts the choice.
+  // A locked dimension never moves in this loop, so it trivially satisfies
+  // the window-spread check above -- converged correctly reflects whichever
+  // dimension is actually being fitted, locked or not. This is now purely a
+  // dynamics fact (did the damped iteration reach a stable point without
+  // cycling) -- whether the point it reached is any good is the resolution
+  // step's question, not this one's.
+  o.autoFitConverged = converged;
+  if (cycled) {
+    const statesSeen = new Set(history.map((h) => h.sig)).size;
+    o.autoFitCycleNote = `Load loss fit was cycling between ${statesSeen} discrete winding configurations without `
+      + `settling (seen across the last ${history.length} iterations) -- resolved separately by neighbourhood search.`;
+  }
+
+  // The break above (converged or cycled) always happens before this
+  // iteration's own flux/dLV/dHV update, so these still match exactly what
+  // history's last entry was built from -- the one case they can drift
+  // apart is exhausting maxIters with neither, a pre-existing, intentionally
+  // untouched edge case (the design simply hasn't settled either way).
+  let finalFlux = flux, finalDLV = dLV, finalDHV = dHV;
+  let finalT = history.length ? history[history.length - 1].t : null;
+
+  if (resolve && (!lockF || !lockD)) {
+    const resolved = resolveDiscreteNeighbourhood(S, finalFlux, finalDLV, finalDHV, rates, lockF, lockD);
+    finalFlux = resolved.flux; finalDLV = resolved.deltaLV; finalDHV = resolved.deltaHV;
+    o.fitBoundaryFound = resolved.boundaryFound;
+    o.fitResolutionNote = resolved.note;
+    finalT = designTransformer({ ...S, flux: finalFlux, deltaLV: finalDLV, deltaHV: finalDHV });
+  } else if (finalT) {
+    // Same rounding-safety concern section 46 first found: a display-clean
+    // 2-decimal round can, on its own, cross back over the exact discrete
+    // threshold this point sits at. Matters even for an unresolved (fast
+    // scan) call -- its rounded flux/density feed straight into the point
+    // designTransformer build used for ranking, so a reverted state here
+    // silently ranks the wrong design.
+    const r2 = (x) => Math.round(x * 100) / 100;
+    const baseSig = discreteGeometrySignature(finalT);
     const roundedT = designTransformer({ ...S, flux: r2(finalFlux), deltaLV: r2(finalDLV), deltaHV: r2(finalDHV) });
-    roundSafe = discreteGeometrySignature(roundedT) === cycle.chosen.sig;
-  } else {
-    // A locked dimension never moves in this loop, so it trivially
-    // satisfies the window-spread check above -- autoFitConverged
-    // correctly reflects whichever dimension is actually being fitted,
-    // locked or not.
-    o.autoFitConverged = converged;
+    if (discreteGeometrySignature(roundedT) === baseSig) { finalFlux = r2(finalFlux); finalDLV = r2(finalDLV); finalDHV = r2(finalDHV); }
   }
 
   // Flux saturation is real information about the design regardless of
-  // whether density is cycling -- reported unconditionally whenever flux
-  // is free and ends up pinned at the grade's own ceiling or floor, the
-  // same way etkNonCompliant reports a saturated K search. Saturating at
-  // the ceiling means the fit would use MORE flux (cheaper core) if the
+  // whether density needed resolving -- reported unconditionally whenever
+  // flux is free and ends up pinned at the grade's own ceiling or floor,
+  // the same way etkNonCompliant reports a saturated K search. Saturating
+  // at the ceiling means the fit would use MORE flux (cheaper core) if the
   // grade allowed it, and generally still has no-load margin to spare, not
   // a compliance problem. Saturating at the floor means the fit would use
   // LESS flux if it could, and the design still may not meet its no-load
@@ -3548,7 +3694,7 @@ export function fitToSchedule(S, over = {}, maxIters = FIT_MAX_ITERS, tol = FIT_
     if (atCeiling || atFloor) {
       o.autoFitFluxLimit = {
         at: atCeiling ? "ceiling" : "floor",
-        value: r2(finalFlux),
+        value: Math.round(finalFlux * 100) / 100,
         noLoad: Math.round(finalT.noLoad),
         limit: Math.round(finalT.sch.nll),
         compliant: finalT.noLoad <= finalT.sch.nll,
@@ -3556,8 +3702,8 @@ export function fitToSchedule(S, over = {}, maxIters = FIT_MAX_ITERS, tol = FIT_
     }
   }
 
-  if (!lockF) o.flux = roundSafe ? r2(finalFlux) : finalFlux;
-  if (!lockD) { o.deltaLV = roundSafe ? r2(finalDLV) : finalDLV; o.deltaHV = roundSafe ? r2(finalDHV) : finalDHV; }
+  if (!lockF) o.flux = finalFlux;
+  if (!lockD) { o.deltaLV = finalDLV; o.deltaHV = finalDHV; }
   return o;
 }
 
