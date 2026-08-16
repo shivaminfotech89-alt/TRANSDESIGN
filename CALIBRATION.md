@@ -3450,3 +3450,165 @@ neighbourhood directly, the same mechanism `checkFitStability` above now
 uses for reporting) before ranking. That is a real change to how
 `fitToSchedule` settles on a state, not a one-line comparator swap, and is
 not made here -- reported per the request, not implemented.
+## 51. Making the choice actually stable, not just reported -- active neighbourhood resolution replaces resolveFitCycle
+
+Section 50 reported the instability; this section fixes it. Requested
+directly: a 9% cost swing from where a numerical fit happens to start is
+not something a quotation tool can carry, and reporting that it happens
+is not the same as resolving it.
+
+**What changed.** `resolveFitCycle` (section 46) is gone. It only ever
+compared states its own damped, path-dependent trajectory happened to
+visit while genuinely cycling, and never ran at all when the trajectory
+converged cleanly -- even onto a point sitting a fraction of a percent
+from a cheaper compliant neighbour. In its place, `fitToSchedule`'s loop
+now treats a detected cycle purely as an early exit (stop wasting
+iterations bouncing between two states, hand the current point on) and a
+new function, `resolveDiscreteNeighbourhood`, actively finds and prices
+the real nearby discrete states and picks the cheapest one that still
+meets the declared loss limits -- run whether or not a cycle fired, since
+a clean convergence next to a boundary is exactly as arbitrary.
+
+**How it searches.** `discreteGeometrySignature` (unchanged) still
+identifies a winding configuration. Discovery sweeps a coupled multiplier
+(deltaLV and deltaHV scaled together, matching the single factor
+`fitToSchedule`'s own damped correction already uses) plus independent
+per-axis probes and a small flux band, using `designTransformer` alone --
+cheap, no `buildBOM`. For each distinct signature found, a second pass,
+`refineWithinSignature`, bisects along the same coupled direction onto
+that state's own compliance ceiling (cost falls smoothly as permitted
+loss rises, right up to whichever binds first: the schedule or the
+signature's own edge -- a real root of the physics, not a sampling
+artefact). Only then does `buildBOM` run, once per distinct signature, to
+pick the cheapest compliant one.
+
+**Getting to actual starting-point invariance took four real bugs, found
+in this order, each one by testing against the exact starting-point sweep
+that found the original problem:**
+
+1. *Refining along the seed's own ray reproduced the seed-dependence one
+   level down.* The first version anchored both discovery and refinement
+   on whatever deltaLV/deltaHV the caller's own trajectory had converged
+   to. `fitToSchedule`'s damped correction scales both by one shared
+   factor per iteration, so it preserves whatever LV:HV ratio the seed
+   started with -- and different seeds converge onto different ratios
+   once each conductor's own dMax clamp engages differently. Refining
+   along that ray still gave a ~1-3% price spread across starts even when
+   every start agreed on the signature. Fixed by anchoring discovery and
+   refinement on the canonical `densitySuggest` ray -- a pure function of
+   the spec, not of wherever this particular fit started -- the same reset
+   `etkPoint` already applies to flux/density for the same reason
+   (section 39). The seed itself is kept only to report what the raw,
+   unresolved trajectory would have cost, and is deliberately excluded
+   from competing for a signature's own discovery entry, or a
+   seed-derived sample could still win that comparison and reintroduce
+   the same dependency through the back door.
+
+2. *The canonical ray's own search window was too narrow.* A ±25-35%
+   window around the canonical suggestion found the right answer at 1000
+   and 1250 kVA but left 630 kVA's cheapest compliant state unreachable --
+   its own true resolution needs a density well outside that band. Fixed
+   by widening the coupled sweep to 0.4x-1.8x of the canonical suggestion,
+   matching the same [0.7, conductor's own dMax] bound `fitToSchedule`'s
+   own iteration already clamps to, rather than an arbitrary window around
+   a starting guess.
+
+3. `pickPlateauMidpoint` (section 49) used to verify its own midpoint
+   still carried `fastBest`'s own signature before accepting it -- correct
+   when the K-plateau's full-precision call only ever refit at higher
+   tolerance, wrong now that it also resolves density (this section), which
+   deliberately moves to a different, cheaper signature whenever it finds
+   one. The equality check rejected the resolution's own improvement on
+   nearly every design, silently falling back to the unresolved point
+   this whole section exists to avoid, at roughly twice the cost (the
+   fallback itself also resolves). Fixed by dropping the signature check
+   from that fallback condition, keeping only the feasibility check it was
+   paired with.
+
+4. *Pushing to the compliance ceiling and then rounding for a clean report
+   can cross back over the limit.* The same concern section 46 first
+   found for `resolveFitCycle`'s own chosen state, reintroduced here by
+   deliberately parking at the edge of compliance rather than a point with
+   margin to spare. Found directly: the first design tried this way came
+   back non-compliant after 2-decimal rounding. Fixed the same way as
+   before -- verify the rounded point is still both the right signature
+   AND still compliant before accepting it; keep full precision otherwise.
+
+**A fifth issue, found the same way, was about flux, not density.** An
+earlier draft re-derived flux from `fluxSuggest` the same way density is
+canonicalised, reasoning it should be just as seed-independent. That broke
+`autoFitFluxLimit`'s own ceiling-saturation report at 1250 kVA: flux
+genuinely needs fitting (it chases the no-load target, including
+saturating at the grade's own ceiling when that is where the target puts
+it), not just a starting guess, and the seed's own already-fitted flux is
+the correct basis -- re-deriving it silently discarded a real fit for an
+unfit suggestion. Fixed by keeping flux at the seed's own value throughout
+(checked directly: flux does not move `discreteGeometrySignature` at all,
+holding density fixed and sweeping flux across its full range finds no
+signature change, so it was never the source of the instability this
+section targets).
+
+**A small residual remains, and is not the same bug.** Flux and density
+are fit in the same coupled iteration, both feeding the same window-height
+solve, so a different starting density can leave the iteration's own
+converged flux a few thousandths of a tesla off a different one before
+resolution ever runs. Checked directly across the same starting-point
+sweep: this leaves a real but small residual, under 0.1% of ex-works, two
+orders of magnitude below the >9% the discrete-signature instability
+caused. This is a genuine, small, physical coupling between two
+continuously-fitted quantities, not a discrete boundary a design can land
+on either side of -- regression-tested at that tolerance, not papered over
+with a wider one to make a test pass.
+
+**Verification: the same starting-point sweep that found the problem,
+reported in full.** Seven starting multipliers (0.85 to 1.40) on the
+natural `densitySuggest` anchor, at each rating's own cost-optimal K:
+
+| kVA | K | Discrete states across 7 starts | Price spread |
+|---|---|---|---|
+| 630 | 0.453 | 1 (was 3) | 0.000% (was ~9%) |
+| 1000 | 0.465 | 1 (was 2) | 0.077% (was ~4%) |
+| 1250 | 0.472 | 1 (was 1) | 0.000% (unchanged -- already stable) |
+
+No rating still varies with starting point in the sense that prompted
+this section. Regression-tested permanently in engine.test.mjs, not just
+reported once here.
+
+**Default case, and every other rating that cycles, moves.** The default
+1000 kVA case is itself one of the designs that used to cycle -- its own
+ex-works falls from Rs 21,00,057 to Rs 20,39,020 (etK moves 0.46 to
+0.465), because the actively-chosen cheapest compliant state genuinely is
+cheaper than wherever the old trajectory-limited resolution happened to
+land. Every golden number downstream of it in engine.test.mjs moved with
+it, along with the impedance-solve baselines at 100, 630 and 2000 kVA
+(2500 kVA, already exact, stays exact) -- all recorded as found, per this
+file's own convention, not tuned toward round numbers.
+
+`autoFitConverged` is redefined: it now reports purely on the damped
+iteration's own dynamics (did it reach a stable point without cycling),
+independent of whether the point it reached, or resolution moved it to,
+is any good. That question now belongs to `fitResolutionNote`
+(`fitBoundaryFound`/`fitResolutionNote` on `computeDesign`'s own return,
+superseded by `etkFitBoundaryFound`/`etkFitResolutionNote` when the K
+search ran, the same pattern `etkFitConverged` already established) --
+present whenever the neighbourhood search found more than the seed's own
+state nearby, describing which state was chosen, its margin, and, when it
+differs from the raw trajectory, what that would have cost. Surfaced in
+the UI the same way `etkNonCompliant` already is, relabelled from a
+warning to a disclosure ("Winding Configuration Resolved By Neighbourhood
+Search") since the finding is no longer an open risk -- it is now a
+routine, deterministic fact about where the price came from.
+
+**Cost, measured on the default case:** ~1.45 s before section 49;
+~2.7-3.0 s with section 49's K-plateau search alone; ~3.9-4.5 s with this
+section's density resolution added on top (the coupled sweep's wider
+0.4x-1.8x range, needed for correctness -- item 2 above -- is the largest
+single contributor). Not optimised further here: the user's own framing
+for this round was correctness over speed, and the K-plateau cache this
+session separately declined to add would not help here either, for the
+same reason (CLAUDE.md invariant 1, the engine stays stateless).
+
+`ENGINE_VERSION` bumped to 1.26.0. This is exactly the class of change
+invariant 4 exists for: a real formula change, reachable by any AUTO-fit
+design, that moves the default case's own numbers -- not a reporting-only
+addition like section 50's was.
