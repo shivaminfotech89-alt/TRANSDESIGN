@@ -52,7 +52,7 @@ export function TankFabricationDrawing({ design, params, project }: Props) {
           <DimensionArrow id={arrowId} />
 
           {/* Plan */}
-          <rect x={originX} y={planY} width={tankLpx} height={planH} fill="none" stroke="var(--color-ink)" strokeWidth={1.4} />
+          <rect x={originX} y={planY} width={tankLpx} height={planH} fill="none" stroke="var(--color-ink)" strokeWidth={2.1} />
           <rect x={originX + plateThkPx} y={planY + plateThkPx} width={tankLpx - 2 * plateThkPx} height={planH - 2 * plateThkPx} fill="none" stroke="var(--color-ink2)" strokeWidth={0.5} />
           {stiffenerXs.map((sx, i) => (
             <line key={`ps${i}`} x1={sx} y1={planY} x2={sx} y2={planY + planH} stroke="var(--color-steel)" strokeWidth={0.6} strokeDasharray="2 2" />
@@ -60,27 +60,27 @@ export function TankFabricationDrawing({ design, params, project }: Props) {
           {/* Fitting marks, schematic */}
           <circle cx={originX + tankLpx * 0.12} cy={planY + planH * 0.5} r={2.5} fill="none" stroke="var(--color-ink2)" strokeWidth={0.7} />
           <circle cx={originX + tankLpx * 0.88} cy={planY + planH * 0.5} r={2.5} fill="none" stroke="var(--color-ink2)" strokeWidth={0.7} />
-          <DimensionHorizontal x1={originX} x2={originX + tankLpx} featureY={planY} dimY={planY - 12} label={dimText(design.tankL)} arrowId={arrowId} fontSize={5.5} />
-          <DimensionVertical y1={planY} y2={planY + planH} featureX={originX} dimX={originX - 14} label={dimText(design.tankW)} arrowId={arrowId} fontSize={5.5} />
+          <DimensionHorizontal x1={originX} x2={originX + tankLpx} featureY={planY} dimY={planY - 12} label={dimText(design.tankL)} arrowId={arrowId} />
+          <DimensionVertical y1={planY} y2={planY + planH} featureX={originX} dimX={originX - 14} label={dimText(design.tankW)} arrowId={arrowId} />
 
           {/* Elevation */}
-          <rect x={originX} y={elevY} width={tankLpx} height={elevH} fill="none" stroke="var(--color-ink)" strokeWidth={1.4} />
+          <rect x={originX} y={elevY} width={tankLpx} height={elevH} fill="none" stroke="var(--color-ink)" strokeWidth={2.1} />
           <rect x={originX + plateThkPx} y={elevY + plateThkPx} width={tankLpx - 2 * plateThkPx} height={elevH - 2 * plateThkPx} fill="none" stroke="var(--color-ink2)" strokeWidth={0.5} />
           {stiffenerXs.map((sx, i) => (
             <line key={`es${i}`} x1={sx} y1={elevY} x2={sx} y2={elevY + elevH} stroke="var(--color-steel)" strokeWidth={0.6} strokeDasharray="2 2" />
           ))}
           {/* Cover flange face */}
-          <rect x={originX - 4} y={elevY - 5} width={tankLpx + 8} height={5} fill="var(--color-sheetAlt)" stroke="var(--color-ink)" strokeWidth={0.8} />
+          <rect x={originX - 4} y={elevY - 5} width={tankLpx + 8} height={5} fill="var(--color-sheetAlt)" stroke="var(--color-ink)" strokeWidth={1.2} />
           {/* Base frame */}
-          <rect x={originX - 6} y={elevY + elevH} width={tankLpx + 12} height={9} fill="none" stroke="var(--color-ink)" strokeWidth={0.8} />
+          <rect x={originX - 6} y={elevY + elevH} width={tankLpx + 12} height={9} fill="none" stroke="var(--color-ink)" strokeWidth={1.2} />
           {/* Valve / fitting marks on the elevation */}
           <circle cx={originX + tankLpx * 0.1} cy={elevY + elevH * 0.9} r={2.5} fill="none" stroke="var(--color-ink2)" strokeWidth={0.7} />
           <circle cx={originX + tankLpx * 0.5} cy={elevY + elevH * 0.5} r={2.5} fill="none" stroke="var(--color-ink2)" strokeWidth={0.7} />
 
-          <DimensionVertical y1={elevY} y2={elevY + elevH} featureX={originX + tankLpx} dimX={originX + tankLpx + 14} label={dimText(design.tankH)} arrowId={arrowId} fontSize={5.5} />
-          <DimensionHorizontal x1={originX + plateThkPx} x2={originX + plateThkPx * 2} featureY={elevY} dimY={elevY - 12} label={dimText(plateThk, { decimals: 1 })} arrowId={arrowId} fontSize={5} />
-          <DimensionHorizontal x1={stiffenerXs[0]} x2={stiffenerXs[1]} featureY={elevY} dimY={elevY - 24} label="to be specified" arrowId={arrowId} fontSize={5} />
-          <DimensionVertical y1={elevY + elevH * 0.85} y2={elevY + elevH * 0.9} featureX={originX + tankLpx * 0.1} dimX={originX + tankLpx * 0.1 - 16} label="to be specified" arrowId={arrowId} fontSize={4.5} />
+          <DimensionVertical y1={elevY} y2={elevY + elevH} featureX={originX + tankLpx} dimX={originX + tankLpx + 14} label={dimText(design.tankH)} arrowId={arrowId} />
+          <DimensionHorizontal x1={originX + plateThkPx} x2={originX + plateThkPx * 2} featureY={elevY} dimY={elevY - 12} label={dimText(plateThk, { decimals: 1 })} arrowId={arrowId} />
+          <DimensionHorizontal x1={stiffenerXs[0]} x2={stiffenerXs[1]} featureY={elevY} dimY={elevY - 24} label="to be specified" arrowId={arrowId} />
+          <DimensionVertical y1={elevY + elevH * 0.85} y2={elevY + elevH * 0.9} featureX={originX + tankLpx * 0.1} dimX={originX + tankLpx * 0.1 - 16} label="to be specified" arrowId={arrowId} />
 
           <UnitsNote x={6} y={box.h - 6} />
         </svg>
@@ -186,26 +186,26 @@ export function FinOrRadiatorDrawing({ design, params, project }: Props) {
               </React.Fragment>
             );
           })}
-          <rect x={tx} y={ty} width={tankLpx} height={tankWpx} fill="none" stroke="var(--color-ink)" strokeWidth={1} />
+          <rect x={tx} y={ty} width={tankLpx} height={tankWpx} fill="none" stroke="var(--color-ink)" strokeWidth={1.5} />
 
-          <DimensionHorizontal x1={tx} x2={tx + tankLpx} featureY={ty + tankWpx} dimY={ty + tankWpx + depthPx + 16} label={dimText(design.tankL)} arrowId={arrowId} fontSize={5.5} />
-          <DimensionVertical y1={ty} y2={ty + tankWpx} featureX={tx + tankLpx} dimX={tx + tankLpx + 14} label={dimText(design.tankW)} arrowId={arrowId} fontSize={5.5} />
+          <DimensionHorizontal x1={tx} x2={tx + tankLpx} featureY={ty + tankWpx} dimY={ty + tankWpx + depthPx + 16} label={dimText(design.tankL)} arrowId={arrowId} />
+          <DimensionVertical y1={ty} y2={ty + tankWpx} featureX={tx + tankLpx} dimX={tx + tankLpx + 14} label={dimText(design.tankW)} arrowId={arrowId} />
           {positions.length > 0 && (
             <DimensionVertical
               y1={ty - depthPx} y2={ty} featureX={tx + tankLpx / 2 + positions[0].x * fit.scale}
-              dimX={tx - 16} label={dimText(depth)} arrowId={arrowId} fontSize={5.5}
+              dimX={tx - 16} label={dimText(depth)} arrowId={arrowId}
             />
           )}
           {positions.length > 1 && (
             <DimensionHorizontal
               x1={tx + tankLpx / 2 + positions[0].x * fit.scale} x2={tx + tankLpx / 2 + positions[1].x * fit.scale}
-              featureY={ty - depthPx} dimY={ty - depthPx - 12} label={dimText(pitch, { decimals: 1 })} arrowId={arrowId} fontSize={5.5}
+              featureY={ty - depthPx} dimY={ty - depthPx - 12} label={dimText(pitch, { decimals: 1 })} arrowId={arrowId}
             />
           )}
           {positions.length > 1 && (
             <DimensionHorizontal
               x1={tx + tankLpx / 2 + positions[0].x * fit.scale} x2={tx + tankLpx / 2 + positions[positions.length - 1].x * fit.scale}
-              featureY={ty - depthPx} dimY={ty - depthPx - 26} label={dimText(wallExtent, { decimals: 1 })} arrowId={arrowId} fontSize={5.5}
+              featureY={ty - depthPx} dimY={ty - depthPx - 26} label={dimText(wallExtent, { decimals: 1 })} arrowId={arrowId}
             />
           )}
           <UnitsNote x={6} y={box.h - 6} />

@@ -149,9 +149,9 @@ export function LvWindingDrawing({ design, params, project }: Props) {
         <svg width={box.w} height={box.h} viewBox={`0 0 ${box.w} ${box.h}`} className="shrink-0">
           <DimensionArrow id={arrowId} />
           {/* Inner cylinder */}
-          <rect x={cylX} y={blockY} width={cylW} height={blockH} fill="var(--color-sheetAlt)" stroke="var(--color-ink)" strokeWidth={0.8} />
+          <rect x={cylX} y={blockY} width={cylW} height={blockH} fill="var(--color-sheetAlt)" stroke="var(--color-ink)" strokeWidth={1.2} />
           {/* Winding block */}
-          <rect x={lvX} y={blockY} width={lvW} height={blockH} fill="none" stroke="var(--color-ink)" strokeWidth={1} />
+          <rect x={lvX} y={blockY} width={lvW} height={blockH} fill="none" stroke="var(--color-ink)" strokeWidth={1.5} />
           {cellLines.map((c, i) => (
             <line key={i} x1={c.x} y1={blockY} x2={c.x} y2={bottomEndY} stroke="var(--color-copper)" strokeWidth={c.isLayerBoundary ? 0.6 : 0.25} />
           ))}
@@ -287,7 +287,7 @@ export function HvWindingDrawing({ design, params, project }: Props) {
           <rect x={gapX} y={blockY} width={gapW} height={blockH} fill="var(--color-sheetAlt)" stroke="var(--color-steel)" strokeWidth={0.6} strokeDasharray="3 2" />
 
           {isLayer && layerRects.map((r, i) => (
-            <rect key={i} x={r.x} y={blockY} width={r.w} height={blockH} fill="none" stroke="var(--color-ink)" strokeWidth={0.8} />
+            <rect key={i} x={r.x} y={blockY} width={r.w} height={blockH} fill="none" stroke="var(--color-ink)" strokeWidth={1.2} />
           ))}
           {isLayer && ductRects.map((r, i) => (
             <rect key={i} x={r.x} y={blockY} width={r.w} height={blockH} fill="var(--color-sheet)" stroke="var(--color-steel)" strokeWidth={0.6} strokeDasharray="2 2" />
@@ -307,7 +307,7 @@ export function HvWindingDrawing({ design, params, project }: Props) {
                 <rect
                   x={hvX} y={gy} width={hvW} height={gh}
                   fill={design.hvConstruction === 'disc' ? 'var(--color-sheetAlt)' : 'none'}
-                  stroke="var(--color-ink)" strokeWidth={0.8}
+                  stroke="var(--color-ink)" strokeWidth={1.2}
                 />
                 {design.hvConstruction === 'crossover' && Array.from({ length: design.layers - 1 }, (_, li) => (
                   <line
@@ -463,7 +463,7 @@ export function TapWindingDrawing({ design, params, project }: Props) {
       <div className="flex flex-col sm:flex-row gap-4 items-start">
         <svg width={box.w} height={box.h} viewBox={`0 0 ${box.w} ${box.h}`} className="shrink-0">
           <DimensionArrow id={arrowId} />
-          <rect x={hx} y={hy} width={hvW} height={hvH} fill="none" stroke="var(--color-ink)" strokeWidth={1} />
+          <rect x={hx} y={hy} width={hvW} height={hvH} fill="none" stroke="var(--color-ink)" strokeWidth={1.5} />
 
           {isLayer && (
             <>
@@ -479,7 +479,7 @@ export function TapWindingDrawing({ design, params, project }: Props) {
                   </g>
                 );
               })}
-              <DimensionVertical y1={hy} y2={hy + tapSectionH} featureX={hx} dimX={hx - 16} label="to be specified" arrowId={arrowId} fontSize={5} />
+              <DimensionVertical y1={hy} y2={hy + tapSectionH} featureX={hx} dimX={hx - 16} label="to be specified" arrowId={arrowId} />
             </>
           )}
 
@@ -501,7 +501,7 @@ export function TapWindingDrawing({ design, params, project }: Props) {
                 return (
                   <React.Fragment key={gi}>
                     {brokeBefore && <BreakMark x={hx + hvW / 2} y={(groupY(prevGi!) + (layout.groups[prevGi!].h * groupScaleY) + gy) / 2} />}
-                    <rect x={hx} y={gy} width={hvW} height={gh} fill="none" stroke="var(--color-ink)" strokeWidth={0.6} />
+                    <rect x={hx} y={gy} width={hvW} height={gh} fill="none" stroke="var(--color-ink)" strokeWidth={0.9} />
                   </React.Fragment>
                 );
               })}
@@ -521,7 +521,7 @@ export function TapWindingDrawing({ design, params, project }: Props) {
             </>
           )}
 
-          <rect x={hx + hvW + 68} y={hy - 10} width={22} height={tap.rows.length * 5 + 8} fill="none" stroke="var(--color-ink)" strokeWidth={0.8} />
+          <rect x={hx + hvW + 68} y={hy - 10} width={22} height={tap.rows.length * 5 + 8} fill="none" stroke="var(--color-ink)" strokeWidth={1.2} />
           <text x={hx + hvW + 79} y={hy + tap.rows.length * 2.5} textAnchor="middle" className="font-display uppercase" fontSize={5} fill="var(--color-ink2)" transform={`rotate(-90 ${hx + hvW + 79} ${hy + tap.rows.length * 2.5})`}>Terminal Block</text>
 
           <UnitsNote x={6} y={box.h - 6} />

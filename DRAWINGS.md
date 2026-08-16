@@ -51,7 +51,9 @@ geometry. No hardcoded scale factors.
 
 **Colour.** Linework `ink`. Core grey-green, LV winding copper, HV winding
 darker copper, insulation pale board, tank steel. Centre lines `copper` dash-dot,
-hidden detail dashed, dimension lines `ink2`.
+hidden detail dashed, dimension lines `ink` (DESIGN.md, "Drawing linework" --
+this was `ink2` and read as a caption, not a dimension; still lighter in
+*weight* than a part outline, not colour).
 
 ---
 

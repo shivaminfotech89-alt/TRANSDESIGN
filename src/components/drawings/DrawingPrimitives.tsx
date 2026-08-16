@@ -85,8 +85,11 @@ export type { VectorGroup } from '../../lib/vectorGroup';
 
 /** One <marker> definition, referenced by every dimension line in a
  *  drawing. `id` must be unique per <svg> (drawings render side by side
- *  on the same page, so a shared literal id would collide). */
-export function DimensionArrow({ id, color = 'var(--color-ink2)' }: { id: string; color?: string }) {
+ *  on the same page, so a shared literal id would collide).
+ *  DESIGN.md, "Drawing linework": arrow terminators are `ink`, the same
+ *  colour the dimension line and value now carry -- a dimension is read
+ *  as one dark element, not a pale line with a paler head. */
+export function DimensionArrow({ id, color = 'var(--color-ink)' }: { id: string; color?: string }) {
   return (
     <defs>
       <marker id={id} viewBox="0 0 10 10" refX={5} refY={5} markerWidth={5} markerHeight={5} orient="auto-start-reverse">
@@ -106,7 +109,9 @@ interface DimLineProps {
 /** A dimension line has its own background chip behind the text so the
  *  monospace value reads clearly sitting on the line, rather than the line
  *  cutting through it -- SVG has no native "break the line for text" the
- *  way a CAD leader font does. */
+ *  way a CAD leader font does.
+ *  DESIGN.md, "Drawing linework": the value itself is `ink`, not `ink2` --
+ *  it must read as a dimension, not a caption. */
 function LabelChip({ x, y, label, fontSize, rotate }: { x: number; y: number; label: string; fontSize: number; rotate?: number }) {
   const w = label.length * fontSize * 0.62 + 4;
   const h = fontSize + 2;
@@ -116,7 +121,7 @@ function LabelChip({ x, y, label, fontSize, rotate }: { x: number; y: number; la
       <rect x={x - w / 2} y={y - h / 2} width={w} height={h} fill="var(--color-sheet)" />
       <text
         x={x} y={y} textAnchor="middle" dominantBaseline="central"
-        className="font-mono" fontSize={fontSize} fill="var(--color-ink2)"
+        className="font-mono font-semibold" fontSize={fontSize} fill="var(--color-ink)"
       >
         {label}
       </text>
@@ -128,19 +133,22 @@ function LabelChip({ x, y, label, fontSize, rotate }: { x: number; y: number; la
  * Horizontal dimension between two points at the same feature height
  * (featureY), with the dimension line itself offset to dimY (above or
  * below the feature -- extension lines bridge the gap either way).
+ * DESIGN.md, "Drawing linework": `ink` at 8px is the standard weight --
+ * lighter than a part outline's own 1.5-2.1 stroke, but a clearly darker,
+ * larger dimension than before it, never `ink2` sized as a caption.
  */
 export function DimensionHorizontal({
-  x1, x2, featureY, dimY, label, arrowId, color = 'var(--color-ink2)', fontSize = 6.5,
+  x1, x2, featureY, dimY, label, arrowId, color = 'var(--color-ink)', fontSize = 8,
 }: DimLineProps & { x1: number; x2: number; featureY: number; dimY: number }) {
   const over = 2.5;
   const extEnd = dimY + (featureY <= dimY ? -over : over);
   const [lo, hi] = x1 <= x2 ? [x1, x2] : [x2, x1];
   return (
     <g>
-      <line x1={x1} y1={featureY} x2={x1} y2={extEnd} stroke={color} strokeWidth={0.5} />
-      <line x1={x2} y1={featureY} x2={x2} y2={extEnd} stroke={color} strokeWidth={0.5} />
+      <line x1={x1} y1={featureY} x2={x1} y2={extEnd} stroke={color} strokeWidth={0.75} />
+      <line x1={x2} y1={featureY} x2={x2} y2={extEnd} stroke={color} strokeWidth={0.75} />
       <line
-        x1={lo} y1={dimY} x2={hi} y2={dimY} stroke={color} strokeWidth={0.6}
+        x1={lo} y1={dimY} x2={hi} y2={dimY} stroke={color} strokeWidth={0.9}
         markerStart={`url(#${arrowId})`} markerEnd={`url(#${arrowId})`}
       />
       <LabelChip x={(lo + hi) / 2} y={dimY} label={label} fontSize={fontSize} />
@@ -150,19 +158,19 @@ export function DimensionHorizontal({
 
 /** Vertical dimension, text rotated ninety degrees -- DRAWINGS.md,
  *  Universal requirements: "Vertical dimensions rotate their text ninety
- *  degrees." */
+ *  degrees." Same DESIGN.md weight/colour standard as DimensionHorizontal. */
 export function DimensionVertical({
-  y1, y2, featureX, dimX, label, arrowId, color = 'var(--color-ink2)', fontSize = 6.5,
+  y1, y2, featureX, dimX, label, arrowId, color = 'var(--color-ink)', fontSize = 8,
 }: DimLineProps & { y1: number; y2: number; featureX: number; dimX: number }) {
   const over = 2.5;
   const extEnd = dimX + (featureX <= dimX ? -over : over);
   const [lo, hi] = y1 <= y2 ? [y1, y2] : [y2, y1];
   return (
     <g>
-      <line x1={featureX} y1={y1} x2={extEnd} y2={y1} stroke={color} strokeWidth={0.5} />
-      <line x1={featureX} y1={y2} x2={extEnd} y2={y2} stroke={color} strokeWidth={0.5} />
+      <line x1={featureX} y1={y1} x2={extEnd} y2={y1} stroke={color} strokeWidth={0.75} />
+      <line x1={featureX} y1={y2} x2={extEnd} y2={y2} stroke={color} strokeWidth={0.75} />
       <line
-        x1={dimX} y1={lo} x2={dimX} y2={hi} stroke={color} strokeWidth={0.6}
+        x1={dimX} y1={lo} x2={dimX} y2={hi} stroke={color} strokeWidth={0.9}
         markerStart={`url(#${arrowId})`} markerEnd={`url(#${arrowId})`}
       />
       <LabelChip x={dimX} y={(lo + hi) / 2} label={label} fontSize={fontSize} rotate={-90} />
