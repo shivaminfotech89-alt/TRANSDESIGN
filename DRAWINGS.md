@@ -147,11 +147,13 @@ the widest pocket, same convention as A and B above.
   cuts, not mitred, so the length is the same across the plate's own full
   width rather than tapering from a long edge to a short one.
 - Yoke plate (top and bottom): plain rectangle, likewise.
-Dimension both: length, width. No chart on file for this construction --
-the length is derived from Construction A's own already-validated mitre
-relationship with the taper removed (CALIBRATION.md section 54), not fitted
-or invented, and should be read as a rough sense of direction only until a
-real diamond-cut chart exists to check it against.
+Dimension both: length, width. No chart on file for this construction, and
+the length is not one fixed figure -- it depends on joint stacking (below):
+staggered uses Construction A's own already-validated mitred mean length;
+continuous uses that same trapezoid's own long edge, undone of its taper
+(CALIBRATION.md section 55). Neither is fitted or invented, and neither is
+validated against a real diamond-cut chart -- read both as a rough sense of
+direction until one exists.
 Beneath: the limb/yoke cutting schedule table, structured the same way as
 Construction A/B's own tables above it.
 
@@ -165,11 +167,22 @@ real reference chart stages 25% of its yoke steel across a fixed 0/10/20 mm
 split when staggered; Construction C stages every staggered layer at one
 chosen offset (5/10/20 mm, the designer's own specification, not charted);
 Construction B has no stacking data at all, staggered or continuous, and
-the field has no effect on it. Staggering does not change the mass shown on
-either drawing (confirmed directly for both real cases) -- it changes only
-where a joint falls, not how much steel either plate needs. It is not
-known whether staggering changes no-load loss, and neither drawing should
-be read as implying it does not.
+the field has no effect on it.
+
+For Construction A and B, staggering does not change the mass shown on
+either drawing -- every mitred plate is already self-sufficient against a
+gap by the mitre alone, so staggering only changes where a joint falls, not
+how much steel either plate needs. **For Construction C this does not
+hold** (CALIBRATION.md section 55): a flat, unmitred plate has no taper of
+its own to fall back on, so staggered relies on the offset between layers
+to close the gap (Construction A's own mitred mean length suffices) while
+continuous has no neighbouring layer to rely on and must avoid the gap
+alone (the mitred long edge, about 31% more steel). Selecting continuous
+for Construction C is therefore not a free simplification -- it costs real
+core steel, on top of the no-load loss caveat below.
+
+It is not known whether staggering changes no-load loss for any
+construction, and no drawing should be read as implying it does not.
 
 ### 22. Core cutting chart
 A different document from drawing 21, not the same numbers laid out twice.

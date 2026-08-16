@@ -3844,14 +3844,33 @@ own `wCore` (1333.0 kg) runs 31.1% above Construction A's (1017.2 kg) for
 the same core -- a rough sense of direction only, not a validated figure,
 until a real chart exists to check it against.
 
-**`jointStacking`/`stackingOffset` are mass-neutral for both A and C,
-confirmed directly** (`node` check against `computeDesign`, both
+**Superseded by section 55 below.** The designer pointed out this 31.1%
+figure assumes every layer must independently avoid a gap with no help
+from its neighbours -- but a staggered joint's whole point is that
+neighbouring, offset layers cover for each other, so a flat plate does not
+need to reach the far corner on its own when staggering is selected. That
+reading gives a very different number (close to Construction A's own, not
+31% above it). Section 55 works through both readings and changes what
+this function actually computes -- `coreConstructionC()` now takes
+`jointStacking` into account, which the paragraph below (mass-neutral for
+both A and C) predates and gets wrong for C specifically. Left here,
+uncorrected in place, because the reasoning that follows explains what was
+actually being computed at the time -- see section 55 for what changed and
+why.
+
+**`jointStacking`/`stackingOffset` were mass-neutral for both A and C
+at the time this was written** (`node` check against `computeDesign`, both
 constructions, `jointStacking: "continuous"` vs default, and
-`stackingOffset` swept across its own full range): `wCore` does not move.
-This is arithmetic, not a new claim -- Plate B has always been "the
-identical per-length steel as Plate C, just cut in half" (section 12), and
-Construction C's own offset only stages where a joint falls, not how much
-steel either plate needs.
+`stackingOffset` swept across its own full range): `wCore` did not move.
+For Construction A this remains true and is not superseded -- Plate B has
+always been "the identical per-length steel as Plate C, just cut in half"
+(section 12), and staggering only stages where a joint falls, not how much
+steel either plate needs, because every mitred plate is already
+self-sufficient against a gap on its own. For Construction C, section 55
+below found this was an artefact of always computing the conservative,
+gap-avoiding length regardless of `jointStacking` -- once the function
+actually reads `jointStacking`, staggering does change Construction C's
+own mass, for a real physical reason, not a bug.
 
 **Open question, not to be read as settled: is staggering loss-neutral?**
 This model only ever claimed mass-neutrality, and only because that is
@@ -3886,3 +3905,89 @@ No `ENGINE_VERSION` bump: `coreConstruction` defaults to `"A"`,
 the exact 75/25 split every existing design already computed before this
 section existed. B and C are both opt-in, not auto-suggested (the same
 footing section 35 established for B alone, now extended to C).
+## 55. Construction C's mass depended on which of two defensible readings was used -- both now computed, chosen by `jointStacking`, neither presented as the settled answer
+
+Section 54 shipped Construction C's mass using a single reading: every flat
+plate must independently avoid a gap, with no help from any neighbouring
+layer, so each is drawn to the farthest point the corner ever reaches (the
+mitred trapezoid's own long edge, undone of its taper). That gave 1333.0 kg
+against Construction A's 1017.2 kg on the default case -- 31.1% more core
+steel for the same core. The designer's own objection: diamond cutting is a
+real, established industry method, and no works would choose a pattern that
+consumes 31% more steel than the alternative for the same job. The
+derivation was probably too pessimistic.
+
+**The missing piece: staggering changes what "avoiding a gap" requires.**
+Section 54's own reading treats each layer as if it stood alone. But a
+staggered joint's entire purpose is that it does not stand alone --
+successive layers are offset from each other specifically so that at any
+one point along the joint, only some layers have a cut there; the rest are
+staggered to a different position and stay continuous through that point,
+so flux can detour locally through them. That is the actual mechanism real
+step-lap and diamond stacking are built around, not a simplification of it.
+Under this reading, a flat plate does not need to reach the far corner on
+its own -- it can be cut at the SAME mean length Construction A's own
+mitred plates already use (`limbLen = 2w`, `yokeLen = 2*cc + dCore`,
+sections 15-16), relying on the offset between layers to close the gap a
+single plate's own geometry would otherwise leave.
+
+**Both readings are geometrically defensible, and they are not the same
+claim:**
+
+| Reading | Basis | Limb length | Yoke length | `wCore` (default case) | vs Construction A |
+|---|---|---|---|---|---|
+| 1, self-sufficient | Each layer must avoid a gap entirely on its own | `3w` | `2cc + dCore + w` | 1333.0 kg | +31.1% |
+| 2, offset-assisted | Neighbouring staggered layers cover for each other | `2w` | `2cc + dCore` | 1041.0 kg | +2.3% |
+
+Reading 2's own +2.3% is not a residual diamond-specific penalty -- it is
+the same gap this file already carries between Construction A's own two
+internal models (the per-step continuous-stack approximation `stampingSchedule`
+and drawing 21 use, 1039.7 kg on this case, versus the bulk `aGross`-based
+formula `wCore`/`wLimbA`/`wYokeA` actually price from, 1017.2 kg -- a ~2%
+gap documented since section 41, "real integer sheets vs. a continuous
+approximation," not new here). `coreConstructionC()` is built the same
+per-step way `coreConstructionB()` is, so it inherits that same ~2% gap
+against Construction A's own bulk-priced figure, not a new discrepancy
+diamond cutting introduces.
+
+**Which reading applies depends on whether staggering is actually
+selected, not a free choice between them.** Reading 2 only holds if there
+genuinely are offset neighbouring layers to detour through. With
+`jointStacking: "continuous"`, every layer's cut sits at the same position
+-- there is no neighbour to rely on, and a mean-length flat piece would
+leave a real, full-depth magnetic gap, not merely a higher-loss joint.
+Continuous Construction C therefore still uses reading 1 (the
+self-sufficient length); only staggered Construction C uses reading 2.
+This is a genuine physical difference from Construction A, where every
+mitred plate is already self-sufficient against a gap by the mitre alone
+-- staggering Construction A only changes where the joint falls (section
+54), but staggering Construction C changes how much steel each plate
+needs, because the mitre's own gap-avoidance has no flat-cut equivalent to
+fall back on.
+
+**`coreConstructionC(dCore, cc, Hw, steps, thk, staggered, dens)`**
+(`packages/engine/index.js`) now takes `staggered` (`params.jointStacking
+!== "continuous"`) and switches between the two lengths above, rather than
+always computing reading 1. `wLimb`/`wYoke` inside `designTransformer`,
+`stampingSchedule()` and `coreCuttingChart()` all pass the same
+`jointStacking`-derived flag through, so price, drawing 21 and drawing 22
+continue to agree on the same core (the same principle sections 15 and 35
+established).
+
+**Neither reading is validated against a real diamond-cut chart.** Reading
+2 (staggered) is the one that matches how real staggered joints are
+actually built and is not known to overstate steel; reading 1 (continuous)
+is deliberately the conservative, gap-avoiding bound for the one state
+where no neighbouring layer exists to rely on. Report both when asked what
+Construction C costs, not 31.1% alone -- staggered Construction C, the
+setting a diamond-cut works would actually run, now prices within about 2%
+of Construction A (2,047,006 against 2,039,020 ex-works on the default
+case), not 31% above it; continuous Construction C remains the conservative
+upper bound at +31.1% (2,144,794).
+
+`ENGINE_VERSION` bumped to 1.27.0: this changes a reachable, already-shipped
+formula (Construction C's own mass, for the staggered case specifically) --
+not the default case (Construction A), so CLAUDE.md's golden-numbers table
+is unaffected, but invariant 4 ("a quotation issued last year must reprice
+exactly as issued") applies to any opt-in construction just as much as the
+default, so the version moves regardless.

@@ -828,6 +828,32 @@ export default function App() {
           </div>
         )}
 
+        {/* CALIBRATION.md section 54: jointStacking is mass-neutral in this
+            engine but NOT known to be loss-neutral -- a real continuous
+            (butt) joint runs measurably higher no-load loss than a
+            staggered one, and this engine has no chart to model that gap.
+            Deliberately not print:hidden, unlike the etk/fit notes above:
+            those are about how a number was computed (process, irrelevant
+            once settled), this is about whether the printed no-load figure
+            itself can be trusted -- it belongs on whatever gets exported,
+            the same reason a "to be specified" label survives onto a
+            drawing rather than only showing on screen. */}
+        {activeParams.jointStacking === 'continuous' && (
+          <div className="bg-white border border-amber rounded-[2px] px-4 py-3">
+            <div className="text-[11px] font-display uppercase tracking-[0.14em] text-amber mb-1">
+              No-Load Loss Is Optimistic For A Continuous Joint
+            </div>
+            <p className="text-[11px] text-ink2">
+              Joint stacking is set to continuous (no offset between successive layers). A real continuous
+              (butt) joint carries measurably higher no-load loss than a staggered one at the same geometry,
+              but this engine has no chart to quantify that gap and does not apply one -- the no-load loss
+              figure shown, {activeDesign.noLoad.toFixed(0)} W, is the same figure a staggered joint at this
+              geometry would show, and is understated for what continuous stacking would actually measure on
+              test. CALIBRATION.md section 54.
+            </p>
+          </div>
+        )}
+
         {budgetPreview && !viewingRevision && (
           <div className="bg-white border border-copper rounded-[2px] px-4 py-3 print:hidden flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <div>

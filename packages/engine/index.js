@@ -8,7 +8,7 @@
  * without bumping it, or old quotations stop reproducing.
  */
 
-export const ENGINE_VERSION = "1.26.0";
+export const ENGINE_VERSION = "1.27.0";
 
 const CONDUCTORS = {
   copper: { name: "Copper, EC grade", rho20: 0.017241, alpha: 0.00393, dens: 8890, dMax: 3.6, short: "Cu", proof: 1.0 },
@@ -1027,9 +1027,11 @@ function designTransformer(p) {
     wYoke = cb.totalV;
     wLimb = cb.totalO + cb.totalC;
   } else if (p.coreConstruction === "C") {
-    // CALIBRATION.md section 54: same function coreCuttingChart() calls for
-    // Construction C's own drawing, same principle as B above.
-    const cc = coreConstructionC(dCore, g.cc, Hw, coreSteps, lamThk);
+    // CALIBRATION.md section 55: same function coreCuttingChart() calls for
+    // Construction C's own drawing, same principle as B above. jointStacking
+    // changes Construction C's own plate length (unlike Construction A,
+    // section 55 explains why), so it is threaded through here too.
+    const cc = coreConstructionC(dCore, g.cc, Hw, coreSteps, lamThk, p.jointStacking !== "continuous");
     wLimb = cc.totalLimb;
     wYoke = cc.totalYoke;
   } else {
@@ -2592,7 +2594,7 @@ function stampingSchedule(d, steps, p) {
   // with it, the same principle section 15/41 established for Construction
   // A's own limb term and the HV strand split.
   if (p?.coreConstruction === "B") return coreConstructionB(d.dCore, d.cc, d.Hw, steps, thk);
-  if (p?.coreConstruction === "C") return coreConstructionC(d.dCore, d.cc, d.Hw, steps, thk);
+  if (p?.coreConstruction === "C") return coreConstructionC(d.dCore, d.cc, d.Hw, steps, thk, p.jointStacking !== "continuous");
   const C = d.cc, dC = d.dCore;
   let wt = 0, sheets = 0;
   const rows = steps.rows.map((s, i) => {
@@ -2750,7 +2752,7 @@ function coreCuttingChart(d, p) {
   const steps = stepWidths(p.steps, d.dCore, p.stepIncrement);
   const thk = d.grade.thk || 0.27;
   if (p.coreConstruction === "B") return coreConstructionB(d.dCore, d.cc, d.Hw, steps, thk);
-  if (p.coreConstruction === "C") return coreConstructionC(d.dCore, d.cc, d.Hw, steps, thk);
+  if (p.coreConstruction === "C") return coreConstructionC(d.dCore, d.cc, d.Hw, steps, thk, p.jointStacking !== "continuous");
   const dens = 7650;
   const cc = d.cc;
   // CALIBRATION.md section 54: jointStacking is independent of cut geometry
@@ -2796,49 +2798,78 @@ function coreCuttingChart(d, p) {
   return { construction: "A", jointStacking: staggered ? "staggered" : "continuous", rows, thk, totalA, totalB, totalC, chartTotal: totalA + totalB + totalC };
 }
 
-/* CALIBRATION.md section 54: Construction C, diamond cutting -- flat 90
+/* CALIBRATION.md section 55: Construction C, diamond cutting -- flat 90
    degree cuts (no mitre), named directly by the designer. No chart on file
    for this construction at all (unlike A's two real references or B's one
    furnace chart), so this is geometry derived from already-established,
-   validated relationships, not a new fitted number:
+   validated relationships, not a new fitted number. Two defensible
+   readings exist, and this function picks between them by `staggered`
+   rather than asserting either one alone, because they are not the same
+   claim and do not give the same answer:
 
-   A 45 degree mitre joint interlocks -- the limb's own diagonal cut and the
-   yoke's own diagonal cut fit together with neither gap nor overlap, which
-   is exactly why Construction A's own limb mean length (2w, section 15-16)
-   is a MEAN: the piece is long at one edge of its own width and short at
-   the other, by design, and the two mitred pieces' tapers complement each
-   other across the joint. A flat, unmitred cut cannot do that -- placed at
-   the mean position, it would gap across half its own width and overlap
-   across the other half, and a magnetic joint gap is worse than an
-   overlap. So a flat-cut piece is drawn to the FARTHEST point the corner
-   ever reaches, uniformly across its own full width, guaranteeing full
-   coverage (overlap, not gap) everywhere -- this is the same "long edge"
-   this file's own Construction A already computes (limbLong = 3w, yokeLong
-   = 2*cc + dCore + w, sections 15-16), used here WITHOUT the mitre taper
-   that shortens it back down to a mean, because there is no mitre to taper
-   toward. This is a real, known trade-off in real core construction (flat/
-   butt-lap joints run with a deliberate overlap and use more steel than an
-   interlocking mitre for the same magnetic path) -- but it has not been
-   checked against a real diamond-cut chart, and should not be trusted away
-   from a rough sense of direction (more core steel than Construction A, for
-   the same core) until one exists.
+   A 45 degree mitre joint interlocks without help from any other layer --
+   the limb's and yoke's own diagonal cuts fit together with neither gap
+   nor overlap, which is why Construction A's own limb mean length (2w,
+   section 15-16) is safe as a MEAN on its own: the piece is long at one
+   edge of its own width and short at the other, by design, and the two
+   mitred pieces' tapers complement each other across the joint, layer by
+   layer, unaided. A flat, unmitred cut cannot taper that way.
 
-   jointStacking and stackingOffset (5/10/20 mm, designer-specified, section
-   54) stage which part of that overlap band each layer's own joint sits in
-   -- they change where the joint falls, not how big the overlap band
-   itself is, so mass here is identical whether staggered or continuous;
-   this function does not take either as an argument for that reason. The
-   drawing/schedule layer annotates the chosen stacking separately. */
-function coreConstructionC(dCore, cc, Hw, steps, thk, dens = 7650) {
+   READING 1 -- each layer must be self-sufficient, gap-free entirely on
+   its own (no reliance on any neighbouring layer): placed at the mitred
+   mean, a flat piece gaps across half its own width and overlaps across
+   the other half, and if nothing else covers that gap, it is a real
+   magnetic discontinuity. So the piece is drawn to the FARTHEST point the
+   corner ever reaches, uniformly across its own full width -- the same
+   "long edge" Construction A already computes (limbLong = 3w, yokeLong =
+   2*cc + dCore + w, sections 15-16), used without the mitre taper that
+   shortens it back down to a mean. This reading needs roughly 31% more
+   core steel than Construction A on the default case -- a real, known
+   trade-off in some flat/butt-lap joints, but not the only one.
+
+   READING 2 -- successive layers are offset (`jointStacking: "staggered"`,
+   section 54), and the offset itself is what prevents a full-depth gap,
+   not each layer's own geometry: at any single point along the joint, only
+   some layers have a cut there, because the rest are staggered to a
+   different position, so flux can detour locally through whichever
+   neighbouring layers are still continuous at that point -- this is the
+   actual mechanism step-lap and diamond stacking are built around in real
+   core construction, not a simplification of it. Under this reading each
+   flat piece can be cut at the SAME mean length Construction A's own
+   mitred mean already uses (limbLen = 2w, yokeLen = 2*cc + dCore) --
+   mass-identical to Construction A for the same core, relying on the
+   offset rather than the plate's own geometry to close the gap.
+
+   Reading 2 depends on staggering actually being selected. With
+   `jointStacking: "continuous"` every layer's cut sits at the same
+   position -- there is no neighbouring layer to detour through, so a
+   mean-length flat piece would leave a genuine full-depth gap, not merely
+   a higher-loss joint. Continuous Construction C therefore uses reading 1
+   (the self-sufficient length) regardless; staggered Construction C uses
+   reading 2. This is why jointStacking changes Construction C's own mass
+   -- unlike Construction A, where every plate is already self-sufficient
+   by the mitre alone and staggering only changes where the joint falls.
+
+   Neither reading has been checked against a real diamond-cut chart.
+   Reading 2 (staggered) is the one closer to how real staggered joints are
+   built and is not known to overstate steel; reading 1 (continuous) is
+   deliberately the conservative, gap-avoiding bound. Both are reported,
+   not asserted as settled -- see CALIBRATION.md section 55. */
+function coreConstructionC(dCore, cc, Hw, steps, thk, staggered, dens = 7650) {
   const rows = steps.rows.map((s, i) => {
     const stack = i === 0 ? s.t : 2 * s.t;
     const nSheets = Math.max(2, Math.round(stack / thk));
 
-    const limbLen = 3 * s.w; // Construction A's own limbLong, undone of its own mitre taper
+    // staggered (reading 2): Construction A's own mitred MEAN -- the
+    // offset between layers does the gap-avoidance work instead of this
+    // plate's own geometry. continuous (reading 1): Construction A's own
+    // long edge, undone of its mitre taper -- this plate must avoid the
+    // gap entirely on its own, with no neighbouring layer to rely on.
+    const limbLen = staggered ? 2 * s.w : 3 * s.w;
     const limbSheets = nSheets * 3; // 3 limbs
     const massLimb = ((s.w * limbLen * thk) / 1e9) * dens * limbSheets;
 
-    const yokeLen = 2 * cc + dCore + s.w; // Construction A's own yokeLong, likewise
+    const yokeLen = staggered ? (2 * cc + dCore) : (2 * cc + dCore + s.w);
     const yokeSheets = nSheets * 2; // top + bottom yoke
     const massYoke = ((s.w * yokeLen * thk) / 1e9) * dens * yokeSheets;
 
@@ -2850,7 +2881,10 @@ function coreConstructionC(dCore, cc, Hw, steps, thk, dens = 7650) {
   });
   const totalLimb = rows.reduce((s, r) => s + r.limb.weight, 0);
   const totalYoke = rows.reduce((s, r) => s + r.yoke.weight, 0);
-  return { construction: "C", rows, thk, totalLimb, totalYoke, chartTotal: totalLimb + totalYoke };
+  return {
+    construction: "C", jointStacking: staggered ? "staggered" : "continuous",
+    rows, thk, totalLimb, totalYoke, chartTotal: totalLimb + totalYoke,
+  };
 }
 
 /* CALIBRATION.md section 24: finLayout is now the corrugated-fin-wall
