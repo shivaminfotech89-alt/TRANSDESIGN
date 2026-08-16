@@ -402,14 +402,53 @@ function deriveSpec(core, over = {}) {
   const dCoreEst = Math.sqrt((4 * aNetEst) / (Math.PI * 0.94 * CORE_GRADES[gk].sf)) * 1000;
   put("steps", stepsSuggest(dCoreEst), null, Object.keys(STEP_UTIL).map((k) => [+k, k + " steps"]), "More steps fill the coil circle better and save steel, but cost more to cut and stack.");
   put("stepIncrement", 10, [5, 25, 5], null, "Lamination is slit to standard widths, not cut to a continuous optimum. Step widths round down to the nearest multiple of this -- rounding up can put the widest step past the core diameter itself.");
-  /* CALIBRATION.md section 35: Construction A (limb / half-yoke / full-yoke)
-     is the established, better-evidenced pattern -- confirmed against two
-     Mehir Transformers reference designs, not one furnace chart with a
-     tautological three-coefficient fit. Defaults to A regardless of
-     application; Construction B is selectable, not auto-suggested, until a
-     second real chart confirms its own formula away from the one geometry
-     it was solved against. */
-  put("coreConstruction", "A", null, [["A", "Step-lap mitred (Plate A/B/C)"], ["B", "V-notch mitred (V-notch, outer, centre)"]], "How the core lamination is cut and stacked. Construction A is confirmed against two real reference builds; Construction B against one furnace core chart -- see CALIBRATION.md section 35 before relying on it away from similar proportions.");
+  /* CALIBRATION.md section 35/54: Construction A (limb / half-yoke /
+     full-yoke) is the established, better-evidenced pattern -- confirmed
+     against two Mehir Transformers reference designs, not one furnace
+     chart with a tautological three-coefficient fit. Defaults to A
+     regardless of application; B and C are selectable, not auto-suggested,
+     until real evidence backs either away from the one geometry each was
+     built from.
+
+     This parameter is CUT GEOMETRY only -- the plate shape and cut angle
+     -- not how layers are stacked. CALIBRATION.md section 54: the two used
+     to be conflated (Construction A's own real reference chart happens to
+     also stagger 25% of its yoke steel, which made it look like "cutting
+     method" already included a stacking answer for A specifically, and
+     nothing for B). Investigated directly: A and B's plates are cut at the
+     identical 45/135 degree angle (confirmed by every length formula in
+     both, and by `outerEdge - innerEdge = 2w` holding for B exactly the
+     same as A's own limbLong/limbShort -- checked directly in
+     engine.test.mjs, not assumed). What differs is plate SHAPE (B's
+     V-notch cutout and mating chevron point, which A never has) and
+     whether the yoke is staggered at all (A's own reference chart stages
+     25% of it; B's furnace chart stages none) -- staggering is therefore
+     its own, independent axis (`jointStacking` below), not a fourth cut
+     geometry, and applies (or does not) regardless of which of A/B/C is
+     selected. */
+  put("coreConstruction", "A", null, [["A", "Master mitre cut (Plate A/B/C)"], ["B", "V-notch cut (V-notch, outer, centre)"], ["C", "Diamond cut (flat, 90 degree)"]], "The lamination plate's cut geometry -- how it is shaped, not how layers are stacked (see jointStacking). Construction A (master mitre cut) is confirmed against two real reference builds; Construction B (V-notch cut) against one furnace core chart; Construction C (diamond cut) against no chart at all, derived from plain unmitred geometry -- see CALIBRATION.md sections 35 and 54 before relying on B or C away from the proportions they were built from.");
+  /* CALIBRATION.md section 54: independent of cut geometry above. Only
+     Construction A (0/10/20 mm, the real reference chart's own stated
+     50/25/25 split, section 12) and Construction C (5/10/20 mm, the
+     designer's own direct specification for diamond cutting, not fitted
+     or charted) have any real data behind staggering at all -- Construction
+     B's own furnace chart shows no shift columns, so `jointStacking` has
+     no effect there; the value is accepted but not consulted, the same way
+     `stepIncrement` sits unused for amorphous wound cores. Currently
+     mass-neutral for both A and C (confirmed directly: Plate B is the
+     identical per-length steel as Plate C, just cut in half -- "mass-
+     conserving by construction," section 12) -- this reflects what the one
+     real reference actually shows, not an assumption that stacking is
+     always free. It is NOT known to be loss-neutral; see the open question
+     in CALIBRATION.md section 54. */
+  put("jointStacking", "staggered", null, [["staggered", "Staggered (offset joints)"], ["continuous", "Continuous (no offset)"]], "Whether successive layers' yoke joints are staggered by an offset or left continuous. Real data exists for staggered Construction A (chart) and staggered Construction C (designer-specified); Construction B has none either way, and this value has no effect on it. Does not change core mass or the modelled no-load loss -- CALIBRATION.md section 54 records why that is an open question, not a confirmed absence of effect.");
+  /* CALIBRATION.md section 54: one shared parameter, not two -- Construction
+     A's own 50/25/25 fan always spans all three of 0/10/20 mm when
+     staggered (the real chart's own split, not a single pick, so this
+     value is not consulted for A); Construction C uses this value directly
+     as the single offset every staggered layer shares. Default 10 mm sits
+     inside both real sets. */
+  put("stackingOffset", 10, null, (S.coreConstruction === "C" ? [[5, "5 mm"], [10, "10 mm"], [20, "20 mm"]] : [[0, "0 mm"], [10, "10 mm"], [20, "20 mm"]]), "Construction C, staggered stacking only: how far successive layers' flat-cut joints are offset along the strip (5/10/20 mm, designer-specified). Not consulted for Construction A, which always spans the full 0/10/20 mm real-chart split when staggered.");
   put("aspect", aspectSuggest(umHV), [2.0, 3.8, 0.05], null, "Starting window shape. The final height is solved to hit the declared impedance unless you turn that off.");
   /* CALIBRATION.md section 44: window height over window width (maxAspect,
      sections 28/32) replaced by the two real shop limits it was always a
@@ -987,6 +1026,12 @@ function designTransformer(p) {
     const cb = coreConstructionB(dCore, g.cc, Hw, coreSteps, lamThk);
     wYoke = cb.totalV;
     wLimb = cb.totalO + cb.totalC;
+  } else if (p.coreConstruction === "C") {
+    // CALIBRATION.md section 54: same function coreCuttingChart() calls for
+    // Construction C's own drawing, same principle as B above.
+    const cc = coreConstructionC(dCore, g.cc, Hw, coreSteps, lamThk);
+    wLimb = cc.totalLimb;
+    wYoke = cc.totalYoke;
   } else {
     wLimb = wLimbA;
     wYoke = wYokeA;
@@ -2547,6 +2592,7 @@ function stampingSchedule(d, steps, p) {
   // with it, the same principle section 15/41 established for Construction
   // A's own limb term and the HV strand split.
   if (p?.coreConstruction === "B") return coreConstructionB(d.dCore, d.cc, d.Hw, steps, thk);
+  if (p?.coreConstruction === "C") return coreConstructionC(d.dCore, d.cc, d.Hw, steps, thk);
   const C = d.cc, dC = d.dCore;
   let wt = 0, sheets = 0;
   const rows = steps.rows.map((s, i) => {
@@ -2704,8 +2750,21 @@ function coreCuttingChart(d, p) {
   const steps = stepWidths(p.steps, d.dCore, p.stepIncrement);
   const thk = d.grade.thk || 0.27;
   if (p.coreConstruction === "B") return coreConstructionB(d.dCore, d.cc, d.Hw, steps, thk);
+  if (p.coreConstruction === "C") return coreConstructionC(d.dCore, d.cc, d.Hw, steps, thk);
   const dens = 7650;
   const cc = d.cc;
+  // CALIBRATION.md section 54: jointStacking is independent of cut geometry
+  // -- "continuous" puts all of the yoke's steel in Plate C (one full-length
+  // piece per position, no stagger); "staggered" (default, byte-identical to
+  // this schedule's own behaviour before jointStacking existed) keeps the
+  // real chart's own 75/25 Plate C/Plate B split, itself divided 50/25/25
+  // across the chart's own stated 0/10/20 mm shifts. Either way Plate B is
+  // the identical per-length steel as Plate C, just cut in half -- switching
+  // the split does not move chartTotal, because there is nothing in this
+  // one reference to say it should (section 54's own open question: this is
+  // NOT evidence stacking is loss-neutral, only that it is mass-neutral in
+  // the one chart on file).
+  const staggered = p.jointStacking !== "continuous";
   const rows = steps.rows.map((s, i) => {
     const stack = i === 0 ? s.t : 2 * s.t;
     const nSheets = Math.max(2, Math.round(stack / thk));
@@ -2715,11 +2774,11 @@ function coreCuttingChart(d, p) {
 
     const lenYoke = 2 * cc + s.w; // Plate C's own full length
     const yokeSheets = nSheets * 2; // top + bottom yoke positions
-    const cSheets = Math.round(yokeSheets * 0.75);
+    const cSheets = staggered ? Math.round(yokeSheets * 0.75) : yokeSheets;
     const bSheets = yokeSheets - cSheets; // sums exactly, never drifts
-    const shift0 = Math.round(bSheets * 0.5);
-    const shift10 = Math.round((bSheets - shift0) / 2);
-    const shift20 = bSheets - shift0 - shift10;
+    const shift0 = staggered ? Math.round(bSheets * 0.5) : 0;
+    const shift10 = staggered ? Math.round((bSheets - shift0) / 2) : 0;
+    const shift20 = staggered ? bSheets - shift0 - shift10 : 0;
 
     const massC = ((s.w * lenYoke * thk) / 1e9) * dens * cSheets;
     const massB = ((s.w * lenYoke * thk) / 1e9) * dens * bSheets; // full-length steel, cut in half
@@ -2734,7 +2793,64 @@ function coreCuttingChart(d, p) {
   const totalA = rows.reduce((s, r) => s + r.A.weight, 0);
   const totalB = rows.reduce((s, r) => s + r.B.weight, 0);
   const totalC = rows.reduce((s, r) => s + r.C.weight, 0);
-  return { construction: "A", rows, thk, totalA, totalB, totalC, chartTotal: totalA + totalB + totalC };
+  return { construction: "A", jointStacking: staggered ? "staggered" : "continuous", rows, thk, totalA, totalB, totalC, chartTotal: totalA + totalB + totalC };
+}
+
+/* CALIBRATION.md section 54: Construction C, diamond cutting -- flat 90
+   degree cuts (no mitre), named directly by the designer. No chart on file
+   for this construction at all (unlike A's two real references or B's one
+   furnace chart), so this is geometry derived from already-established,
+   validated relationships, not a new fitted number:
+
+   A 45 degree mitre joint interlocks -- the limb's own diagonal cut and the
+   yoke's own diagonal cut fit together with neither gap nor overlap, which
+   is exactly why Construction A's own limb mean length (2w, section 15-16)
+   is a MEAN: the piece is long at one edge of its own width and short at
+   the other, by design, and the two mitred pieces' tapers complement each
+   other across the joint. A flat, unmitred cut cannot do that -- placed at
+   the mean position, it would gap across half its own width and overlap
+   across the other half, and a magnetic joint gap is worse than an
+   overlap. So a flat-cut piece is drawn to the FARTHEST point the corner
+   ever reaches, uniformly across its own full width, guaranteeing full
+   coverage (overlap, not gap) everywhere -- this is the same "long edge"
+   this file's own Construction A already computes (limbLong = 3w, yokeLong
+   = 2*cc + dCore + w, sections 15-16), used here WITHOUT the mitre taper
+   that shortens it back down to a mean, because there is no mitre to taper
+   toward. This is a real, known trade-off in real core construction (flat/
+   butt-lap joints run with a deliberate overlap and use more steel than an
+   interlocking mitre for the same magnetic path) -- but it has not been
+   checked against a real diamond-cut chart, and should not be trusted away
+   from a rough sense of direction (more core steel than Construction A, for
+   the same core) until one exists.
+
+   jointStacking and stackingOffset (5/10/20 mm, designer-specified, section
+   54) stage which part of that overlap band each layer's own joint sits in
+   -- they change where the joint falls, not how big the overlap band
+   itself is, so mass here is identical whether staggered or continuous;
+   this function does not take either as an argument for that reason. The
+   drawing/schedule layer annotates the chosen stacking separately. */
+function coreConstructionC(dCore, cc, Hw, steps, thk, dens = 7650) {
+  const rows = steps.rows.map((s, i) => {
+    const stack = i === 0 ? s.t : 2 * s.t;
+    const nSheets = Math.max(2, Math.round(stack / thk));
+
+    const limbLen = 3 * s.w; // Construction A's own limbLong, undone of its own mitre taper
+    const limbSheets = nSheets * 3; // 3 limbs
+    const massLimb = ((s.w * limbLen * thk) / 1e9) * dens * limbSheets;
+
+    const yokeLen = 2 * cc + dCore + s.w; // Construction A's own yokeLong, likewise
+    const yokeSheets = nSheets * 2; // top + bottom yoke
+    const massYoke = ((s.w * yokeLen * thk) / 1e9) * dens * yokeSheets;
+
+    return {
+      i: i + 1, w: s.w, stack, nSheets,
+      limb: { length: +limbLen.toFixed(1), weight: massLimb, sheets: limbSheets },
+      yoke: { length: +yokeLen.toFixed(1), weight: massYoke, sheets: yokeSheets },
+    };
+  });
+  const totalLimb = rows.reduce((s, r) => s + r.limb.weight, 0);
+  const totalYoke = rows.reduce((s, r) => s + r.yoke.weight, 0);
+  return { construction: "C", rows, thk, totalLimb, totalYoke, chartTotal: totalLimb + totalYoke };
 }
 
 /* CALIBRATION.md section 24: finLayout is now the corrugated-fin-wall

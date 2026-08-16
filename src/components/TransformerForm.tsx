@@ -17,7 +17,7 @@ const SECTIONS: { id: string; title: string; keys: string[] }[] = [
   { id: 'system', title: 'Cooling & Insulation System', keys: ['dryType', 'fluid', 'insClass', 'cooling', 'tankType', 'oilRiseTarget', 'refTemp', 'ambient', 'ambientAvg'] },
   { id: 'losses', title: 'Losses & Impedance', keys: ['limitNLL', 'limitLL', 'targetZ', 'zTol'] },
   { id: 'dual', title: 'Dual Rating', keys: ['kva2', 'cooling2', 'limitNLL2', 'limitLL2'] },
-  { id: 'core', title: 'Core', keys: ['coreGrade', 'coreType', 'coreConstruction', 'buildFactor', 'flux', 'steps', 'etK', 'aspect', 'autoWindow', 'autoFit', 'windowSpace'] },
+  { id: 'core', title: 'Core', keys: ['coreGrade', 'coreType', 'coreConstruction', 'jointStacking', 'stackingOffset', 'buildFactor', 'flux', 'steps', 'etK', 'aspect', 'autoWindow', 'autoFit', 'windowSpace'] },
   { id: 'windings', title: 'Windings', keys: ['condLV', 'condHV', 'deltaLV', 'deltaHV', 'stray'] },
   { id: 'tappings', title: 'Tappings', keys: ['tapType', 'tapPlus', 'tapMinus', 'tapStep'] },
   { id: 'clearances', title: 'Clearances', keys: ['coreLvClr', 'lvHvClr', 'phaseClr', 'endClrLV', 'endClrHV', 'hvTankClr', 'endTankClr', 'cylThk'] },
