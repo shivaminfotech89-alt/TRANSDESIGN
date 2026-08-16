@@ -3345,3 +3345,108 @@ What changed is real and reachable by any AUTO-`etK` design: the specific
 `etK` value `computeDesign` reports and builds at, and the new
 `etkPlateauLo`/`etkPlateauHi` fields now present whenever `fitEtkToCost`
 actually ran.
+## 50. A converged fit can still be a coin flip -- density can sit at a discrete boundary without ever cycling, and the resolution that exists for cycling is not, on its own, stable
+
+Requested after section 49: does the same staircase apply to flux and
+density, and if it does, does it matter given neither is cost-searched?
+A fine sweep of both at the three reference ratings answered both parts.
+Flux, holding K and density fixed, showed no signature change at all --
+expected, since at fixed Et changing B resizes the core cross-section, not
+the turn count, so it does not move the winding-discrete fields this
+signature tracks. Density (deltaLV/deltaHV) is a different story: at 630
+and 1000 kVA the fitted point sits inside a region where the winding
+signature genuinely oscillates within a few thousandths of an A/mm2, not
+just close to one edge -- confirmed with a 0.003-0.005 step scan around
+each fitted value. At 1250 kVA the same scan found nothing -- a wide, flat,
+single-signature band. This matched, exactly, which two ratings
+`autoFitCycleNote` (section 46) already fires for and which one it does
+not.
+
+That match looked at first like the existing cycle detection already
+covered this. It does not, for a reason worth stating plainly: cycle
+detection only fires when the fit's own damped iteration happens to
+*visibly cross* the boundary while converging. A trajectory that lands on
+one side and settles there on its first approach never cycles and never
+calls `resolveFitCycle`, even when the point it settled on is exactly as
+close to the boundary as one that did cycle. Checked directly with a
+starting-point sweep at 630 and 1000 kVA (holding K, rates and everything
+else fixed, varying only where the density fit started): the final
+discrete state, and so the reported price, depends on the starting point,
+not only on the enquiry. At 630 kVA seven starting points across a
+realistic spread produced three different states across a Rs 15,52,163 to
+Rs 16,96,425 range -- about 9% -- and one starting point did not even
+converge inside the iteration cap. At 1000 kVA two states spanned
+Rs 20,51,984 to Rs 21,32,895, about 4%. Nothing about the enquiry changed
+between these runs.
+
+**Fixed: probe the converged point's own neighbourhood directly, report
+the alternate.** `checkFitStability` (`packages/engine/index.js`, next to
+`resolveFitCycle`) runs after the final fit, whenever something was
+actually auto-fit (skipped if both flux and density are locked, or autoFit
+is off). It nudges deltaLV, deltaHV and flux outward in small fixed steps
+(0.005-0.03 A/mm2 for density, 0.005-0.02 T for flux) using
+`designTransformer` alone -- never a re-fit, this asks whether the point
+already held is fragile, not for a better one -- and stops at the first
+step, on either axis, in either direction, where `discreteGeometrySignature`
+differs from the base point. The nearest one found is priced with
+`buildBOM` and returned alongside the design: `fitStable`, and when false,
+`fitInstabilityNote`, `fitAlternateExFactory`, `fitAlternateSignature`,
+`fitAlternateAxis`, `fitAlternateDelta`, `fitAlternateCompliant`.
+`fitStable` reads true when nothing was probed, the same absent-reads-as-
+fine convention `autoFitConverged` already uses.
+
+This is deliberately distinct from `autoFitCycleNote`: that field says a
+boundary was crossed during the fit and which side was kept.
+`fitInstabilityNote` says the side that was kept, crossed or not, is this
+close to a different, equally real, equally priced transformer. Both can
+fire together and did in every case checked -- a state `resolveFitCycle`
+had to arbitrate between is, unsurprisingly, also a state sitting right at
+a boundary -- but they answer different questions and a design can in
+principle trip one without the other (a trajectory that never cycles but
+still lands within the probe radius of a boundary).
+
+Cost: the probe is cheap -- `designTransformer` alone, no iteration -- and
+the added time was within the run-to-run noise of the section 49
+measurement on the same case, not a further, separate slowdown.
+
+Surfaced in the UI the same way `etkNonCompliant` already is: a second
+amber banner directly under the rating plate ("This Price Sits Right At A
+Winding Configuration Boundary"), gated the same way -- absent while
+viewing a budget preview (`searchDesigns` builds candidates directly and
+never runs this fit at all) and driven by the browsed revision's own
+frozen result when one is being viewed, never the live design.
+
+No `ENGINE_VERSION` bump: this changes what `computeDesign` *reports*, not
+what it *builds* -- every existing design still resolves to exactly the
+state it resolved to before this section, at exactly the same price. The
+invariant this bump exists to protect (a quotation issued last year
+reprices exactly as issued) is untouched.
+
+**Whether the choice can be made stable, not merely deterministic --
+reported, not changed.** Requested: would ranking candidate states by
+cheapest-compliant, or by most margin, instead of `resolveFitCycle`'s
+current closest-to-target rule, give the same answer regardless of
+starting point? Enumerated the real nearby states directly (not via a
+single trajectory's own path) at both ratings. At 1000 kVA, of the two
+states in play, `7|12|4|5|1|1|2` is the clearly, consistently cheaper
+compliant one; at 630 kVA, `8|13|3|4|1|1|2` is. "Cheapest compliant" and
+the current "closest to the 93%-of-limit margin target" rule mostly agree
+in principle -- for a single state, pushing loss up toward its own ceiling
+is both "closer to target" and "cheaper," since more permitted loss means
+less copper.
+
+The instability is not in which rule ranks states -- it is in which
+states get compared at all. `resolveFitCycle` only ever sees states its
+own trajectory happened to visit while genuinely cycling. A trajectory
+that converges cleanly never calls it, so whatever it settled in stands
+unquestioned even when a cheaper compliant neighbour sits two steps away.
+Swapping the comparator inside `resolveFitCycle` for "cheapest compliant"
+or "most margin" would not fix this on its own, because it would still
+only ever compare whatever a single damped, path-dependent iteration
+happened to stumble into. Genuine starting-point invariance needs the
+same change section 49 made for K: replace passive discovery (wait for
+cycling to reveal a neighbour) with active discovery (probe the
+neighbourhood directly, the same mechanism `checkFitStability` above now
+uses for reporting) before ranking. That is a real change to how
+`fitToSchedule` settles on a state, not a one-line comparator swap, and is
+not made here -- reported per the request, not implemented.
