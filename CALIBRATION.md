@@ -3674,3 +3674,215 @@ captioned the same way Construction A's own notch already was.
 No `ENGINE_VERSION` bump: `outerEdge`/`innerEdge` are new, purely additive
 fields, derived from figures this function already computed -- no existing
 field changed, no mass, weight or price moves for any design.
+
+## 53. Real V-notch geometry now known (depth W/2, 45/135 degree flanks) -- checked against the chart, does not reproduce it, `MITRE_K` left unchanged
+
+The designer has now given the V-notch its actual profile: depth W/2 (W is
+that pocket's own plate width), flanks at 45 and 135 degrees, apex centred
+on the plate's inner edge (drawing 21, section 52 above, now drawn to this
+real geometry instead of schematically -- see DRAWINGS.md). Section 34/35
+left this open deliberately ("no chart on file gives a notch angle or
+depth"); this section is the check that geometry against the one chart
+`MITRE_K` was fitted to, per the designer's own instruction: replace the
+fitted coefficient with the real derivation if it reproduces the chart,
+report the deviation and leave the fit alone if it does not.
+
+**The check.** A V-notch of depth W/2 with 45 degree flanks is a triangle
+removed from the plain mitred trapezoid: base W (the notch's own opening at
+the inner edge -- half-width equals depth at 45 degrees, so full opening is
+2 x W/2 = W), height W/2, area W²/4. Computed directly against the same 15
+steps (`dCore` 224, `cc` 375, `Hw` 698, 0.23 mm lamination) section 35's own
+chart check already uses:
+
+| Model | V-notch total |
+|---|---|
+| Plain mitred trapezoid, no notch at all (K = 1.0) | 448.59 kg |
+| Real notch geometry (trapezoid minus the W/2-deep, 45-degree triangle) | 420.05 kg |
+| `MITRE_K.vNotch` = 1.44585 (fitted, reproduces the chart by construction) | 397.69 kg |
+| Chart (target) | 397.69 kg |
+
+Real notch geometry overstates the chart by 22.36 kg, +5.62%. This does not
+reproduce the chart to within the tolerance every other single-chart fit in
+this file has been held to (Construction A's own three plates: -1.4%,
++2.8%, +4.3%, section 12/15). Per the designer's own instruction, `MITRE_K`
+is **not** replaced -- the geometry is real and now drives the drawing
+(section 52 above, updated for it), but the mass calculation still uses the
+fitted coefficient, because the geometric derivation alone does not account
+for the chart's own total.
+
+**Why the gap is a real, not a rounding, residual -- and roughly where it
+sits.** The outer plate has no notch at all (plain double 45 degree mitre,
+nothing else), yet its own fitted `MITRE_K.outer` (1.27514) already
+reproduces the chart at 500.25 kg against a plain-trapezoid-only total of
+531.66 kg -- a 31.41 kg, 6.28% deduction with no notch anywhere in the
+picture. That is close in size to the V-notch's own 22.36 kg (5.62%)
+residual here, consistent with section 34/35's own standing diagnosis: a
+real deduction beyond pure mitre geometry exists on every plate at this
+joint (kerf, a fit allowance where limb and yoke meet, or both) that this
+engine cannot separate from the notch's own material loss using three
+aggregate chart totals alone. The V-notch's real geometry is therefore
+very likely correct as drawn -- it is the *mass* fit that is short a second
+effect this one chart cannot isolate, not the notch shape itself being
+wrong. A second real Construction B chart, at different proportions (so the
+notch-area term and the shared joint term scale differently against each
+other), would let the two be told apart. Until then this is the same
+single-chart-fitted-constant caveat every other constant in this file
+already carries, now with a concrete, checked reason to believe it rather
+than an unexplained residual.
+
+**Questions for the manufacturer, not guessed at here:** what kerf width
+does the cutting line actually take (the blade/laser removes a real strip
+of steel along every cut, mitred or flat, that this engine has never been
+given a number for), and what fit tolerance is allowed at the limb-yoke
+interface (a deliberate clearance or overlap allowance where the two pieces
+meet, separate from the cut itself). Either would apply to all three plates
+uniformly regardless of shape, which is consistent with the outer plate's
+own unexplained deduction existing with no notch involved at all -- and
+either would let this section's own residual be split from the notch's
+real, separately-derived material loss instead of the two being folded
+together the way `MITRE_K` still folds them today.
+
+No `ENGINE_VERSION` bump, no code change: this section is a check against
+the existing fit, and the fit did not move.
+
+## 54. Cutting method and joint stacking were conflated in one parameter -- split into two, and Construction C (diamond) added
+
+The designer's own observation: Construction A's chart carries shift columns
+at 0, 10 and 20 mm; those offsets were specified, separately, as belonging
+to diamond cutting; the V-notch chart has no shift columns at all; and both
+A and B use 45/135 degree cuts. So the real difference between A and B
+might be joint stacking, not cut angle -- investigated directly before
+changing anything.
+
+**What actually differs between Construction A and Construction B.** Cut
+angle: identical. Every length formula in both is built from the same 45
+degree mitre relationship (`long - short = 2w`) -- Construction A's limb
+(`length = 2 x width`, "a symmetric double 45 degree mitre with no straight
+run between the two cuts," section 12) and yoke, and Construction B's
+V-notch/outer/centre, whose `outerEdge - innerEdge = 2w` for all three
+plates is checked directly as an invariant in `engine.test.mjs`, not
+assumed. Neither construction has a flat/90 degree formula anywhere. Plate
+shape: genuinely different -- B's yoke carries a real V-notch cutout with a
+mating chevron point on the centre limb (section 52/53); A's yoke plates,
+whichever of Plate B or Plate C, are plain mitred trapezoids with no
+cutout. Stacking: present in A (25% of the yoke's steel, staggered across
+0/10/20 mm), absent in B entirely (V/outer/centre are each counted
+uniformly, no shift columns anywhere in the one furnace chart on file).
+
+**Conclusion: Construction A is not diamond cutting under the wrong name.**
+Its plates are cut at 45 degrees, confirmed by every formula, not inferred.
+The 0/10/20 mm figures describe how already-mitred half-yoke pieces are
+staggered in the stack -- a joint-stacking practice layered on top of a
+mitred cut, not the cutting angle itself, and they only ever appear in
+drawing 22's Plate B row (`coreCuttingChart`), never in drawing 21's own
+schedule (`stampingSchedule`, which has never shown a shift breakdown for
+Construction A at all).
+
+**But the underlying observation was right: this engine conflated two
+independent things into one parameter.** `coreConstruction` used to mean
+both "what shape is the plate" and, for A specifically and only by
+accident of which reference chart it happens to be checked against,
+"is the yoke staggered." B's own furnace chart never had an opportunity to
+show a stagger because the furnace reference simply does not stagger --
+that silence was being read as "V-notch construction has no stacking
+concept," when the truer reading is "no one has ever given this engine a
+staggered V-notch chart to check." Restructured to say only what is
+actually known:
+
+- **`coreConstruction`** -- cut geometry only, from here on: `"A"` (master
+  mitre cut, Plate A/B/C, confirmed against two real references), `"B"`
+  (V-notch cut, confirmed against one furnace chart), `"C"` (diamond cut,
+  flat 90 degree, no chart at all -- see below). Selecting between these
+  no longer says anything about stacking.
+- **`jointStacking`** -- `"staggered"` (default, matches every existing
+  design's behaviour byte-for-byte, since Construction A always staggered
+  25% of its yoke before this section existed) or `"continuous"`. Real data
+  exists for staggered Construction A (the chart) and staggered
+  Construction C (the designer's own specification, below); Construction B
+  has none either way and does not consult this value at all.
+- **`stackingOffset`** -- one shared parameter, not two, per the designer's
+  own instruction, rather than a separate field per construction. Default
+  10 mm, valid on both real sets. **The two sets are not equally
+  confirmed and must not be presented as such:**
+  - **Construction A's set, {0, 10, 20} mm, is real reference-chart data**
+    (section 12: "the 50/25/25 division of its own sheets across the 0, 10
+    and 20 mm step-lap shifts, which was stated directly, not fitted").
+    Construction A always spans the full 50/25/25 fan across all three when
+    staggered -- that is what the one chart shows, not a single pick -- so
+    `stackingOffset`'s own value is accepted but not consulted for A.
+  - **Construction C's set, {5, 10, 20} mm, is the designer's own direct
+    specification for diamond cutting**, not fitted or charted against any
+    reference. Construction C uses `stackingOffset` as a single value every
+    staggered layer shares uniformly, because that is how it was specified
+    -- a materially different mechanism from A's own fixed three-way fan,
+    which is why the two are not forced into the same shape even though
+    they share one parameter.
+
+  Both remain mass-neutral in this model (below), and that is confirmed for
+  both, not assumed for the second because it held for the first.
+
+**Construction C, diamond cutting.** Flat 90 degree cuts, no mitre, no
+chart on file at all -- so the mass model is derived from already-validated
+relationships, not a new fitted number. A 45 degree mitre joint interlocks:
+the limb's and yoke's own diagonal cuts fit together with neither gap nor
+overlap, which is exactly why Construction A's own limb mean length (2w,
+sections 15-16) is a mean -- long at one edge of its own width, short at
+the other, the two mitred pieces' tapers complementing each other. A flat,
+unmitred cut cannot do that: placed at the mean position it would gap
+across half its own width and overlap across the other half, and a
+magnetic joint gap is worse than an overlap. So a flat-cut piece is drawn
+to the FARTHEST point the corner ever reaches, uniformly across its own
+full width, guaranteeing overlap rather than a gap everywhere -- the same
+"long edge" Construction A already computes (`limbLong = 3w`, `yokeLong =
+2cc + dCore + w`, sections 15-16), used here without the mitre taper that
+shortens it back to a mean, because there is no mitre to taper toward. This
+is a known real trade-off (flat/butt-lap joints run with a deliberate
+overlap and use more steel than an interlocking mitre for the same
+magnetic path), not an invented number, but it has not been checked against
+a real diamond-cut chart. On the default 1000 kVA case, Construction C's
+own `wCore` (1333.0 kg) runs 31.1% above Construction A's (1017.2 kg) for
+the same core -- a rough sense of direction only, not a validated figure,
+until a real chart exists to check it against.
+
+**`jointStacking`/`stackingOffset` are mass-neutral for both A and C,
+confirmed directly** (`node` check against `computeDesign`, both
+constructions, `jointStacking: "continuous"` vs default, and
+`stackingOffset` swept across its own full range): `wCore` does not move.
+This is arithmetic, not a new claim -- Plate B has always been "the
+identical per-length steel as Plate C, just cut in half" (section 12), and
+Construction C's own offset only stages where a joint falls, not how much
+steel either plate needs.
+
+**Open question, not to be read as settled: is staggering loss-neutral?**
+This model only ever claimed mass-neutrality, and only because that is
+what the one real chart on file happens to show. It has never claimed
+loss-neutrality, and should not be read as implying it by omission. In real
+core construction a step-lap (staggered) joint measurably reduces no-load
+loss compared to a butt (continuous, unstaggered) joint at the same
+geometry -- that is the entire reason staggering is practised at all,
+beyond whatever stacking convenience it offers. This engine's own
+`noLoad`/exciting-current physics are driven by `wCoreAssembled`
+(Construction A's own formula, unconditionally, section 48) and grade/flux
+alone -- `jointStacking` does not enter that calculation anywhere, for any
+construction. Until a real reference separates "core of this geometry,
+staggered" from "same geometry, continuous" on measured loss, this engine
+has no basis to charge or credit either state for it, and does not invent
+one. Add to the open manufacturer questions (section 53): what measured
+no-load loss difference, if any, is seen between staggered and continuous
+joints at matched geometry, for both a mitred and a flat cut.
+
+**Implementation.** `coreConstruction` option `"C"` added (`packages/engine/
+index.js`), `coreConstructionC()` alongside `coreConstructionB()`, delegated
+from `wLimb`/`wYoke` inside `designTransformer`, `stampingSchedule()` and
+`coreCuttingChart()`, the same principle sections 15 and 35 established for
+A's and B's own limb/yoke terms: the priced core and the steel-order
+document always agree on the same core, by construction. `coreCuttingChart()`'s
+Construction A branch now reads `jointStacking` to choose between the
+existing 75/25 Plate C/B split (staggered) and 100% Plate C (continuous),
+with the split's own arithmetic otherwise unchanged.
+
+No `ENGINE_VERSION` bump: `coreConstruction` defaults to `"A"`,
+`jointStacking` defaults to `"staggered"` -- reproducing, unconditionally,
+the exact 75/25 split every existing design already computed before this
+section existed. B and C are both opt-in, not auto-suggested (the same
+footing section 35 established for B alone, now extended to C).

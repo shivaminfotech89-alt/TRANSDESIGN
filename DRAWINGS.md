@@ -111,7 +111,7 @@ Dimension: core circle diameter, and the width of each pocket.
 Beside it: pocket number, width, stack per side. Foot: utilisation factor.
 
 ### 21. Lamination stamping and cutting schedule
-Construction A (step-lap mitred): limb lamination as a trapezoid with forty
+Construction A (master mitre cut): limb lamination as a trapezoid with forty
 five degree mitres both ends, cut lines dashed. Yoke lamination with mitred
 ends and centre limb V notch. Dimension on both: outer edge, inner edge,
 width.
@@ -119,38 +119,81 @@ Beneath: cutting schedule of pocket, width, stack, sheet count, limb sheet long
 and short edge, yoke sheet long and short edge, mass. Foot: total sheets and
 mass.
 
-Construction B (V-notch mitred): three plate shapes, cut lines dashed, drawn
+Construction B (V-notch cut): three plate shapes, cut lines dashed, drawn
 from the widest pocket -- the other pockets are the same shapes at the widths
 the schedule table below already lists.
 - V-notch plate (yoke): trapezoid mitred forty five degrees both ends, V notch
-  cut into the inner edge at the centre for the centre limb.
+  cut into the inner edge at the centre for the centre limb. Real geometry,
+  not schematic: depth W/2 (W is that pocket's own plate width), flanks at
+  45 and 135 degrees, apex centred on the plate's inner edge.
 - Outer plate (outer limb): trapezoid mitred forty five degrees both ends, no
   notch.
 - Centre plate (centre limb): hexagonal, pointed at both ends with a chevron
-  apex that mates into the V notch.
-Dimension all three: outer edge, inner edge, width. The V notch and the
-chevron point are schematic -- no chart on file gives a notch angle or depth,
-only the plate mass totals section 35's own coefficients were fitted
-against -- captioned as such, same as Construction A's own centre-limb V
-notch already is.
+  apex derived from the same depth-W/2, 45/135-degree geometry as the V-notch
+  above, so the two mate by construction rather than by two independently
+  chosen proportions.
+Dimension all three: outer edge, inner edge (Construction A's plain-mitre
+inner edge for V-notch/outer; the centre plate's own flat run, cOuter minus
+one W/2 protrusion at each end, for centre -- that shape is a chevron, not a
+plain-mitred trapezoid, so it is not the same figure engine.js's own
+`innerEdge` field reports for it), width, notch depth (W/2), and the notch's
+own 45/135 degree flank angles.
 Beneath: the same V/outer/centre cutting schedule table Construction B
 already had.
 
+Construction C (diamond cut): two plate shapes, cut lines dashed, drawn from
+the widest pocket, same convention as A and B above.
+- Limb plate (three limbs): plain rectangle, no taper -- flat ninety degree
+  cuts, not mitred, so the length is the same across the plate's own full
+  width rather than tapering from a long edge to a short one.
+- Yoke plate (top and bottom): plain rectangle, likewise.
+Dimension both: length, width. No chart on file for this construction --
+the length is derived from Construction A's own already-validated mitre
+relationship with the taper removed (CALIBRATION.md section 54), not fitted
+or invented, and should be read as a rough sense of direction only until a
+real diamond-cut chart exists to check it against.
+Beneath: the limb/yoke cutting schedule table, structured the same way as
+Construction A/B's own tables above it.
+
+**Joint stacking, independent of which of A/B/C is drawn above.** Whether
+successive layers' yoke joints are staggered by an offset or left
+continuous is its own choice (CALIBRATION.md section 54), shown on both
+drawing 21 and drawing 22 as its own field, separate from the plate
+construction field -- selecting a different plate cutting pattern no longer
+silently changes the stacking too, and vice versa. Construction A's own
+real reference chart stages 25% of its yoke steel across a fixed 0/10/20 mm
+split when staggered; Construction C stages every staggered layer at one
+chosen offset (5/10/20 mm, the designer's own specification, not charted);
+Construction B has no stacking data at all, staggered or continuous, and
+the field has no effect on it. Staggering does not change the mass shown on
+either drawing (confirmed directly for both real cases) -- it changes only
+where a joint falls, not how much steel either plate needs. It is not
+known whether staggering changes no-load loss, and neither drawing should
+be read as implying it does not.
+
 ### 22. Core cutting chart
 A different document from drawing 21, not the same numbers laid out twice.
-Where drawing 21 models two plate types (limb, yoke) from a single mitred
-long/short edge average, this models three -- Plate A (limb, mitred both
-ends), Plate B (half yoke, step-lap), Plate C (full yoke, mitred one end) --
-because that is the layout a real core chart actually uses, and the two
-documents are not meant to reconcile line for line (CALIBRATION.md section
-12).
+For Construction A, where drawing 21 models two plate types (limb, yoke)
+from a single mitred long/short edge average, this models three -- Plate A
+(limb, mitred both ends), Plate B (half yoke, step-lap), Plate C (full
+yoke, mitred one end) -- because that is the layout a real core chart
+actually uses, and the two documents are not meant to reconcile line for
+line (CALIBRATION.md section 12). For Construction B this renders the same
+V-notch/outer/centre tables drawing 21 does (one shared model, section
+35/47 -- the two documents agree exactly here, unlike Construction A's own
+two). For Construction C this renders the limb/yoke tables drawing 21 does,
+likewise one shared model (section 54).
 
-Header line: no-load loss, rating, flux density. Then three tables, one per
-plate, each row giving step number, length, width and weight, each table
-footed with its own total. A fourth table breaks Plate B's own sheet count
-down by its step-lap shift (0, 10, 20 mm), the 0 mm group carrying half the
-sheets at every step. Foot of the whole sheet: core total, the sum of all
-three plates.
+Header line: no-load loss, rating, flux density, plate construction, joint
+stacking. Then, for Construction A, three tables (Plate A/B/C), each row
+giving step number, length, width and weight, each table footed with its
+own total; a fourth table breaks Plate B's own sheet count down by its
+step-lap shift (0, 10, 20 mm) when staggered, omitted when continuous
+stacking is selected, since Plate B then carries no sheets. For
+Construction B, three tables (V-notch/outer/centre); for Construction C,
+two (limb/yoke), captioned with the selected stacking and offset. Foot of
+the whole sheet, every construction: core total, the sum of all its own
+plates.
 
 No dimension-line SVG, the one exception to this document's own universal
 requirement above: every dimension this chart carries is already a number in
