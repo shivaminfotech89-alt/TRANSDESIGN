@@ -266,19 +266,125 @@ export function StampingSchedule({ design, params, project }: Drawings2DProps) {
   const sched = stampingSchedule(design, steps, params);
   const isB = sched.construction === 'B';
 
-  // Construction B has no schematic here, the same reason drawing 22 has
-  // none: coreConstructionB()'s own three totals are already numbers in
-  // the tables below, and a picture without its own numbers is exactly
-  // what DRAWINGS.md's universal requirements exist to prevent -- see
-  // CoreCuttingChart's own note. fit is a minimal stub, same as that
-  // component's, so TitleBlock's required prop is satisfied without a
-  // real scale to report ("Scale: n/a").
+  // CALIBRATION.md section 52: the reference PDF Construction B was fitted
+  // from (section 35) carries three drawn outlines above its own table --
+  // V-NOTCH, OUTER, CENTRE, the shapes the core shop actually cuts from --
+  // not a table alone. This used to return early with tables only ("no
+  // schematic here"); coreConstructionB() now carries outerEdge/innerEdge
+  // per plate (section 52) precisely so this could stop being true, the
+  // same principle CoreCuttingChart's own note still applies to drawing 22
+  // (a document that is only ever numbers, unlike this one).
   if (isB) {
+    const bRow = sched.rows[0]; // widest pocket -- other pockets noted below
+    const w = bRow.w;
+    const vOuter = bRow.V.outerEdge, vInner = bRow.V.innerEdge;
+    const oOuter = bRow.O.outerEdge, oInner = bRow.O.innerEdge;
+    const cOuter = bRow.C.outerEdge, cInner = bRow.C.innerEdge;
+
+    const gapMM = w * 0.55;
+    const box = { w: 640, h: 200 };
+    const margin = { top: 40, bottom: 40, side: 24 };
+    const fit = fitToViewBox(
+      vOuter + gapMM + oOuter + gapMM + cOuter, w,
+      box.w - 2 * margin.side, box.h - margin.top - margin.bottom, 8,
+    );
+    const h = w * fit.scale;
+    const top = margin.top + fit.offsetY;
+    const bottom = top + h;
+    const startX = margin.side + fit.offsetX;
+
+    // V-notch plate (yoke): trapezoid mitred both ends, outer edge on top,
+    // V notch cut into the centre of the inner (bottom) edge for the
+    // centre limb -- same "outer edge on top, notch into the inner edge"
+    // convention Construction A's own yoke schematic above already uses.
+    const vOuterPx = vOuter * fit.scale, vInnerPx = vInner * fit.scale;
+    const vCx = startX + vOuterPx / 2;
+    const vNotchHalfW = vInnerPx * 0.08, vNotchDepth = h * 0.4;
+    const vPoints = [
+      [vCx - vOuterPx / 2, top], [vCx + vOuterPx / 2, top],
+      [vCx + vInnerPx / 2, bottom], [vCx + vNotchHalfW, bottom],
+      [vCx, bottom - vNotchDepth], [vCx - vNotchHalfW, bottom],
+      [vCx - vInnerPx / 2, bottom],
+    ].map((p) => p.join(',')).join(' ');
+
+    // Outer plate (outer limb): plain trapezoid mitred both ends, no notch.
+    const oOuterPx = oOuter * fit.scale, oInnerPx = oInner * fit.scale;
+    const oStartX = startX + vOuterPx + gapMM * fit.scale;
+    const oCx = oStartX + oOuterPx / 2;
+    const oPoints = [
+      [oCx - oOuterPx / 2, top], [oCx + oOuterPx / 2, top],
+      [oCx + oInnerPx / 2, bottom], [oCx - oInnerPx / 2, bottom],
+    ].map((p) => p.join(',')).join(' ');
+
+    // Centre plate (centre limb): hexagonal, pointed at both ends -- a
+    // chevron apex at outerEdge's own full extent, shoulders set in by
+    // (outerEdge-innerEdge)/2 each side where the straight run meets the
+    // point, mating into the V-notch plate's own notch above.
+    const cOuterPx = cOuter * fit.scale, cInnerPx = cInner * fit.scale;
+    const cStartX = oStartX + oOuterPx + gapMM * fit.scale;
+    const cShoulder = (cOuterPx - cInnerPx) / 2;
+    const cMidY = top + h / 2;
+    const cPoints = [
+      [cStartX, cMidY],
+      [cStartX + cShoulder, top], [cStartX + cShoulder + cInnerPx, top],
+      [cStartX + cOuterPx, cMidY],
+      [cStartX + cShoulder + cInnerPx, bottom], [cStartX + cShoulder, bottom],
+    ].map((p) => p.join(',')).join(' ');
+
     return (
       <Card
         title="Core Stamping Schedule"
-        subtitle={`Drawing ${drawingNo(project, '21')} · ${sched.thk} mm lamination · ${plateConstructionLabel(params.coreConstruction)}`}
+        subtitle={`Drawing ${drawingNo(project, '21')} · ${sched.thk} mm lamination · ${plateConstructionLabel(params.coreConstruction)}, widest pocket shown`}
       >
+        <svg width={box.w} height={box.h} viewBox={`0 0 ${box.w} ${box.h}`} className="mx-auto block">
+          <DimensionArrow id={arrowId} />
+          <polygon points={vPoints} fill="none" stroke="var(--color-ink)" strokeWidth={1} strokeDasharray="5 2" />
+          <polygon points={oPoints} fill="none" stroke="var(--color-ink)" strokeWidth={1} strokeDasharray="5 2" />
+          <polygon points={cPoints} fill="none" stroke="var(--color-ink)" strokeWidth={1} strokeDasharray="5 2" />
+          <text x={vCx} y={top - 22} textAnchor="middle" className="font-display uppercase" fontSize={7} fill="var(--color-ink2)" letterSpacing={0.5}>V-Notch</text>
+          <text x={oCx} y={top - 22} textAnchor="middle" className="font-display uppercase" fontSize={7} fill="var(--color-ink2)" letterSpacing={0.5}>Outer</text>
+          <text x={(cStartX + cStartX + cOuterPx) / 2} y={top - 22} textAnchor="middle" className="font-display uppercase" fontSize={7} fill="var(--color-ink2)" letterSpacing={0.5}>Centre</text>
+
+          <DimensionHorizontal
+            x1={vCx - vOuterPx / 2} x2={vCx + vOuterPx / 2} featureY={top} dimY={top - 14}
+            label={dimText(vOuter, { decimals: 1 })} arrowId={arrowId}
+          />
+          <DimensionHorizontal
+            x1={vCx - vInnerPx / 2} x2={vCx + vInnerPx / 2} featureY={bottom} dimY={bottom + 14}
+            label={dimText(vInner, { decimals: 1 })} arrowId={arrowId}
+          />
+          <DimensionVertical
+            y1={top} y2={bottom} featureX={vCx - vOuterPx / 2} dimX={vCx - vOuterPx / 2 - 18}
+            label={dimText(w, { decimals: 1 })} arrowId={arrowId}
+          />
+
+          <DimensionHorizontal
+            x1={oCx - oOuterPx / 2} x2={oCx + oOuterPx / 2} featureY={top} dimY={top - 14}
+            label={dimText(oOuter, { decimals: 1 })} arrowId={arrowId}
+          />
+          <DimensionHorizontal
+            x1={oCx - oInnerPx / 2} x2={oCx + oInnerPx / 2} featureY={bottom} dimY={bottom + 14}
+            label={dimText(oInner, { decimals: 1 })} arrowId={arrowId}
+          />
+          <DimensionVertical
+            y1={top} y2={bottom} featureX={oCx - oOuterPx / 2} dimX={oCx - oOuterPx / 2 - 18}
+            label={dimText(w, { decimals: 1 })} arrowId={arrowId}
+          />
+
+          <DimensionHorizontal
+            x1={cStartX} x2={cStartX + cOuterPx} featureY={top} dimY={top - 14}
+            label={dimText(cOuter, { decimals: 1 })} arrowId={arrowId}
+          />
+          <DimensionHorizontal
+            x1={cStartX + cShoulder} x2={cStartX + cShoulder + cInnerPx} featureY={bottom} dimY={bottom + 14}
+            label={dimText(cInner, { decimals: 1 })} arrowId={arrowId}
+          />
+          <DimensionVertical
+            y1={top} y2={bottom} featureX={cStartX + cShoulder} dimX={cStartX + cShoulder - 18}
+            label={dimText(w, { decimals: 1 })} arrowId={arrowId}
+          />
+          <UnitsNote x={6} y={box.h - 4} />
+        </svg>
         <table className="w-full max-w-md mb-3">
           <tbody>
             <DataRow label="Plate Construction" value={plateConstructionLabel(params.coreConstruction)} />
@@ -287,6 +393,15 @@ export function StampingSchedule({ design, params, project }: Drawings2DProps) {
             <DataRow label="Flux density" value={design.B.toFixed(3)} unit="T" />
           </tbody>
         </table>
+        <p className="text-[10px] text-steel mb-1">
+          Shapes drawn from the widest pocket (No. {bRow.i}, {w.toFixed(1)} mm) -- the other pockets below are the
+          same three shapes at the widths this schedule lists, not a different cutting pattern.
+        </p>
+        <p className="text-[10px] text-steel mb-3">
+          V notch and chevron point shown schematically -- no chart on file gives a notch angle or depth, only the
+          plate mass totals CALIBRATION.md section 35's own coefficients were fitted against, the same reason
+          Construction A's own centre-limb V notch is schematic too.
+        </p>
         <p className="text-[10px] text-steel mb-3">
           Construction B has one known cutting model (CALIBRATION.md section 35), not a separate estimating
           approximation -- this schedule uses the same coreConstructionB() call drawing 22's cutting chart does, so
@@ -305,7 +420,7 @@ export function StampingSchedule({ design, params, project }: Drawings2DProps) {
         </table>
         <TitleBlock
           drawingNo={drawingNo(project, '21')} title="Lamination Stamping and Cutting Schedule" rev={project?.revision ?? 0}
-          sheet={21} totalSheets={21} fit={{ scale: 0 } as any} standard={params.standard}
+          sheet={21} totalSheets={21} fit={fit} standard={params.standard}
           projectName={project?.projectName} customer={project?.customer} ratingLabel={ratingLabel(params)}
           material={design.grade.name} partNumber={PART_NUMBERS.core}
         />

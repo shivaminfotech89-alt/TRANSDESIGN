@@ -109,12 +109,30 @@ Dimension: core circle diameter, and the width of each pocket.
 Beside it: pocket number, width, stack per side. Foot: utilisation factor.
 
 ### 21. Lamination stamping and cutting schedule
-Limb lamination as a trapezoid with forty five degree mitres both ends, cut
-lines dashed. Yoke lamination with mitred ends and centre limb V notch.
-Dimension on both: outer edge, inner edge, width.
+Construction A (step-lap mitred): limb lamination as a trapezoid with forty
+five degree mitres both ends, cut lines dashed. Yoke lamination with mitred
+ends and centre limb V notch. Dimension on both: outer edge, inner edge,
+width.
 Beneath: cutting schedule of pocket, width, stack, sheet count, limb sheet long
 and short edge, yoke sheet long and short edge, mass. Foot: total sheets and
 mass.
+
+Construction B (V-notch mitred): three plate shapes, cut lines dashed, drawn
+from the widest pocket -- the other pockets are the same shapes at the widths
+the schedule table below already lists.
+- V-notch plate (yoke): trapezoid mitred forty five degrees both ends, V notch
+  cut into the inner edge at the centre for the centre limb.
+- Outer plate (outer limb): trapezoid mitred forty five degrees both ends, no
+  notch.
+- Centre plate (centre limb): hexagonal, pointed at both ends with a chevron
+  apex that mates into the V notch.
+Dimension all three: outer edge, inner edge, width. The V notch and the
+chevron point are schematic -- no chart on file gives a notch angle or depth,
+only the plate mass totals section 35's own coefficients were fitted
+against -- captioned as such, same as Construction A's own centre-limb V
+notch already is.
+Beneath: the same V/outer/centre cutting schedule table Construction B
+already had.
 
 ### 22. Core cutting chart
 A different document from drawing 21, not the same numbers laid out twice.

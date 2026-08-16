@@ -578,6 +578,30 @@ console.log("\nConstruction B (V-notch/outer/centre) against the 1250 kVA (750+5
   eq("outer total kg", +chartB.totalO.toFixed(2), 500.25, 0.5);
   eq("centre total kg", +chartB.totalC.toFixed(2), 223.73, 0.5);
   eq("core total kg", +chartB.chartTotal.toFixed(2), 1121.67, 0.5);
+
+  // CALIBRATION.md section 52: outerEdge/innerEdge, added for drawing 21's
+  // Construction B plate shapes. Not MITRE_K-corrected (that corrects
+  // toward a mean length for mass, folding in the V-notch cutout's own
+  // material loss -- a different thing from the plate's outer geometric
+  // envelope), so checked against the plain double-45-degree-mitre
+  // relationship directly: outerEdge - innerEdge must equal 2 * width for
+  // every plate, every pocket, and outerEdge itself must equal the STATED
+  // length this function already computed before the MITRE_K correction --
+  // both true by construction, not fitted, so this is a derivation check,
+  // not a second reference chart.
+  {
+    const r0 = chartB.rows[0];
+    eq("V-notch outerEdge - innerEdge = 2w", +(r0.V.outerEdge - r0.V.innerEdge).toFixed(4), 2 * r0.w);
+    eq("outer outerEdge - innerEdge = 2w", +(r0.O.outerEdge - r0.O.innerEdge).toFixed(4), 2 * r0.w);
+    eq("centre outerEdge - innerEdge = 2w", +(r0.C.outerEdge - r0.C.innerEdge).toFixed(4), 2 * r0.w);
+    eq("V-notch outerEdge = 2*cc + w (stated)", r0.V.outerEdge, +((2 * 375 + r0.w).toFixed(1)));
+    eq("outer outerEdge = Hw + 2w (stated)", r0.O.outerEdge, +((698 + 2 * r0.w).toFixed(1)));
+    eq("centre outerEdge = outer's own outerEdge - 52", r0.C.outerEdge, +((r0.O.outerEdge - 52).toFixed(1)));
+    // The outer plate's own innerEdge is Hw exactly -- the window height
+    // itself, not a fitted or rounded approach to it -- a direct geometric
+    // check this reference chart's own dCore/cc/Hw inputs make possible.
+    eq("outer innerEdge = Hw exactly", r0.O.innerEdge, 698);
+  }
 }
 
 console.log("\nwCoreAssembled: purchased vs assembled core mass, and the K-search fix it produces (CALIBRATION.md section 48)");

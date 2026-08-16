@@ -3612,3 +3612,65 @@ same reason (CLAUDE.md invariant 1, the engine stays stateless).
 invariant 4 exists for: a real formula change, reachable by any AUTO-fit
 design, that moves the default case's own numbers -- not a reporting-only
 addition like section 50's was.
+## 52. Drawing 21 drew Construction A's plate shapes but not Construction B's -- coreConstructionB() needed its own outer/inner edges to fix that
+
+Checked directly against the reference PDF Construction B was fitted from
+(CALIBRATION.md section 35): its stamping schedule page carries three drawn
+outlines above the table -- V-NOTCH, OUTER, CENTRE -- the shapes the core
+shop actually cuts from, not just the table of lengths and weights. Drawing
+21 (`StampingSchedule`, src/components/Drawings2D.tsx) already draws
+Construction A's own two shapes (limb, yoke with a schematic centre-limb V
+notch) but returned early with tables only, no shapes, whenever
+`params.coreConstruction === "B"` -- confirmed by reading the component,
+not assumed: the `isB` branch's own comment said so directly ("Construction
+B has no schematic here").
+
+**Why there was nothing to draw from.** `coreConstructionB()` (this file)
+already computed a `length` per plate type -- V (yoke), O (outer limb), C
+(centre limb) -- but that figure is MITRE_K-corrected specifically for the
+mass calculation (section 35's own note: the correction folds in the
+V-notch cutout's own material loss, "a genuine additional deduction... this
+engine cannot separate out"). A drawn trapezoid needs its outer and inner
+edges separately, and mass-correcting toward a mean length is not that.
+
+**Fixed by adding `outerEdge`/`innerEdge` to each of V/O/C**, computed from
+the plain 45-degree-double-mitre relationship this file's own Construction
+A model already uses for `limbLong`/`limbShort` and `yokeLong`/`yokeShort`:
+outerEdge is the STATED length this function already computed before the
+MITRE_K correction (`2*cc+w` for V-notch, `Hw+2*w` for outer, that value
+minus 52 for centre -- literally the same three formulas section 35's own
+comment already names as "OUTER edges"), and innerEdge is outerEdge minus
+2*width -- the geometric consequence of mitring both ends by one width
+each, independent of MITRE_K, which corrects mass toward a mean length
+after the notch is cut, not the plate's outer envelope before it. Checked
+against the 1250 kVA furnace reference at its widest pocket (w=230):
+outerEdge-innerEdge is exactly 460 (2*230) for all three plates, and the
+outer plate's own innerEdge (723.5) lands exactly on Hw (723.5.09...) --
+both confirm the geometry, not just the arithmetic.
+
+**Drawing 21 now renders Construction B's own three shapes** the same way
+it already rendered Construction A's two: from the widest pocket
+(`sched.rows[0]`), with the other pockets noted as the same shapes at the
+widths the schedule table already lists, dimensioned with real
+engine-held numbers (outer edge, inner edge, width) via the same
+DimensionHorizontal/DimensionVertical primitives every other drawing uses.
+
+**The V-notch and the centre plate's own chevron point are schematic, not
+engine-held, drawn that way on purpose.** Construction A's own existing
+yoke V-notch was already schematic before this section -- its own caption
+says so plainly ("shown schematically... its profile is not held by the
+engine") because no chart on file gives a notch angle or depth, only the
+three plate mass totals section 35 fitted MITRE_K against. The same is
+true for Construction B: the "52" that shortens the centre plate relative
+to the outer plate is a stated, given constant (CALIBRATION.md section
+35), not decomposed into a notch depth and a point angle anywhere on file.
+Inventing a precise angle to make the drawing look sharper would be
+exactly what CLAUDE.md's invariant 5 exists to forbid -- a plausible
+fabricated value in a customer document is worse than an honest
+schematic one, so the centre plate's point and the V-notch plate's notch
+are drawn at a fixed, proportional depth (not derived from any input) and
+captioned the same way Construction A's own notch already was.
+
+No `ENGINE_VERSION` bump: `outerEdge`/`innerEdge` are new, purely additive
+fields, derived from figures this function already computed -- no existing
+field changed, no mass, weight or price moves for any design.

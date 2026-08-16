@@ -2651,24 +2651,47 @@ function coreConstructionB(dCore, cc, Hw, steps, thk, dens = 7650) {
     const stack = i === 0 ? s.t : 2 * s.t;
     const nSheets = Math.max(2, Math.round(stack / thk));
 
-    const lenVNotch = (2 * cc + s.w) - MITRE_K.vNotch * s.w;
+    const outerVNotch = 2 * cc + s.w;
+    const lenVNotch = outerVNotch - MITRE_K.vNotch * s.w;
     const vSheets = nSheets * 2; // top + bottom yoke
     const massV = ((s.w * lenVNotch * thk) / 1e9) * dens * vSheets;
 
-    const lenOuterStated = Hw + 2 * s.w;
-    const lenOuter = lenOuterStated - MITRE_K.outer * s.w;
+    const outerOuter = Hw + 2 * s.w;
+    const lenOuter = outerOuter - MITRE_K.outer * s.w;
     const oSheets = nSheets * 2; // two outer limbs
     const massO = ((s.w * lenOuter * thk) / 1e9) * dens * oSheets;
 
-    const lenCentre = (lenOuterStated - 52) - MITRE_K.centre * s.w;
+    const outerCentre = outerOuter - 52;
+    const lenCentre = outerCentre - MITRE_K.centre * s.w;
     const cSheets = nSheets * 1; // one centre limb
     const massC = ((s.w * lenCentre * thk) / 1e9) * dens * cSheets;
 
+    // CALIBRATION.md section 52: outerEdge/innerEdge are the plate's own
+    // physical envelope, for drawing 21's Construction B plate shapes --
+    // outerEdge is the stated length already computed above (the longer of
+    // the two 45-degree-mitred parallel edges), innerEdge is outerEdge
+    // minus 2*width, the same plain double-mitre relationship this file's
+    // own Construction A model already uses for limbLong/limbShort and
+    // yokeLong/yokeShort. Deliberately NOT MITRE_K-corrected: MITRE_K
+    // corrects toward a MEAN length for mass, and this function's own
+    // comment above already says that correction folds in the V-notch
+    // cutout's own material loss -- a mass correction, not the plate's
+    // outer geometric envelope, which does not change depending on what
+    // gets cut out of it afterward.
     return {
       i: i + 1, w: s.w, stack, nSheets,
-      V: { length: +lenVNotch.toFixed(1), weight: massV, sheets: vSheets },
-      O: { length: +lenOuter.toFixed(1), weight: massO, sheets: oSheets },
-      C: { length: +lenCentre.toFixed(1), weight: massC, sheets: cSheets },
+      V: {
+        length: +lenVNotch.toFixed(1), weight: massV, sheets: vSheets,
+        outerEdge: +outerVNotch.toFixed(1), innerEdge: +(outerVNotch - 2 * s.w).toFixed(1),
+      },
+      O: {
+        length: +lenOuter.toFixed(1), weight: massO, sheets: oSheets,
+        outerEdge: +outerOuter.toFixed(1), innerEdge: +(outerOuter - 2 * s.w).toFixed(1),
+      },
+      C: {
+        length: +lenCentre.toFixed(1), weight: massC, sheets: cSheets,
+        outerEdge: +outerCentre.toFixed(1), innerEdge: +(outerCentre - 2 * s.w).toFixed(1),
+      },
     };
   });
   const totalV = rows.reduce((s, r) => s + r.V.weight, 0);
