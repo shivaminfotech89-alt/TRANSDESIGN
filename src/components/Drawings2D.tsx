@@ -121,7 +121,7 @@ export function CoreDrawing({ design, params, project }: Drawings2DProps) {
       </div>
       <TitleBlock
         drawingNo={drawingNo(project, '06')} title="Core Drawing" rev={project?.revision ?? 0}
-        sheet={6} totalSheets={21} fit={fit} standard={params.standard}
+        sheet={6} totalSheets={23} fit={fit} standard={params.standard}
         projectName={project?.projectName} customer={project?.customer} ratingLabel={ratingLabel(params)}
         material={design.grade.name} partNumber={PART_NUMBERS.core}
       />
@@ -237,7 +237,7 @@ export function CoreCrossSection({ design, params, project }: Drawings2DProps) {
       </div>
       <TitleBlock
         drawingNo={drawingNo(project, '07')} title="Stepped Core Cross-Section" rev={project?.revision ?? 0}
-        sheet={7} totalSheets={21} fit={fit} standard={params.standard}
+        sheet={7} totalSheets={23} fit={fit} standard={params.standard}
         projectName={project?.projectName} customer={project?.customer} ratingLabel={ratingLabel(params)}
         material={design.grade.name} partNumber={PART_NUMBERS.core}
       />
@@ -420,7 +420,7 @@ export function StampingSchedule({ design, params, project }: Drawings2DProps) {
         </table>
         <TitleBlock
           drawingNo={drawingNo(project, '21')} title="Lamination Stamping and Cutting Schedule" rev={project?.revision ?? 0}
-          sheet={21} totalSheets={21} fit={fit} standard={params.standard}
+          sheet={22} totalSheets={23} fit={fit} standard={params.standard}
           projectName={project?.projectName} customer={project?.customer} ratingLabel={ratingLabel(params)}
           material={design.grade.name} partNumber={PART_NUMBERS.core}
         />
@@ -546,7 +546,7 @@ export function StampingSchedule({ design, params, project }: Drawings2DProps) {
       </table>
       <TitleBlock
         drawingNo={drawingNo(project, '21')} title="Lamination Stamping and Cutting Schedule" rev={project?.revision ?? 0}
-        sheet={21} totalSheets={21} fit={fit} standard={params.standard}
+        sheet={22} totalSheets={23} fit={fit} standard={params.standard}
         projectName={project?.projectName} customer={project?.customer} ratingLabel={ratingLabel(params)}
         material={design.grade.name} partNumber={PART_NUMBERS.core}
       />
@@ -698,7 +698,7 @@ export function CoreCuttingChart({ design, params, project }: Drawings2DProps) {
       )}
       <TitleBlock
         drawingNo={drawingNo(project, '22')} title="Core Cutting Chart" rev={project?.revision ?? 0}
-        sheet={22} totalSheets={22} fit={{ scale: 0 } as any} standard={params.standard}
+        sheet={23} totalSheets={23} fit={{ scale: 0 } as any} standard={params.standard}
         projectName={project?.projectName} customer={project?.customer} ratingLabel={ratingLabel(params)}
         material={design.grade.name} partNumber={PART_NUMBERS.core}
       />
@@ -714,6 +714,18 @@ export function CoreCuttingChart({ design, params, project }: Drawings2DProps) {
  *  page (index.css, CALIBRATION.md). On screen .drawing-page is a no-op;
  *  it only does anything under @media print. */
 export function Drawings2D({ design, params, project }: Drawings2DProps) {
+  // DRAWINGS.md, "Where each drawing appears": "all twenty-one in order,
+  // then the dimension schedule and the cutting schedule" -- 1 to 19
+  // ascending, then 20's two sheets (Longitudinal, Transverse), then 21
+  // and 22 appended last. This array used to group 21/22 (core stamping/
+  // cutting) right after 6/7 instead, because "Core: drawings 6, 7 and
+  // 21" reads as one section in the register's own prose -- that heading
+  // groups them by SUBJECT for the document to read well, it was never a
+  // render-order instruction, and the section that IS the render-order
+  // instruction ("Where each drawing appears") puts 21/22 at the end. The
+  // sheet={N} on each component below already assumed this order (they
+  // run 1-23 with no gap); only the array itself was out of step with
+  // them.
   const drawings = [
     <OrthographicDrawing key="ga" design={design} params={params} project={project} view="ga" />,
     <OrthographicDrawing key="front" design={design} params={params} project={project} view="front" />,
@@ -722,15 +734,11 @@ export function Drawings2D({ design, params, project }: Drawings2DProps) {
     <OrthographicDrawing key="bottom" design={design} params={params} project={project} view="bottom" />,
     <CoreDrawing key="core" design={design} params={params} project={project} />,
     <CoreCrossSection key="core-xsec" design={design} params={params} project={project} />,
-    <StampingSchedule key="stamping" design={design} params={params} project={project} />,
-    <CoreCuttingChart key="cutting-chart" design={design} params={params} project={project} />,
     <LvWindingDrawing key="lv-winding" design={design} params={params} project={project} />,
     <HvWindingDrawing key="hv-winding" design={design} params={params} project={project} />,
     <TapWindingDrawing key="tap-winding" design={design} params={params} project={project} />,
     <InsulationDrawing key="insulation" design={design} params={params} project={project} />,
     <InternalAssemblyDrawing key="internal-assembly" design={design} params={params} project={project} />,
-    <InternalAssemblyDrawing key="internal-assembly-20t" design={design} params={params} project={project} drawingSeq="20T" sheet={20} />,
-    <LongitudinalSectionDrawing key="longitudinal-section" design={design} params={params} project={project} />,
     <TankFabricationDrawing key="tank-fab" design={design} params={params} project={project} />,
     <FinOrRadiatorDrawing key="fin-radiator" design={design} params={params} project={project} />,
     <BushingLayoutDrawing key="bushing-layout" design={design} params={params} project={project} />,
@@ -738,6 +746,10 @@ export function Drawings2D({ design, params, project }: Drawings2DProps) {
     <LeadArrangementDrawing key="lead-arrangement" design={design} params={params} project={project} />,
     <NamePlateDrawing key="nameplate" design={design} params={params} project={project} />,
     <ExplodedAssemblyDrawing key="exploded-assembly" design={design} params={params} project={project} />,
+    <LongitudinalSectionDrawing key="longitudinal-section" design={design} params={params} project={project} />,
+    <InternalAssemblyDrawing key="internal-assembly-20t" design={design} params={params} project={project} drawingSeq="20T" sheet={21} />,
+    <StampingSchedule key="stamping" design={design} params={params} project={project} />,
+    <CoreCuttingChart key="cutting-chart" design={design} params={params} project={project} />,
   ];
 
   return (

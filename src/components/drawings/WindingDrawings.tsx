@@ -193,7 +193,7 @@ export function LvWindingDrawing({ design, params, project }: Props) {
       </div>
       <TitleBlock
         drawingNo={drawingNo(project, '08')} title="LV Winding Drawing" rev={project?.revision ?? 0}
-        sheet={8} totalSheets={21} fit={{ scale: scaleY, offsetX: 0, offsetY: 0 }} standard={params.standard}
+        sheet={8} totalSheets={23} fit={{ scale: scaleY, offsetX: 0, offsetY: 0 }} standard={params.standard}
         projectName={project?.projectName} customer={project?.customer} ratingLabel={ratingLabel(params)}
         material={design.cLV.name} partNumber={PART_NUMBERS.lvCoil}
       />
@@ -369,7 +369,7 @@ export function HvWindingDrawing({ design, params, project }: Props) {
       </div>
       <TitleBlock
         drawingNo={drawingNo(project, '09')} title="HV Winding Drawing" rev={project?.revision ?? 0}
-        sheet={9} totalSheets={21} fit={{ scale: scaleY, offsetX: 0, offsetY: 0 }} standard={params.standard}
+        sheet={9} totalSheets={23} fit={{ scale: scaleY, offsetX: 0, offsetY: 0 }} standard={params.standard}
         projectName={project?.projectName} customer={project?.customer} ratingLabel={ratingLabel(params)}
         material={design.cHV.name} partNumber={PART_NUMBERS.hvCoil}
       />
@@ -573,7 +573,7 @@ export function TapWindingDrawing({ design, params, project }: Props) {
       </div>
       <TitleBlock
         drawingNo={drawingNo(project, '10')} title="Tap Winding Drawing" rev={project?.revision ?? 0}
-        sheet={10} totalSheets={21} fit={fit} standard={params.standard}
+        sheet={10} totalSheets={23} fit={fit} standard={params.standard}
         projectName={project?.projectName} customer={project?.customer} ratingLabel={ratingLabel(params)}
         material={design.cHV.name} partNumber={PART_NUMBERS.hvCoil}
       />

@@ -162,7 +162,7 @@ export function ExplodedAssemblyDrawing({ design, params, project }: Props) {
       </div>
       <TitleBlock
         drawingNo={drawingNo(project, '19')} title="Exploded Assembly" rev={project?.revision ?? 0}
-        sheet={19} totalSheets={21} fit={fit} standard={params.standard}
+        sheet={19} totalSheets={23} fit={fit} standard={params.standard}
         projectName={project?.projectName} customer={project?.customer} ratingLabel={ratingLabel(params)}
       />
     </Card>

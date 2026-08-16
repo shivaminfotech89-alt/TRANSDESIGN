@@ -81,7 +81,7 @@ export function BushingLayoutDrawing({ design, params, project }: Props) {
       </div>
       <TitleBlock
         drawingNo={drawingNo(project, '15')} title="Bushing Layout" rev={project?.revision ?? 0}
-        sheet={15} totalSheets={21} fit={fit} standard={params.standard}
+        sheet={15} totalSheets={23} fit={fit} standard={params.standard}
         projectName={project?.projectName} customer={project?.customer} ratingLabel={ratingLabel(params)}
       />
     </Card>
@@ -173,7 +173,7 @@ export function AccessoryLayoutDrawing({ design, params, project }: Props) {
       </div>
       <TitleBlock
         drawingNo={drawingNo(project, '16')} title="Accessory Layout" rev={project?.revision ?? 0}
-        sheet={16} totalSheets={21} fit={fit} standard={params.standard}
+        sheet={16} totalSheets={23} fit={fit} standard={params.standard}
         projectName={project?.projectName} customer={project?.customer} ratingLabel={ratingLabel(params)}
       />
     </Card>
@@ -251,7 +251,7 @@ export function LeadArrangementDrawing({ design, params, project }: Props) {
       </div>
       <TitleBlock
         drawingNo={drawingNo(project, '17')} title="Lead Arrangement" rev={project?.revision ?? 0}
-        sheet={17} totalSheets={21} fit={fit} standard={params.standard}
+        sheet={17} totalSheets={23} fit={fit} standard={params.standard}
         projectName={project?.projectName} customer={project?.customer} ratingLabel={ratingLabel(params)}
       />
     </Card>

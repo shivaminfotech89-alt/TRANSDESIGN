@@ -98,7 +98,7 @@ export function TankFabricationDrawing({ design, params, project }: Props) {
       </div>
       <TitleBlock
         drawingNo={drawingNo(project, '13')} title="Tank Fabrication Drawing" rev={project?.revision ?? 0}
-        sheet={13} totalSheets={21} fit={fit} standard={params.standard}
+        sheet={13} totalSheets={23} fit={fit} standard={params.standard}
         projectName={project?.projectName} customer={project?.customer} ratingLabel={ratingLabel(params)}
         material="Mild steel, IS 2062" partNumber={PART_NUMBERS.tank}
       />
@@ -260,7 +260,7 @@ export function FinOrRadiatorDrawing({ design, params, project }: Props) {
       </div>
       <TitleBlock
         drawingNo={drawingNo(project, '14')} title="Radiator or Fin Drawing" rev={project?.revision ?? 0}
-        sheet={14} totalSheets={21} fit={fit} standard={params.standard}
+        sheet={14} totalSheets={23} fit={fit} standard={params.standard}
         projectName={project?.projectName} customer={project?.customer} ratingLabel={ratingLabel(params)}
         material={isFin ? 'CRCA steel' : 'Pressed steel'} partNumber={PART_NUMBERS.fins}
       />
