@@ -48,6 +48,50 @@ Base font size is small. Labels 11px, table data 11px, notes 10px, section
 headings 11px uppercase. The interface is dense on purpose: an engineer wants
 the whole design sheet visible without scrolling.
 
+## Drawing linework
+
+The 2D drawings (DRAWINGS.md) are a different reading distance from the rest
+of the interface -- printed, or read at arm's length on screen, not scanned
+in a dense table -- so they carry their own three-tier weight, heaviest to
+lightest, and none of the three is allowed to collapse into another:
+
+```
+part outlines        ink, 1.5-2.1 stroke   the plate, coil, tank and core
+                                            shapes themselves -- solid,
+                                            unmistakably the object drawn
+dimension lines       ink, 0.75-0.9 stroke  extension lines, the dimension
+  and value                                 line, arrow terminators, and the
+                       ink, 8px mono bold    value sitting on it -- dark and
+                                             legible as a measurement, but
+                                             visibly lighter in WEIGHT than
+                                             the outline it measures
+notes and captions    ink2 or steel,        "to be specified", part labels,
+                       5-6px                schematic caveats -- deliberately
+                                             the quietest element on the sheet
+```
+
+Dimension text and lines were `ink2` at 5-6.5px until this section -- pale
+enough, and small enough, to read as a caption rather than a dimension,
+especially printed. Fixed by moving the VALUE and every line that carries it
+(extension lines, the dimension line, arrow terminators) to `ink` -- the same
+colour as the part outline it measures, not a paler one -- at a visibly
+larger 8px, semibold. The outline itself moved too, roughly 1.5x its old
+stroke width across the board (0.4 to 0.6, 0.6 to 0.9, 0.8 to 1.2, 1.0 to
+1.5, 1.2 to 1.8, 1.4 to 2.1) so it still reads as heavier than the dimension
+line measuring it -- colour alone stopped doing that job once dimension lines
+also went to `ink`, so weight now carries the hierarchy instead. Notes and
+captions (schematic disclaimers, "to be specified" placeholders, part labels
+like "cylinder"/"barrier") are untouched -- they were never the complaint,
+and darkening them too would flatten the sheet to one weight, which reads as
+*harder* to scan, not easier.
+
+Implemented once, in `DrawingPrimitives.tsx`'s `DimensionHorizontal`/
+`DimensionVertical`/`DimensionArrow` -- every drawing inherits it from there,
+not per-drawing. A drawing with an unusually dense dimension set (the coil
+half-section detail reused across drawings 11, 12 and 20) is not a reason to
+carve out a smaller exception: if the standard size does not fit, the layout
+is too small, not the text.
+
 ## Background
 
 Graph paper across the whole page, fixed, behind everything:

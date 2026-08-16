@@ -100,7 +100,7 @@ export function ExplodedAssemblyDrawing({ design, params, project }: Props) {
                     const uw = Math.min(14, (row.itemWidthMm || 40) * fit.scale);
                     return (
                       <rect key={u} x={ux - uw / 2} y={y - h / 2} width={uw} height={h}
-                        fill="var(--color-sheet)" stroke="var(--color-ink)" strokeWidth={0.8} />
+                        fill="var(--color-sheet)" stroke="var(--color-ink)" strokeWidth={1.2} />
                     );
                   })
                 ) : isRing ? (
@@ -109,11 +109,11 @@ export function ExplodedAssemblyDrawing({ design, params, project }: Props) {
                     strokeWidth={1} strokeDasharray={row.key === 'insulation' ? '3 2' : undefined} />
                 ) : (
                   <rect x={cx - w / 2} y={y - h / 2} width={w} height={h}
-                    fill="none" stroke="var(--color-ink)" strokeWidth={1} />
+                    fill="none" stroke="var(--color-ink)" strokeWidth={1.5} />
                 )}
 
                 <line x1={cx + w / 2} y1={y} x2={balloonX - 12} y2={y} stroke="var(--color-ink2)" strokeWidth={0.5} />
-                <circle cx={balloonX} cy={y} r={8} fill="var(--color-sheet)" stroke="var(--color-ink)" strokeWidth={0.8} />
+                <circle cx={balloonX} cy={y} r={8} fill="var(--color-sheet)" stroke="var(--color-ink)" strokeWidth={1.2} />
                 <text x={balloonX} y={y} textAnchor="middle" dominantBaseline="central" className="font-mono" fontSize={8} fill="var(--color-ink)">
                   {i + 1}
                 </text>

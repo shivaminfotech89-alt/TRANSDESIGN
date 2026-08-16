@@ -170,11 +170,11 @@ export function OrthographicDrawing({ design, params, project, view }: Props) {
               drawn in every view so the "envelope sits inside the tank" check
               asked for is visible everywhere, not only where DRAWINGS.md's
               own content list happens to mention the active part. */}
-          <rect x={tx} y={ty} width={tankWpx} height={tankHpx} fill="none" stroke="var(--color-ink)" strokeWidth={1} />
+          <rect x={tx} y={ty} width={tankWpx} height={tankHpx} fill="none" stroke="var(--color-ink)" strokeWidth={1.5} />
           <rect x={ecx} y={ecy} width={envWpx} height={envHpx} fill="none" stroke="var(--color-copper)" strokeWidth={1} strokeDasharray="4 2" />
 
           {/* Cover line, elevation views only. */}
-          {!isPlan && <line x1={tx} y1={ty} x2={tx + tankWpx} y2={ty} stroke="var(--color-ink)" strokeWidth={1.4} />}
+          {!isPlan && <line x1={tx} y1={ty} x2={tx + tankWpx} y2={ty} stroke="var(--color-ink)" strokeWidth={2.1} />}
 
           {/* Front: stripped to outline, but "overall height" includes the
               bushings (drawing 2's own dimension list), so a plain unlabelled
@@ -214,7 +214,7 @@ export function OrthographicDrawing({ design, params, project, view }: Props) {
               <path d={`M${tx + 4},${ty} l4,-6 l4,6`} fill="none" stroke="var(--color-ink2)" strokeWidth={0.8} />
               <path d={`M${tx + tankWpx - 8},${ty} l4,-6 l4,6`} fill="none" stroke="var(--color-ink2)" strokeWidth={0.8} />
               {/* Base channel band and ground line */}
-              <rect x={tx - 4} y={ty + tankHpx} width={tankWpx + 8} height={9} fill="none" stroke="var(--color-ink)" strokeWidth={0.8} />
+              <rect x={tx - 4} y={ty + tankHpx} width={tankWpx + 8} height={9} fill="none" stroke="var(--color-ink)" strokeWidth={1.2} />
               <line x1={tx - 16} y1={ty + tankHpx + 9} x2={tx + tankWpx + 16} y2={ty + tankHpx + 9} stroke="var(--color-ink2)" strokeWidth={1.2} />
             </>
           )}
@@ -224,7 +224,7 @@ export function OrthographicDrawing({ design, params, project, view }: Props) {
             <>
               {limbXmm.map((mmX, i) => (
                 <g key={`hv-${i}`}>
-                  <circle cx={mmToPxX(mmX)} cy={ty + tankHpx / 2} r={2.4} fill="none" stroke="var(--color-ink)" strokeWidth={0.8} />
+                  <circle cx={mmToPxX(mmX)} cy={ty + tankHpx / 2} r={2.4} fill="none" stroke="var(--color-ink)" strokeWidth={1.2} />
                   <text x={mmToPxX(mmX)} y={ty - 4} textAnchor="middle" className="font-mono" fontSize={6} fill="var(--color-ink2)">{vg.hvLabels[i]}</text>
                 </g>
               ))}
@@ -243,8 +243,8 @@ export function OrthographicDrawing({ design, params, project, view }: Props) {
           {/* Bottom view: base channel bands and service pads. */}
           {isBottom && (
             <>
-              <rect x={tx + tankWpx * 0.08} y={ty} width={tankWpx * 0.1} height={tankHpx} fill="none" stroke="var(--color-ink)" strokeWidth={0.8} />
-              <rect x={tx + tankWpx * 0.82} y={ty} width={tankWpx * 0.1} height={tankHpx} fill="none" stroke="var(--color-ink)" strokeWidth={0.8} />
+              <rect x={tx + tankWpx * 0.08} y={ty} width={tankWpx * 0.1} height={tankHpx} fill="none" stroke="var(--color-ink)" strokeWidth={1.2} />
+              <rect x={tx + tankWpx * 0.82} y={ty} width={tankWpx * 0.1} height={tankHpx} fill="none" stroke="var(--color-ink)" strokeWidth={1.2} />
               <rect x={tx + tankWpx * 0.46} y={ty + tankHpx - 8} width={8} height={5} fill="none" stroke="var(--color-steel)" strokeWidth={0.6} />
               <text x={tx + tankWpx * 0.5} y={ty + tankHpx + 8} textAnchor="middle" className="font-mono" fontSize={5.5} fill="var(--color-steel)">DRAIN</text>
             </>

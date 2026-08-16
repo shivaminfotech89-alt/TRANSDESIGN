@@ -67,15 +67,15 @@ export function CoilHalfSectionShapes({ design, params, b, scale, originX, origi
   const my = (mm: number) => originY + mm * scale;
   return (
     <g>
-      <rect x={mx(0)} y={my(b.yTop)} width={mx(b.R) - mx(0)} height={my(b.yBot) - my(b.yTop)} fill="var(--color-steel)" fillOpacity={0.3} stroke="var(--color-ink)" strokeWidth={1} />
+      <rect x={mx(0)} y={my(b.yTop)} width={mx(b.R) - mx(0)} height={my(b.yBot) - my(b.yTop)} fill="var(--color-steel)" fillOpacity={0.3} stroke="var(--color-ink)" strokeWidth={1.5} />
       {showInsulation && (
         <rect x={mx(b.xCyl0)} y={my(b.yLvTop)} width={mx(b.xCyl1) - mx(b.xCyl0)} height={my(b.yLvBot) - my(b.yLvTop)} fill="var(--color-sheetAlt)" stroke="var(--color-ink2)" strokeWidth={0.5} />
       )}
-      <rect x={mx(b.xLvIn)} y={my(b.yLvTop)} width={mx(b.xLvOut) - mx(b.xLvIn)} height={my(b.yLvBot) - my(b.yLvTop)} fill="var(--color-copper)" fillOpacity={0.25} stroke="var(--color-copper)" strokeWidth={1} />
+      <rect x={mx(b.xLvIn)} y={my(b.yLvTop)} width={mx(b.xLvOut) - mx(b.xLvIn)} height={my(b.yLvBot) - my(b.yLvTop)} fill="var(--color-copper)" fillOpacity={0.25} stroke="var(--color-copper)" strokeWidth={1.5} />
       {showInsulation && (
         <rect x={mx(b.xBar0)} y={my(b.yLvTop)} width={mx(b.xBar1) - mx(b.xBar0)} height={my(b.yLvBot) - my(b.yLvTop)} fill="var(--color-sheetAlt)" stroke="var(--color-ink2)" strokeWidth={0.5} />
       )}
-      <rect x={mx(b.xHvIn)} y={my(b.yHvTop)} width={mx(b.xHvOut) - mx(b.xHvIn)} height={my(b.yHvBot) - my(b.yHvTop)} fill="#6b3d1d" fillOpacity={0.22} stroke="#6b3d1d" strokeWidth={1} />
+      <rect x={mx(b.xHvIn)} y={my(b.yHvTop)} width={mx(b.xHvOut) - mx(b.xHvIn)} height={my(b.yHvBot) - my(b.yHvTop)} fill="#6b3d1d" fillOpacity={0.22} stroke="#6b3d1d" strokeWidth={1.5} />
       <line x1={mx(0)} y1={my(b.yTop) - 6} x2={mx(0)} y2={my(b.yBot) + 6} stroke="var(--color-copper)" strokeWidth={0.5} strokeDasharray="6 2 1 2" />
     </g>
   );
@@ -102,21 +102,21 @@ export function CoilHalfSectionDimensions({ design, params, b, scale, originX, o
     <g>
       {/* Radial stack, nearest to farthest from the circle -- same
           chain-dimension convention as drawing 7. */}
-      <DimensionHorizontal x1={mx(0)} x2={mx(b.R)} featureY={my(b.yTop)} dimY={radialDimY} label={dimText(b.R)} arrowId={arrowId} fontSize={5.5} />
-      <DimensionHorizontal x1={mx(b.R)} x2={mx(b.xLvIn)} featureY={my(b.yTop)} dimY={radialDimY + gap} label={dimText(params.coreLvClr)} arrowId={arrowId} fontSize={5.5} />
-      <DimensionHorizontal x1={mx(b.xLvIn)} x2={mx(b.xLvOut)} featureY={my(b.yTop)} dimY={radialDimY + gap * 2} label={dimText(design.lvRadial, { decimals: 1 })} arrowId={arrowId} fontSize={5.5} />
-      <DimensionHorizontal x1={mx(b.xLvOut)} x2={mx(b.xHvIn)} featureY={my(b.yTop)} dimY={radialDimY + gap * 3} label={dimText(params.lvHvClr)} arrowId={arrowId} fontSize={5.5} />
-      <DimensionHorizontal x1={mx(b.xHvIn)} x2={mx(b.xHvOut)} featureY={my(b.yTop)} dimY={radialDimY + gap * 4} label={dimText(design.hvRadial, { decimals: 1 })} arrowId={arrowId} fontSize={5.5} />
-      <DimensionHorizontal x1={mx(0)} x2={mx(b.xHvOut)} featureY={my(b.yTop)} dimY={radialDimY + gap * 5} label={dimText(b.xHvOut, { radius: true, decimals: 1 })} arrowId={arrowId} fontSize={5.5} />
+      <DimensionHorizontal x1={mx(0)} x2={mx(b.R)} featureY={my(b.yTop)} dimY={radialDimY} label={dimText(b.R)} arrowId={arrowId} />
+      <DimensionHorizontal x1={mx(b.R)} x2={mx(b.xLvIn)} featureY={my(b.yTop)} dimY={radialDimY + gap} label={dimText(params.coreLvClr)} arrowId={arrowId} />
+      <DimensionHorizontal x1={mx(b.xLvIn)} x2={mx(b.xLvOut)} featureY={my(b.yTop)} dimY={radialDimY + gap * 2} label={dimText(design.lvRadial, { decimals: 1 })} arrowId={arrowId} />
+      <DimensionHorizontal x1={mx(b.xLvOut)} x2={mx(b.xHvIn)} featureY={my(b.yTop)} dimY={radialDimY + gap * 3} label={dimText(params.lvHvClr)} arrowId={arrowId} />
+      <DimensionHorizontal x1={mx(b.xHvIn)} x2={mx(b.xHvOut)} featureY={my(b.yTop)} dimY={radialDimY + gap * 4} label={dimText(design.hvRadial, { decimals: 1 })} arrowId={arrowId} />
+      <DimensionHorizontal x1={mx(0)} x2={mx(b.xHvOut)} featureY={my(b.yTop)} dimY={radialDimY + gap * 5} label={dimText(b.xHvOut, { radius: true, decimals: 1 })} arrowId={arrowId} />
 
       {/* Axial, LV's own end clearance and height nearest the limb. */}
-      <DimensionVertical y1={my(b.yTop)} y2={my(b.yLvTop)} featureX={mx(0)} dimX={axialDimX0} label={dimText(params.endClrLV)} arrowId={arrowId} fontSize={5.5} />
-      <DimensionVertical y1={my(b.yLvTop)} y2={my(b.yLvBot)} featureX={mx(0)} dimX={axialDimX0 - gap} label={dimText(design.hLV)} arrowId={arrowId} fontSize={5.5} />
+      <DimensionVertical y1={my(b.yTop)} y2={my(b.yLvTop)} featureX={mx(0)} dimX={axialDimX0} label={dimText(params.endClrLV)} arrowId={arrowId} />
+      <DimensionVertical y1={my(b.yLvTop)} y2={my(b.yLvBot)} featureX={mx(0)} dimX={axialDimX0 - gap} label={dimText(design.hLV)} arrowId={arrowId} />
       {/* HV's own end clearance and height, one gutter further out. */}
-      <DimensionVertical y1={my(b.yTop)} y2={my(b.yHvTop)} featureX={mx(b.xHvOut)} dimX={mx(b.xHvOut) + gap} label={dimText(params.endClrHV)} arrowId={arrowId} fontSize={5.5} />
-      <DimensionVertical y1={my(b.yHvTop)} y2={my(b.yHvBot)} featureX={mx(b.xHvOut)} dimX={mx(b.xHvOut) + gap * 2} label={dimText(design.hHV)} arrowId={arrowId} fontSize={5.5} />
+      <DimensionVertical y1={my(b.yTop)} y2={my(b.yHvTop)} featureX={mx(b.xHvOut)} dimX={mx(b.xHvOut) + gap} label={dimText(params.endClrHV)} arrowId={arrowId} />
+      <DimensionVertical y1={my(b.yHvTop)} y2={my(b.yHvBot)} featureX={mx(b.xHvOut)} dimX={mx(b.xHvOut) + gap * 2} label={dimText(design.hHV)} arrowId={arrowId} />
       {/* Overall window height. */}
-      <DimensionVertical y1={my(b.yTop)} y2={my(b.yBot)} featureX={mx(0)} dimX={axialDimX0 - gap * 2} label={dimText(design.Hw)} arrowId={arrowId} fontSize={5.5} />
+      <DimensionVertical y1={my(b.yTop)} y2={my(b.yBot)} featureX={mx(0)} dimX={axialDimX0 - gap * 2} label={dimText(design.Hw)} arrowId={arrowId} />
     </g>
   );
 }

@@ -76,10 +76,10 @@ export function CoreDrawing({ design, params, project }: Drawings2DProps) {
         <svg width={box.w} height={box.h} viewBox={`0 0 ${box.w} ${box.h}`} className="shrink-0">
           <DimensionArrow id={arrowId} />
 
-          <rect x={originX} y={topYokeY} width={coreWidthPx} height={yokeDepthPx} fill="none" stroke="var(--color-ink)" strokeWidth={1} />
-          <rect x={originX} y={bottomYokeY} width={coreWidthPx} height={yokeDepthPx} fill="none" stroke="var(--color-ink)" strokeWidth={1} />
+          <rect x={originX} y={topYokeY} width={coreWidthPx} height={yokeDepthPx} fill="none" stroke="var(--color-ink)" strokeWidth={1.5} />
+          <rect x={originX} y={bottomYokeY} width={coreWidthPx} height={yokeDepthPx} fill="none" stroke="var(--color-ink)" strokeWidth={1.5} />
           {limbXpx.map((x, i) => (
-            <rect key={i} x={x - dCorePx / 2} y={limbY} width={dCorePx} height={HwPx} fill="none" stroke="var(--color-ink)" strokeWidth={1} />
+            <rect key={i} x={x - dCorePx / 2} y={limbY} width={dCorePx} height={HwPx} fill="none" stroke="var(--color-ink)" strokeWidth={1.5} />
           ))}
 
           {limbXpx.map((x, i) => (
@@ -186,7 +186,7 @@ export function CoreCrossSection({ design, params, project }: Drawings2DProps) {
           <DimensionArrow id={arrowId} />
           <circle cx={cx} cy={cy} r={Rpx} fill="none" stroke="var(--color-copper)" strokeDasharray="5 2 1 2" strokeWidth={0.75} />
           {rects.map((r, i) => (
-            <rect key={i} x={r.x} y={r.y} width={r.w} height={r.h} fill="none" stroke="var(--color-ink)" strokeWidth={1} />
+            <rect key={i} x={r.x} y={r.y} width={r.w} height={r.h} fill="none" stroke="var(--color-ink)" strokeWidth={1.5} />
           ))}
           <line x1={cx - Rpx - 6} y1={cy} x2={cx + Rpx + 6} y2={cy} stroke="var(--color-copper)" strokeWidth={0.5} strokeDasharray="6 2 1 2" />
           <line x1={cx} y1={cy - Rpx - 6} x2={cx} y2={cy + Rpx + 6} stroke="var(--color-copper)" strokeWidth={0.5} strokeDasharray="6 2 1 2" />
@@ -338,9 +338,9 @@ export function StampingSchedule({ design, params, project }: Drawings2DProps) {
       >
         <svg width={box.w} height={box.h} viewBox={`0 0 ${box.w} ${box.h}`} className="mx-auto block">
           <DimensionArrow id={arrowId} />
-          <polygon points={vPoints} fill="none" stroke="var(--color-ink)" strokeWidth={1} strokeDasharray="5 2" />
-          <polygon points={oPoints} fill="none" stroke="var(--color-ink)" strokeWidth={1} strokeDasharray="5 2" />
-          <polygon points={cPoints} fill="none" stroke="var(--color-ink)" strokeWidth={1} strokeDasharray="5 2" />
+          <polygon points={vPoints} fill="none" stroke="var(--color-ink)" strokeWidth={1.5} strokeDasharray="5 2" />
+          <polygon points={oPoints} fill="none" stroke="var(--color-ink)" strokeWidth={1.5} strokeDasharray="5 2" />
+          <polygon points={cPoints} fill="none" stroke="var(--color-ink)" strokeWidth={1.5} strokeDasharray="5 2" />
           <text x={vCx} y={top - 22} textAnchor="middle" className="font-display uppercase" fontSize={7} fill="var(--color-ink2)" letterSpacing={0.5}>V-Notch</text>
           <text x={oCx} y={top - 22} textAnchor="middle" className="font-display uppercase" fontSize={7} fill="var(--color-ink2)" letterSpacing={0.5}>Outer</text>
           <text x={(cStartX + cStartX + cOuterPx) / 2} y={top - 22} textAnchor="middle" className="font-display uppercase" fontSize={7} fill="var(--color-ink2)" letterSpacing={0.5}>Centre</text>
@@ -464,8 +464,8 @@ export function StampingSchedule({ design, params, project }: Drawings2DProps) {
     <Card title="Core Stamping Schedule" subtitle={`Drawing ${drawingNo(project, '21')} · ${sched.thk} mm lamination, limb and yoke shown for the widest pocket`}>
       <svg width={box.w} height={box.h} viewBox={`0 0 ${box.w} ${box.h}`} className="mx-auto block">
         <DimensionArrow id={arrowId} />
-        <polygon points={limbPoints} fill="none" stroke="var(--color-ink)" strokeWidth={1} strokeDasharray="5 2" />
-        <polygon points={yokePoints} fill="none" stroke="var(--color-ink)" strokeWidth={1} strokeDasharray="5 2" />
+        <polygon points={limbPoints} fill="none" stroke="var(--color-ink)" strokeWidth={1.5} strokeDasharray="5 2" />
+        <polygon points={yokePoints} fill="none" stroke="var(--color-ink)" strokeWidth={1.5} strokeDasharray="5 2" />
         <text x={limbCx} y={top - 22} textAnchor="middle" className="font-display uppercase" fontSize={7} fill="var(--color-ink2)" letterSpacing={0.5}>Limb</text>
         <text x={yokeCx} y={top - 22} textAnchor="middle" className="font-display uppercase" fontSize={7} fill="var(--color-ink2)" letterSpacing={0.5}>Yoke</text>
 

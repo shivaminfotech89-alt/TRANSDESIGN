@@ -39,11 +39,11 @@ export function BushingLayoutDrawing({ design, params, project }: Props) {
       <div className="flex flex-col sm:flex-row gap-4 items-start">
         <svg width={box.w} height={box.h} viewBox={`0 0 ${box.w} ${box.h}`} className="shrink-0">
           <DimensionArrow id={arrowId} />
-          <rect x={tx} y={ty} width={tankLpx} height={tankWpx} fill="none" stroke="var(--color-ink)" strokeWidth={1.2} />
+          <rect x={tx} y={ty} width={tankLpx} height={tankWpx} fill="none" stroke="var(--color-ink)" strokeWidth={1.8} />
 
           {hvXmm.map((mmX, i) => (
             <g key={`hv${i}`}>
-              <circle cx={cx + mmX * fit.scale} cy={cy - tankWpx * 0.18} r={hvR} fill="none" stroke="var(--color-ink)" strokeWidth={1} />
+              <circle cx={cx + mmX * fit.scale} cy={cy - tankWpx * 0.18} r={hvR} fill="none" stroke="var(--color-ink)" strokeWidth={1.5} />
               <text x={cx + mmX * fit.scale} y={cy - tankWpx * 0.18 - hvR - 3} textAnchor="middle" className="font-mono" fontSize={6} fill="var(--color-ink2)">{vg.hvLabels[i]}</text>
             </g>
           ))}
@@ -54,12 +54,12 @@ export function BushingLayoutDrawing({ design, params, project }: Props) {
             </g>
           ))}
 
-          <DimensionHorizontal x1={cx + hvXmm[0] * fit.scale} x2={cx + hvXmm[1] * fit.scale} featureY={cy - tankWpx * 0.18} dimY={ty - 14} label={dimText(design.cc)} arrowId={arrowId} fontSize={5.5} />
-          <DimensionHorizontal x1={cx + hvXmm[1] * fit.scale} x2={cx + hvXmm[2] * fit.scale} featureY={cy - tankWpx * 0.18} dimY={ty - 26} label={dimText(design.cc)} arrowId={arrowId} fontSize={5.5} />
+          <DimensionHorizontal x1={cx + hvXmm[0] * fit.scale} x2={cx + hvXmm[1] * fit.scale} featureY={cy - tankWpx * 0.18} dimY={ty - 14} label={dimText(design.cc)} arrowId={arrowId} />
+          <DimensionHorizontal x1={cx + hvXmm[1] * fit.scale} x2={cx + hvXmm[2] * fit.scale} featureY={cy - tankWpx * 0.18} dimY={ty - 26} label={dimText(design.cc)} arrowId={arrowId} />
           {lvXmm.length > 1 && (
-            <DimensionHorizontal x1={cx + lvXmm[0] * fit.scale} x2={cx + lvXmm[1] * fit.scale} featureY={cy + tankWpx * 0.22} dimY={ty + tankWpx + 16} label="to be specified" arrowId={arrowId} fontSize={5} />
+            <DimensionHorizontal x1={cx + lvXmm[0] * fit.scale} x2={cx + lvXmm[1] * fit.scale} featureY={cy + tankWpx * 0.22} dimY={ty + tankWpx + 16} label="to be specified" arrowId={arrowId} />
           )}
-          <DimensionVertical y1={cy - tankWpx * 0.18} y2={cy + tankWpx * 0.22} featureX={cx + hvXmm[2] * fit.scale} dimX={cx + hvXmm[2] * fit.scale + hvR + 14} label="to be specified" arrowId={arrowId} fontSize={5} />
+          <DimensionVertical y1={cy - tankWpx * 0.18} y2={cy + tankWpx * 0.22} featureX={cx + hvXmm[2] * fit.scale} dimX={cx + hvXmm[2] * fit.scale + hvR + 14} label="to be specified" arrowId={arrowId} />
 
           <UnitsNote x={6} y={box.h - 6} />
         </svg>
@@ -132,8 +132,8 @@ export function AccessoryLayoutDrawing({ design, params, project }: Props) {
       <div className="flex flex-col sm:flex-row gap-4 items-start">
         <svg width={box.w} height={box.h} viewBox={`0 0 ${box.w} ${box.h}`} className="shrink-0">
           <DimensionArrow id={arrowId} />
-          <rect x={tx} y={planY} width={tankLpx} height={planH} fill="none" stroke="var(--color-ink)" strokeWidth={1.2} />
-          <rect x={tx} y={elevY} width={tankLpx} height={elevH} fill="none" stroke="var(--color-ink)" strokeWidth={1.2} />
+          <rect x={tx} y={planY} width={tankLpx} height={planH} fill="none" stroke="var(--color-ink)" strokeWidth={1.8} />
+          <rect x={tx} y={elevY} width={tankLpx} height={elevH} fill="none" stroke="var(--color-ink)" strokeWidth={1.8} />
 
           {fittings.slice(0, planSpots.length).map((f, i) => (
             <g key={f.key}>
@@ -205,11 +205,11 @@ export function LeadArrangementDrawing({ design, params, project }: Props) {
       <div className="flex flex-col sm:flex-row gap-4 items-start">
         <svg width={box.w} height={box.h} viewBox={`0 0 ${box.w} ${box.h}`} className="shrink-0">
           <DimensionArrow id={arrowId} />
-          <rect x={tx} y={ty} width={tankWpx} height={tankHpx} fill="none" stroke="var(--color-ink)" strokeWidth={1.2} />
-          <rect x={coilX - 8} y={coilTopY} width={16} height={coilBotY - coilTopY} fill="var(--color-copper)" fillOpacity={0.2} stroke="var(--color-copper)" strokeWidth={1} />
+          <rect x={tx} y={ty} width={tankWpx} height={tankHpx} fill="none" stroke="var(--color-ink)" strokeWidth={1.8} />
+          <rect x={coilX - 8} y={coilTopY} width={16} height={coilBotY - coilTopY} fill="var(--color-copper)" fillOpacity={0.2} stroke="var(--color-copper)" strokeWidth={1.5} />
 
           {/* HV lead: coil top to a bushing at the cover */}
-          <path d={`M${coilX},${coilTopY} L${coilX},${ty + 10} L${bushX},${ty + 10} L${bushX},${ty - 6}`} fill="none" stroke="var(--color-ink)" strokeWidth={1.2} />
+          <path d={`M${coilX},${coilTopY} L${coilX},${ty + 10} L${bushX},${ty + 10} L${bushX},${ty - 6}`} fill="none" stroke="var(--color-ink)" strokeWidth={1.8} />
           <text x={(coilX + bushX) / 2} y={ty + 6} textAnchor="middle" className="font-mono" fontSize={5.5} fill="var(--color-ink2)">HV lead</text>
 
           {/* LV leads: coil to LV bushings, schematic count from the vector group */}
@@ -225,11 +225,11 @@ export function LeadArrangementDrawing({ design, params, project }: Props) {
 
           {/* Tap leads to a terminal block, schematic */}
           <path d={`M${coilX + 8},${coilTopY + 12} L${coilX + 34},${coilTopY + 12}`} fill="none" stroke="var(--color-ink2)" strokeWidth={0.8} />
-          <rect x={coilX + 36} y={coilTopY + 6} width={14} height={12} fill="none" stroke="var(--color-ink)" strokeWidth={0.8} />
+          <rect x={coilX + 36} y={coilTopY + 6} width={14} height={12} fill="none" stroke="var(--color-ink)" strokeWidth={1.2} />
           <text x={coilX + 43} y={coilTopY + 26} textAnchor="middle" className="font-mono" fontSize={4.5} fill="var(--color-ink2)">Tap changer</text>
 
-          <DimensionHorizontal x1={tx} x2={coilX - 26 - (vg.lvLabels.length - 1) * 6} featureY={ty + tankHpx - 10} dimY={ty + tankHpx + 16} label="to be specified" arrowId={arrowId} fontSize={5} />
-          <DimensionVertical y1={ty} y2={ty + tankHpx} featureX={tx} dimX={tx - 16} label={dimText(design.tankH)} arrowId={arrowId} fontSize={5.5} />
+          <DimensionHorizontal x1={tx} x2={coilX - 26 - (vg.lvLabels.length - 1) * 6} featureY={ty + tankHpx - 10} dimY={ty + tankHpx + 16} label="to be specified" arrowId={arrowId} />
+          <DimensionVertical y1={ty} y2={ty + tankHpx} featureX={tx} dimX={tx - 16} label={dimText(design.tankH)} arrowId={arrowId} />
 
           <UnitsNote x={6} y={box.h - 6} />
         </svg>

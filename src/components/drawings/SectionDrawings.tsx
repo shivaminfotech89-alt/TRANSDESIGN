@@ -18,8 +18,15 @@ interface Props { design: any; params: any; project: any; }
 export function InsulationDrawing({ design, params, project }: Props) {
   const arrowId = useId();
   const b = halfSectionBounds(design, params);
-  const box = { w: 420, h: 460 };
-  const margin = { top: 20, right: 90, bottom: 18, axialGutter: 60 };
+  const box = { w: 420, h: 490 };
+  // DESIGN.md, "Drawing linework": top margin widened (was 20) for the
+  // larger 8px dimension text -- this sheet stacks four annotation tiers
+  // above the coil (thickness dimensions, cylinder/barrier labels, the
+  // creepage path and its caption) in the same vertical gutter, and the
+  // bigger text needs real room between tiers, not just a bigger font on
+  // the old spacing -- checked directly, the old 20px margin overlapped
+  // the thickness dimension chips into the creepage caption.
+  const margin = { top: 50, right: 90, bottom: 18, axialGutter: 60 };
   const fit = fitToViewBox(b.xHvOut, design.Hw, box.w - margin.right - margin.axialGutter, box.h - margin.top - margin.bottom, 8);
   const originX = margin.axialGutter + fit.offsetX;
   const originY = margin.top + fit.offsetY;
@@ -34,7 +41,7 @@ export function InsulationDrawing({ design, params, project }: Props) {
   // from the LV end ring out to the HV end ring, over the top of the
   // barrier -- shape only, the engine holds no creepage figure to label it
   // with, so the length prints "to be specified".
-  const creepY = my(b.yLvTop) - 6;
+  const creepY = my(b.yLvTop) - 8;
   const creepPath = `M${mx(b.xLvIn)},${my(b.yLvTop)} L${mx(b.xLvIn)},${creepY} L${mx(b.xHvOut)},${creepY} L${mx(b.xHvOut)},${my(b.yHvTop)}`;
 
   return (
@@ -44,10 +51,14 @@ export function InsulationDrawing({ design, params, project }: Props) {
           <DimensionArrow id={arrowId} />
           <CoilHalfSectionShapes design={design} params={params} b={b} scale={fit.scale} originX={originX} originY={originY} />
           <path d={creepPath} fill="none" stroke="var(--color-alert)" strokeWidth={0.6} strokeDasharray="3 2" />
-          <text x={(mx(b.xLvIn) + mx(b.xHvOut)) / 2} y={creepY - 4} textAnchor="middle" className="font-mono" fontSize={5.5} fill="var(--color-alert)">creepage: to be specified</text>
+          <text x={(mx(b.xLvIn) + mx(b.xHvOut)) / 2} y={creepY - 6} textAnchor="middle" className="font-mono" fontSize={5.5} fill="var(--color-alert)">creepage: to be specified</text>
 
-          <text x={(mx(b.xCyl0) + mx(b.xCyl1)) / 2} y={my(b.yLvTop) - 14} textAnchor="middle" className="font-mono" fontSize={5} fill="var(--color-ink2)">cylinder</text>
-          <text x={(mx(b.xBar0) + mx(b.xBar1)) / 2} y={my(b.yLvTop) - 14} textAnchor="middle" className="font-mono" fontSize={5} fill="var(--color-ink2)">barrier</text>
+          {/* Anchored outward (end/start, not middle) and away from each
+              other -- the cylinder and barrier are both thin enough that
+              centring each label on its own narrow rect ran the two into
+              each other regardless of font size. */}
+          <text x={mx(b.xCyl0) - 2} y={my(b.yLvTop) - 26} textAnchor="end" className="font-mono" fontSize={5} fill="var(--color-ink2)">cylinder</text>
+          <text x={mx(b.xBar1) + 2} y={my(b.yLvTop) - 26} textAnchor="start" className="font-mono" fontSize={5} fill="var(--color-ink2)">barrier</text>
 
           <CoilHalfSectionDimensions
             design={design} params={params} b={b} scale={fit.scale} originX={originX} originY={originY}
@@ -56,8 +67,8 @@ export function InsulationDrawing({ design, params, project }: Props) {
           {/* Cylinder and barrier thicknesses, real from the engine's own
               insulation-mass formula (0.8*cylThk against the LV inner face,
               cylThk against its outer face). */}
-          <DimensionHorizontal x1={mx(b.xCyl0)} x2={mx(b.xCyl1)} featureY={my(b.yLvTop)} dimY={my(b.yLvTop) - 30} label={dimText(params.cylThk * 0.8, { decimals: 2 })} arrowId={arrowId} fontSize={5} />
-          <DimensionHorizontal x1={mx(b.xBar0)} x2={mx(b.xBar1)} featureY={my(b.yLvTop)} dimY={my(b.yLvTop) - 30} label={dimText(params.cylThk, { decimals: 2 })} arrowId={arrowId} fontSize={5} />
+          <DimensionHorizontal x1={mx(b.xCyl0)} x2={mx(b.xCyl1)} featureY={my(b.yLvTop)} dimY={my(b.yLvTop) - 44} label={dimText(params.cylThk * 0.8, { decimals: 2 })} arrowId={arrowId} />
+          <DimensionHorizontal x1={mx(b.xBar0)} x2={mx(b.xBar1)} featureY={my(b.yLvTop)} dimY={my(b.yLvTop) - 44} label={dimText(params.cylThk, { decimals: 2 })} arrowId={arrowId} />
 
           <UnitsNote x={6} y={box.h - 6} />
         </svg>
@@ -135,7 +146,7 @@ export function InternalAssemblyDrawing({ design, params, project, drawingSeq = 
           <DimensionArrow id={arrowId} />
 
           {/* Tank wall and fluid */}
-          <rect x={mx(0)} y={my(0)} width={mx(tankHalfW) - mx(0)} height={my(tankBotY) - my(0)} fill="none" stroke="var(--color-ink)" strokeWidth={1.4} />
+          <rect x={mx(0)} y={my(0)} width={mx(tankHalfW) - mx(0)} height={my(tankBotY) - my(0)} fill="none" stroke="var(--color-ink)" strokeWidth={2.1} />
           {!design.dry && (
             <rect x={mx(0)} y={my(fluidY)} width={mx(tankHalfW) - mx(0)} height={my(tankBotY) - my(fluidY)} fill="var(--color-copperLt)" fillOpacity={0.08} stroke="none" />
           )}
@@ -144,8 +155,8 @@ export function InternalAssemblyDrawing({ design, params, project, drawingSeq = 
           {/* Yoke bands, top and bottom, spanning to the tank wall for
               visual context (their real width is coreWidth, not drawn full
               here since this is a transverse, not longitudinal, section). */}
-          <rect x={mx(0)} y={my(yokeTopY)} width={mx(b.R) - mx(0)} height={my(windowTopY) - my(yokeTopY)} fill="var(--color-steel)" fillOpacity={0.3} stroke="var(--color-ink)" strokeWidth={1} />
-          <rect x={mx(0)} y={my(windowBotY)} width={mx(b.R) - mx(0)} height={my(yokeBotY) - my(windowBotY)} fill="var(--color-steel)" fillOpacity={0.3} stroke="var(--color-ink)" strokeWidth={1} />
+          <rect x={mx(0)} y={my(yokeTopY)} width={mx(b.R) - mx(0)} height={my(windowTopY) - my(yokeTopY)} fill="var(--color-steel)" fillOpacity={0.3} stroke="var(--color-ink)" strokeWidth={1.5} />
+          <rect x={mx(0)} y={my(windowBotY)} width={mx(b.R) - mx(0)} height={my(yokeBotY) - my(windowBotY)} fill="var(--color-steel)" fillOpacity={0.3} stroke="var(--color-ink)" strokeWidth={1.5} />
 
           <CoilHalfSectionShapes design={design} params={params} b={b} scale={fit.scale} originX={originX} originY={coilOriginY} />
 
@@ -156,18 +167,18 @@ export function InternalAssemblyDrawing({ design, params, project, drawingSeq = 
           <line x1={mx(b.xHvOut) + 6} y1={my(yokeTopY) - 6} x2={mx(b.xHvOut) + 6} y2={my(yokeBotY) + 6} stroke="var(--color-ink2)" strokeWidth={1} strokeDasharray="1 2" />
           {/* HV lead, schematic, routed up to a bushing mark at the cover */}
           <path d={`M${mx(b.xHvOut) - 4},${my(windowTopY) + 10} L${mx(tankHalfW) * 0.7},${my(0) + 10} L${mx(tankHalfW) * 0.7},${my(0) - 4}`} fill="none" stroke="var(--color-ink2)" strokeWidth={0.8} />
-          <rect x={mx(tankHalfW) * 0.7 - 4} y={my(0) - 10} width={8} height={8} fill="none" stroke="var(--color-ink)" strokeWidth={0.8} />
+          <rect x={mx(tankHalfW) * 0.7 - 4} y={my(0) - 10} width={8} height={8} fill="none" stroke="var(--color-ink)" strokeWidth={1.2} />
 
           <CoilHalfSectionDimensions
             design={design} params={params} b={b} scale={fit.scale} originX={originX} originY={coilOriginY}
             arrowId={arrowId} radialDimY={radialDimY} axialDimX0={axialDimX0}
           />
-          <DimensionHorizontal x1={mx(b.xHvOut)} x2={mx(tankHalfW)} featureY={my(windowTopY)} dimY={radialDimY} label={dimText(params.hvTankClr)} arrowId={arrowId} fontSize={5.5} />
-          <DimensionHorizontal x1={mx(0)} x2={mx(tankHalfW)} featureY={my(0)} dimY={margin.top - 12} label={dimText(tankHalfW, { decimals: 1 })} arrowId={arrowId} fontSize={5.5} />
-          <DimensionVertical y1={my(0)} y2={my(tankBotY)} featureX={mx(tankHalfW)} dimX={mx(tankHalfW) + 14} label={dimText(design.tankH)} arrowId={arrowId} fontSize={5.5} />
-          <DimensionVertical y1={my(0)} y2={my(fluidY)} featureX={mx(0)} dimX={axialDimX0 - 36} label={dimText(params.topOilSpace)} arrowId={arrowId} fontSize={5.5} />
-          <DimensionVertical y1={my(yokeBotY)} y2={my(tankBotY)} featureX={mx(0)} dimX={axialDimX0 - 50} label={dimText(params.bottomClr)} arrowId={arrowId} fontSize={5.5} />
-          <DimensionVertical y1={my(yokeTopY) - 6} y2={my(yokeTopY) - 1} featureX={mx(b.xHvOut) * 0.5} dimX={mx(b.xHvOut) * 0.5} label="to be specified" arrowId={arrowId} fontSize={4.5} />
+          <DimensionHorizontal x1={mx(b.xHvOut)} x2={mx(tankHalfW)} featureY={my(windowTopY)} dimY={radialDimY} label={dimText(params.hvTankClr)} arrowId={arrowId} />
+          <DimensionHorizontal x1={mx(0)} x2={mx(tankHalfW)} featureY={my(0)} dimY={margin.top - 12} label={dimText(tankHalfW, { decimals: 1 })} arrowId={arrowId} />
+          <DimensionVertical y1={my(0)} y2={my(tankBotY)} featureX={mx(tankHalfW)} dimX={mx(tankHalfW) + 14} label={dimText(design.tankH)} arrowId={arrowId} />
+          <DimensionVertical y1={my(0)} y2={my(fluidY)} featureX={mx(0)} dimX={axialDimX0 - 36} label={dimText(params.topOilSpace)} arrowId={arrowId} />
+          <DimensionVertical y1={my(yokeBotY)} y2={my(tankBotY)} featureX={mx(0)} dimX={axialDimX0 - 50} label={dimText(params.bottomClr)} arrowId={arrowId} />
+          <DimensionVertical y1={my(yokeTopY) - 6} y2={my(yokeTopY) - 1} featureX={mx(b.xHvOut) * 0.5} dimX={mx(b.xHvOut) * 0.5} label="to be specified" arrowId={arrowId} />
 
           <UnitsNote x={6} y={box.h - 6} />
         </svg>
@@ -256,15 +267,15 @@ export function LongitudinalSectionDrawing({ design, params, project }: Props) {
         <svg width={box.w} height={box.h} viewBox={`0 0 ${box.w} ${box.h}`} className="shrink-0">
           <DimensionArrow id={arrowId} />
 
-          <rect x={mx(tankLeftMm)} y={my(0)} width={mx(tankRightMm) - mx(tankLeftMm)} height={my(tankBotY) - my(0)} fill="none" stroke="var(--color-ink)" strokeWidth={1.4} />
+          <rect x={mx(tankLeftMm)} y={my(0)} width={mx(tankRightMm) - mx(tankLeftMm)} height={my(tankBotY) - my(0)} fill="none" stroke="var(--color-ink)" strokeWidth={2.1} />
           {!design.dry && (
             <rect x={mx(tankLeftMm)} y={my(fluidY)} width={mx(tankRightMm) - mx(tankLeftMm)} height={my(tankBotY) - my(fluidY)} fill="var(--color-copperLt)" fillOpacity={0.08} stroke="none" />
           )}
           {!design.dry && <line x1={mx(tankLeftMm)} y1={my(fluidY)} x2={mx(tankRightMm)} y2={my(fluidY)} stroke="var(--color-steel)" strokeWidth={0.6} strokeDasharray="8 2" />}
 
           {/* Yokes, sliced lengthwise, spanning the full core width. */}
-          <rect x={mx(-design.coreWidth / 2)} y={my(yokeTopY)} width={mx(design.coreWidth / 2) - mx(-design.coreWidth / 2)} height={my(windowTopY) - my(yokeTopY)} fill="var(--color-steel)" fillOpacity={0.3} stroke="var(--color-ink)" strokeWidth={1} />
-          <rect x={mx(-design.coreWidth / 2)} y={my(windowBotY)} width={mx(design.coreWidth / 2) - mx(-design.coreWidth / 2)} height={my(yokeBotY) - my(windowBotY)} fill="var(--color-steel)" fillOpacity={0.3} stroke="var(--color-ink)" strokeWidth={1} />
+          <rect x={mx(-design.coreWidth / 2)} y={my(yokeTopY)} width={mx(design.coreWidth / 2) - mx(-design.coreWidth / 2)} height={my(windowTopY) - my(yokeTopY)} fill="var(--color-steel)" fillOpacity={0.3} stroke="var(--color-ink)" strokeWidth={1.5} />
+          <rect x={mx(-design.coreWidth / 2)} y={my(windowBotY)} width={mx(design.coreWidth / 2) - mx(-design.coreWidth / 2)} height={my(yokeBotY) - my(windowBotY)} fill="var(--color-steel)" fillOpacity={0.3} stroke="var(--color-ink)" strokeWidth={1.5} />
 
           {limbXmm.map((cxmm, i) => (
             <g key={i}>
@@ -280,9 +291,9 @@ export function LongitudinalSectionDrawing({ design, params, project }: Props) {
             design={design} params={params} b={b} scale={fit.scale} originX={mx(0)} originY={coilOriginY}
             arrowId={arrowId} radialDimY={radialDimY} axialDimX0={axialDimX0}
           />
-          <DimensionHorizontal x1={mx(tankLeftMm)} x2={mx(tankRightMm)} featureY={my(0)} dimY={margin.top - 12} label={dimText(design.tankL)} arrowId={arrowId} fontSize={5.5} />
-          <DimensionVertical y1={my(0)} y2={my(tankBotY)} featureX={mx(tankRightMm)} dimX={mx(tankRightMm) + 14} label={dimText(design.tankH)} arrowId={arrowId} fontSize={5.5} />
-          <DimensionHorizontal x1={mx(limbXmm[0])} x2={mx(limbXmm[1])} featureY={my(yokeTopY)} dimY={my(yokeTopY) - 14} label={dimText(design.cc)} arrowId={arrowId} fontSize={5.5} />
+          <DimensionHorizontal x1={mx(tankLeftMm)} x2={mx(tankRightMm)} featureY={my(0)} dimY={margin.top - 12} label={dimText(design.tankL)} arrowId={arrowId} />
+          <DimensionVertical y1={my(0)} y2={my(tankBotY)} featureX={mx(tankRightMm)} dimX={mx(tankRightMm) + 14} label={dimText(design.tankH)} arrowId={arrowId} />
+          <DimensionHorizontal x1={mx(limbXmm[0])} x2={mx(limbXmm[1])} featureY={my(yokeTopY)} dimY={my(yokeTopY) - 14} label={dimText(design.cc)} arrowId={arrowId} />
 
           {overhang > 0.5 && (
             <text x={box.w / 2} y={box.h - 16} textAnchor="middle" className="font-mono" fontSize={6} fill="var(--color-alert)">
