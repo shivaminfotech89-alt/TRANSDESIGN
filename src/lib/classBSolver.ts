@@ -74,6 +74,12 @@ interface EvalCtx {
   spec: { S: any; SUG: any; RNG: any };
 }
 
+/** etK, and flux/deltaLV/deltaHV together -- whatever the design already
+ *  resolves to, held fixed for the duration of a bisection so the lever
+ *  under test is the only thing moving. See solvePin's own comment for why
+ *  this now covers all four, not only etK. */
+interface PinnedBaseline { etK: number; flux: number; deltaLV: number; deltaHV: number; }
+
 interface LeverAdapter {
   leverLabel: string;
   leverUnit: string;
@@ -95,7 +101,7 @@ interface LeverAdapter {
    * conductor material), search it for the first option that actually
    * reaches the target, instead of a generic "try something else" hint.
    */
-  findAlternative?: (targetValue: number, wantLower: boolean, ctx: EvalCtx, pinnedEtK: number) => { name: string; achieved: number } | null;
+  findAlternative?: (targetValue: number, wantLower: boolean, ctx: EvalCtx, pinned: PinnedBaseline) => { name: string; achieved: number } | null;
 }
 
 const fluxFloor = (coreGrade: string) => (coreGrade === 'amor' ? 1.20 : 1.42); // SOLVER.md section 3
@@ -117,7 +123,7 @@ function searchCatalog(
   targetValue: number,
   adapter: LeverAdapter,
   core: any, baseOver: Record<string, any>, rates: any,
-  pinnedEtK: number,
+  pinned: PinnedBaseline,
 ): { name: string; achieved: number } | null {
   const sorted = [...entries].sort((a, b) => a.lossMetric - b.lossMetric);
   const idx = sorted.findIndex((e) => e.key === currentKey);
@@ -125,11 +131,16 @@ function searchCatalog(
   const sequence = wantLower ? sorted.slice(0, idx).reverse() : sorted.slice(idx + 1);
 
   for (const cand of sequence) {
-    // etK held at the same value solvePin() already pinned for the whole
-    // solve -- same reasoning, not re-discovered per candidate material
-    // (which would be up to 4-5 more full K searches on top of the one
-    // already avoided).
-    const candOver = { ...baseOver, ...buildOver(cand.key), etK: pinnedEtK };
+    // etK, flux and density held at the same values solvePin() already
+    // pinned for the whole solve -- same reasoning (see solvePin's own
+    // comment), not re-discovered per candidate material, which would be
+    // up to 4-5 more full K searches AND neighbourhood resolutions on top
+    // of the one already avoided. Whichever of these is this adapter's own
+    // lever gets overridden by applyOver's patch below regardless.
+    const candOver = {
+      ...baseOver, ...buildOver(cand.key),
+      etK: pinned.etK, flux: pinned.flux, deltaLV: pinned.deltaLV, deltaHV: pinned.deltaHV,
+    };
     const candSpec = deriveSpec(core, candOver);
     const candCtx: EvalCtx = { core, over: candOver, rates, spec: candSpec };
     const [lo, hi] = adapter.range(candCtx);
@@ -152,11 +163,11 @@ const LEVER_ADAPTERS: Record<string, LeverAdapter> = {
     context: ({ spec }) => CORE_GRADES[spec.S.coreGrade].name,
     suggestion: (hitLow) => (hitLow ? 'a lower-loss core grade' : 'a higher-loss, cheaper core grade'),
     applicable: () => true,
-    findAlternative: (targetValue, wantLower, ctx, pinnedEtK) => searchCatalog(
+    findAlternative: (targetValue, wantLower, ctx, pinned) => searchCatalog(
       Object.entries(CORE_GRADES).map(([key, g]: [string, any]) => ({ key, name: g.name, lossMetric: g.wRef })),
       ctx.spec.S.coreGrade, wantLower,
       (key) => ({ coreGrade: key }),
-      targetValue, LEVER_ADAPTERS.noLoadLoss, ctx.core, ctx.over, ctx.rates, pinnedEtK,
+      targetValue, LEVER_ADAPTERS.noLoadLoss, ctx.core, ctx.over, ctx.rates, pinned,
     ),
   },
   loadLoss: {
@@ -170,11 +181,11 @@ const LEVER_ADAPTERS: Record<string, LeverAdapter> = {
     context: ({ spec }) => CONDUCTORS[spec.S.condLV].name,
     suggestion: () => 'a different conductor material',
     applicable: () => true,
-    findAlternative: (targetValue, wantLower, ctx, pinnedEtK) => searchCatalog(
+    findAlternative: (targetValue, wantLower, ctx, pinned) => searchCatalog(
       Object.entries(CONDUCTORS).map(([key, c]: [string, any]) => ({ key, name: c.name, lossMetric: c.rho20 })),
       ctx.spec.S.condLV, wantLower,
       (key) => ({ condLV: key, condHV: key }),
-      targetValue, LEVER_ADAPTERS.loadLoss, ctx.core, ctx.over, ctx.rates, pinnedEtK,
+      targetValue, LEVER_ADAPTERS.loadLoss, ctx.core, ctx.over, ctx.rates, pinned,
     ),
   },
   coreDiameter: {
@@ -283,8 +294,36 @@ export function solvePin(target: ClassBTarget | string, targetValue: number, cor
   // office wants K re-optimised for cost, that is Fit to Budget's own job
   // (an explicit action), not a silent side effect of pinning a loss
   // figure.
-  const pinnedEtK = over.etK !== undefined ? over.etK : computeDesign(core, over, rates, []).params.etK;
-  const pinnedOver = { ...over, etK: pinnedEtK };
+  //
+  // packages/engine CALIBRATION.md section 51 reopened this from the other
+  // side: resolveDiscreteNeighbourhood now runs whenever etK is locked and
+  // flux or density is not (the same condition that makes computeDesign's
+  // own K search skip, section 39 -- pinning etK here trips it). Measured
+  // directly at ~1.2s a call once this file already pinned etK, so the
+  // same 44-step bisection this section fixed once at ~92s was back up
+  // around 53s -- unusable for the same reason, one order of magnitude
+  // improved but still a second uncontrolled, several-second channel
+  // underneath the lever, not just a speed problem. Fixed the same way:
+  // flux, deltaLV and deltaHV are pinned for the whole bisection too,
+  // read from the same single baseline computeDesign() call etK already
+  // needed (one call whenever ANY of the four is not already explicit in
+  // `over`, not four). Whichever of these four IS this adapter's own
+  // lever gets overridden by applyOver's patch on every evaluate() call
+  // regardless of what is pinned here, so pinning all four unconditionally
+  // is safe for every adapter, not only the three that do not touch
+  // flux/density directly. The final result below is deliberately left
+  // alone: it already omits these three from `over`, so whichever is not
+  // the lever gets exactly one real resolution pass -- "run one full
+  // resolution on the settled answer," not 44.
+  const needsBaseline = over.etK === undefined || over.flux === undefined
+    || over.deltaLV === undefined || over.deltaHV === undefined;
+  const baseline = needsBaseline ? computeDesign(core, over, rates, []) : null;
+  const pinnedEtK = over.etK !== undefined ? over.etK : baseline!.params.etK;
+  const pinnedFlux = over.flux !== undefined ? over.flux : baseline!.params.flux;
+  const pinnedDLV = over.deltaLV !== undefined ? over.deltaLV : baseline!.params.deltaLV;
+  const pinnedDHV = over.deltaHV !== undefined ? over.deltaHV : baseline!.params.deltaHV;
+  const pinned: PinnedBaseline = { etK: pinnedEtK, flux: pinnedFlux, deltaLV: pinnedDLV, deltaHV: pinnedDHV };
+  const pinnedOver = { ...over, etK: pinnedEtK, flux: pinnedFlux, deltaLV: pinnedDLV, deltaHV: pinnedDHV };
 
   const [lo, hi] = adapter.range(ctx);
   const evaluate = (leverValue: number) => {
@@ -297,7 +336,7 @@ export function solvePin(target: ClassBTarget | string, targetValue: number, cor
 
   if (bisected.reachable === false) {
     const hitLow = Math.abs(bisected.closest.leverValue - lo) < Math.abs(bisected.closest.leverValue - hi);
-    const alt = adapter.findAlternative?.(targetValue, hitLow, ctx, pinnedEtK) ?? null;
+    const alt = adapter.findAlternative?.(targetValue, hitLow, ctx, pinned) ?? null;
     const tail = adapter.findAlternative
       ? (alt
         ? `${alt.name} would reach ${fmt(targetValue)} ${adapter.targetUnit}.`
