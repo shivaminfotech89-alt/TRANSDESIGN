@@ -8,7 +8,7 @@
  * without bumping it, or old quotations stop reproducing.
  */
 
-export const ENGINE_VERSION = "1.24.0";
+export const ENGINE_VERSION = "1.25.0";
 
 const CONDUCTORS = {
   copper: { name: "Copper, EC grade", rho20: 0.017241, alpha: 0.00393, dens: 8890, dMax: 3.6, short: "Cu", proof: 1.0 },
@@ -1883,6 +1883,12 @@ function etkPoint(p, rates, k, over, fast = false) {
   return {
     etK: k, exFactory: bom.exFactory, feasible: zOk && thermalOk && shopLimitsOk && lossOk,
     converged: autoFitConverged !== false, cycleNote: autoFitCycleNote, fluxLimit: autoFitFluxLimit, fitted,
+    // CALIBRATION.md section 49: the same discrete-geometry signature
+    // fitToSchedule's own cycle detection uses (discreteGeometrySignature,
+    // defined below) -- one discrete winding configuration per signature,
+    // used by fitEtkToCost to find the plateau this K sits on rather than
+    // just the point itself.
+    signature: discreteGeometrySignature(d),
   };
 }
 
@@ -1927,6 +1933,94 @@ function etkCurve(p, rates, over = {}, range = ETK_RANGE) {
   return [...coarse, ...refined];
 }
 
+/* CALIBRATION.md section 49: the cost-vs-K curve is a staircase, not a
+   smooth function -- flat plateaus, one discrete winding configuration
+   each (numGroups/layers/lvRadCount/etc, the same fields
+   discreteGeometrySignature uses for fitToSchedule's own cycle
+   detection), separated by sharp transitions where a fractional-percent
+   change in K flips one of those quantities. A fixed grid either lands
+   inside the true minimum's plateau or misses it, and which happens is
+   luck: found directly at 630 kVA, the winning plateau is 0.015 wide
+   against ETK_RANGE's own 0.02 step, so only one grid point (0.46) fell
+   inside it -- a grid shifted by 0.01 would have missed it and reported
+   a different, more expensive plateau as the answer, with no way to
+   tell the difference from the result alone.
+
+   findPlateauEdge walks outward from a known point inside the plateau
+   (fastBest, the coarse+refine winner etkCurve already found) until the
+   signature changes, then bisects on THAT signature change -- not on
+   cost -- to locate the transition precisely. knownOutsideK, when
+   given, is a signature-different point etkCurve's own coarse+refine
+   scan already computed nearby, skipping the expansion search entirely
+   in the common case (the refine window is usually wider than one
+   plateau, so it usually already brackets the transition without any
+   extra evaluations). Falls back to expanding by doubling steps only
+   when nothing already computed brackets it. Every evaluation here is
+   the fast scan (CALIBRATION.md section 39) -- this only ever decides
+   where the plateau's edges are, never what gets reported for the
+   design built at its midpoint. */
+function findPlateauEdge(p, rates, over, insideK, insideSig, direction, rangeMin, rangeMax, knownOutsideK) {
+  let lastInside = insideK;
+  let outside = knownOutsideK !== undefined ? knownOutsideK : null;
+  if (outside === null) {
+    let step = 0.005;
+    for (let i = 0; i < 6 && outside === null; i++) {
+      const kTry = direction > 0 ? Math.min(rangeMax, lastInside + step) : Math.max(rangeMin, lastInside - step);
+      if (kTry === lastInside) break; // already at the range edge, no transition found
+      const pt = etkPoint(p, rates, kTry, over, true);
+      if (!pt || pt.signature !== insideSig) outside = kTry;
+      else { lastInside = kTry; step *= 2; }
+    }
+  }
+  if (outside === null) return lastInside; // plateau runs to the range edge
+  // 6 iterations from even the widest realistic starting bracket (the
+  // full 0.30-wide ETK_RANGE) still resolves the boundary to ~0.005 --
+  // finer than a K value has any practical meaning at, and the starting
+  // bracket is usually the gap between two adjacent already-computed
+  // curve points (much narrower than the full range), so real precision
+  // is typically well under 0.001.
+  let lo = lastInside, hi = outside;
+  for (let iter = 0; iter < 6; iter++) {
+    const mid = (lo + hi) / 2;
+    const pt = etkPoint(p, rates, mid, over, true);
+    if (pt && pt.signature === insideSig) lo = mid; else hi = mid;
+  }
+  return lo; // the last K confirmed still on the same plateau
+}
+
+/* Locates fastBest's own plateau (findPlateauEdge, both directions --
+   knownOutsideK is scavenged from etkCurve's own already-computed points
+   first, so the common case needs no extra expansion evaluations) and
+   re-fits at the midpoint, not at fastBest.etK itself: a design built
+   at the grid point that happened to sample the plateau is still sitting
+   whereever that grid point landed, which can be right at an edge (the
+   630 kVA case that prompted this: K=0.46 sits near the top of a
+   0.445-0.460 plateau) -- a small change elsewhere in the design can
+   tip an edge point onto a different, worse plateau. The midpoint
+   cannot, by the definition of what a plateau is. Verifies the midpoint
+   actually lands back on fastBest's own signature and stays feasible
+   before accepting it (continuous checks -- shop limits, impedance --
+   are not guaranteed constant across a signature-plateau even though
+   the discrete configuration is); falls back to fastBest's own point,
+   precisely refit, if not. */
+function pickPlateauMidpoint(p, rates, over, curve, fastBest, rangeMin, rangeMax) {
+  const nearestOutside = (dir) => curve
+    .filter((pt) => pt && (dir > 0 ? pt.etK > fastBest.etK : pt.etK < fastBest.etK) && pt.signature !== fastBest.signature)
+    .reduce((closest, pt) => (!closest || Math.abs(pt.etK - fastBest.etK) < Math.abs(closest.etK - fastBest.etK) ? pt : closest), null);
+  const outsideLo = nearestOutside(-1)?.etK, outsideHi = nearestOutside(1)?.etK;
+  const lo = findPlateauEdge(p, rates, over, fastBest.etK, fastBest.signature, -1, rangeMin, rangeMax, outsideLo);
+  const hi = findPlateauEdge(p, rates, over, fastBest.etK, fastBest.signature, 1, rangeMin, rangeMax, outsideHi);
+  const mid = Math.round(((lo + hi) / 2) * 1000) / 1000;
+  const fallback = () => etkPoint(p, rates, fastBest.etK, over, false) || fastBest;
+  let best = etkPoint(p, rates, mid, over, false);
+  // Only require the midpoint to be feasible if fastBest itself was --
+  // the non-compliant fallback path this also serves is deliberately
+  // choosing the cheapest point regardless of compliance, and must not
+  // be made stricter than the point it started from.
+  if (!best || best.signature !== fastBest.signature || (fastBest.feasible && !best.feasible)) best = fallback();
+  return { best, lo, hi };
+}
+
 /* Raises the AUTO etK from deriveSpec's fixed per-application multiplier
    (CALIBRATION.md section 2's "not adopted as a constant") to whatever this
    project's own rates put at the bottom of etkCurve. Mirrors fitToSchedule's
@@ -1959,19 +2053,26 @@ function fitEtkToCost(p, over = {}, rates = DEFAULT_RATES) {
   if (over.etK !== undefined) return {};
   const curve = etkCurve(p, rates, over);
   if (!curve.length) return {};
+  const rangeMin = ETK_RANGE[0], rangeMax = ETK_RANGE[ETK_RANGE.length - 1];
   const pool = curve.filter((pt) => pt.feasible);
   if (pool.length) {
     const fastBest = pool.reduce((a, b) => (b.exFactory < a.exFactory ? b : a));
-    // CALIBRATION.md section 39: the curve's own points are all fast scans
-    // (ranking only) -- re-fit the actual winner at full precision before
-    // returning anything, so what gets reported and built is never the
-    // loose-tolerance number that merely won the ranking pass.
-    const best = etkPoint(p, rates, fastBest.etK, over, false) || fastBest;
-    return { etK: best.etK, ...best.fitted, etkFitConverged: best.converged, etkFitCycleNote: best.cycleNote, etkFitFluxLimit: best.fluxLimit };
+    // CALIBRATION.md section 49: fastBest is a grid point, not the answer
+    // -- it is wherever the coarse+refine scan happened to sample inside
+    // the true minimum's own plateau, which can be its edge. Re-fit at
+    // the plateau's own midpoint at full precision instead, so what gets
+    // reported and built does not depend on which grid point the sweep
+    // happened to land on.
+    const { best, lo, hi } = pickPlateauMidpoint(p, rates, over, curve, fastBest, rangeMin, rangeMax);
+    return {
+      etK: best.etK, ...best.fitted, etkFitConverged: best.converged,
+      etkFitCycleNote: best.cycleNote, etkFitFluxLimit: best.fluxLimit,
+      etkPlateauLo: lo, etkPlateauHi: hi,
+    };
   }
 
   const fastBest = curve.reduce((a, b) => (b.exFactory < a.exFactory ? b : a));
-  const best = etkPoint(p, rates, fastBest.etK, over, false) || fastBest;
+  const { best, lo, hi } = pickPlateauMidpoint(p, rates, over, curve, fastBest, rangeMin, rangeMax);
   const d = designTransformer({ ...p, etK: best.etK, ...best.fitted });
   const zOk = Math.abs(d.pctZ - p.targetZ) / p.targetZ <= p.zTol / 100;
   const missed = [];
@@ -1992,6 +2093,7 @@ function fitEtkToCost(p, over = {}, rates = DEFAULT_RATES) {
     etkFitConverged: best.converged,
     etkFitCycleNote: best.cycleNote,
     etkFitFluxLimit: best.fluxLimit,
+    etkPlateauLo: lo, etkPlateauHi: hi,
     etkNonCompliant: true,
     etkSearchNote: `No K from ${ETK_RANGE[0]} to ${ETK_RANGE[ETK_RANGE.length - 1]} keeps this design within every declared limit at ${p.kva} kVA. `
       + `Built at the cheapest point on the curve, K = ${best.etK}, ${inr(best.exFactory)} ex-works, rather than the fixed AUTO suggestion -- `
@@ -3135,7 +3237,7 @@ export function computeDesign(core, over = {}, rates = DEFAULT_RATES, extras = [
   // AUTO, not locked) -- undefined otherwise, in which case the original
   // autoFitConverged is the right, and only, answer. etkFitCycleNote/
   // etkFitFluxLimit supersede the base pair the same way, for the same reason.
-  const { etkSearchNote, etkNonCompliant, etkFitConverged, etkFitCycleNote, etkFitFluxLimit, ...etkOverride } = fitEtkToCost(p0, over, rates);
+  const { etkSearchNote, etkNonCompliant, etkFitConverged, etkFitCycleNote, etkFitFluxLimit, etkPlateauLo, etkPlateauHi, ...etkOverride } = fitEtkToCost(p0, over, rates);
   const fittedAll = { ...fitted, ...etkOverride };
   const p = { ...p0, ...etkOverride };
   const design = designTransformer(p);
@@ -3145,6 +3247,11 @@ export function computeDesign(core, over = {}, rates = DEFAULT_RATES, extras = [
   const finalFluxLimit = etkFitConverged !== undefined ? etkFitFluxLimit : autoFitFluxLimit;
   return {
     spec, params: p, fitted: fittedAll, design, bom, engineVersion: ENGINE_VERSION, etkSearchNote,
+    // CALIBRATION.md section 49: the plateau K itself sits inside, as a
+    // range -- undefined when etK was locked (fitEtkToCost never ran) or
+    // for a design with no autoFit at all, same conditionality as
+    // etkFitConverged above.
+    etkPlateauLo, etkPlateauHi,
     etkNonCompliant: !!etkNonCompliant, autoFitConverged: finalConverged !== false,
     autoFitCycleNote: finalCycleNote, autoFitFluxLimit: finalFluxLimit,
   };
