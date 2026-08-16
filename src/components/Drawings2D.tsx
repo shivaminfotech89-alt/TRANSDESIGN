@@ -552,16 +552,28 @@ export function StampingSchedule({ design, params, project }: Drawings2DProps) {
         </p>
         <p className="text-[10px] text-steel mb-3">
           Flat 90 degree cuts, no mitre -- both plates are rectangles, the same length across their own full
-          width, not a tapered trapezoid (CALIBRATION.md section 54). No reference chart exists for this
-          construction; the length is derived from Construction A's own already-validated mitre relationship
-          with the taper removed, not fitted or invented.
+          width, not a tapered trapezoid. No reference chart exists for this construction; length is derived
+          from Construction A's own already-validated mitre relationship (CALIBRATION.md section 55), not
+          fitted or invented.
         </p>
         <p className="text-[10px] text-steel mb-3">
-          {staggered
-            ? `Joints staggered ${params.stackingOffset ?? 10} mm between successive layers (designer-specified, not charted).`
-            : 'Joints continuous -- no offset between successive layers.'} Stacking changes where the joint
-          falls, not the mass below (confirmed directly, CALIBRATION.md section 54) -- it is not known
-          whether it changes no-load loss, which this engine does not model either way.
+          {staggered ? (
+            <>
+              Joints staggered {params.stackingOffset ?? 10} mm between successive layers (designer-specified,
+              not charted). Each plate is cut at Construction A's own mitred MEAN length, relying on the
+              offset between layers -- not this plate's own geometry -- to close the gap a flat cut would
+              otherwise leave (CALIBRATION.md section 55). Prices within about 2 percent of Construction A on
+              this basis, not 31 percent above it.
+            </>
+          ) : (
+            <>
+              Joints continuous -- no offset between successive layers, so no neighbouring layer exists to
+              close a gap. Each plate is cut to the farthest point the corner ever reaches instead, the
+              conservative bound (CALIBRATION.md section 55) -- about 31 percent more core steel than
+              Construction A for the same core.
+            </>
+          )} Neither figure is validated against a real diamond-cut chart. It is not known whether stacking
+          changes no-load loss, which this engine does not model either way.
         </p>
         {plateTable(sched.rows, 'Limb -- Three Limbs, Flat Cut', 'limb', sched.totalLimb)}
         {plateTable(sched.rows, 'Yoke -- Top and Bottom, Flat Cut', 'yoke', sched.totalYoke)}
@@ -809,13 +821,24 @@ export function CoreCuttingChart({ design, params, project }: Drawings2DProps) {
         </>
       ) : isC ? (
         <>
-          {plateTable(chart.rows, 'Limb -- Three Limbs, Flat Cut', 'limb', chart.totalLimb, 'Flat 90 degree cuts -- no mitre taper, see drawing 21 for the derivation.')}
+          {plateTable(
+            chart.rows, 'Limb -- Three Limbs, Flat Cut', 'limb', chart.totalLimb,
+            staggered
+              ? "Length is Construction A's own mitred mean (2w) -- the offset between staggered layers closes the gap a lone flat plate would leave, not this plate's own geometry."
+              : "Length is Construction A's own mitred long edge, undone of its taper -- with no offset between layers, this plate must avoid a gap on its own, the conservative bound.",
+          )}
           {plateTable(
             chart.rows, 'Yoke -- Top and Bottom, Flat Cut', 'yoke', chart.totalYoke,
             staggered
-              ? `Every layer's joint offset ${params.stackingOffset ?? 10} mm from the last (designer-specified, not charted). Offset does not change the mass shown.`
+              ? `Every layer's joint offset ${params.stackingOffset ?? 10} mm from the last (designer-specified, not charted).`
               : 'Continuous -- no offset between successive layers.',
           )}
+          <p className="text-[10px] text-steel mb-3">
+            {staggered
+              ? 'Staggered Construction C prices within about 2 percent of Construction A on this basis, not the 31 percent above it a self-sufficient (continuous) plate would need.'
+              : 'Continuous Construction C runs about 31 percent above Construction A on this basis -- select staggered stacking if that is not the intended build.'} Neither figure is validated against a
+            real diamond-cut chart (CALIBRATION.md section 55).
+          </p>
         </>
       ) : (
         <>
@@ -858,8 +881,10 @@ export function CoreCuttingChart({ design, params, project }: Drawings2DProps) {
         </>
       )}
       <p className="text-[10px] text-steel mb-3">
-        Stacking changes where each layer's joint falls, not the mass above (confirmed directly, CALIBRATION.md
-        section 54). Whether it changes no-load loss is an open question this engine does not model either way --
+        {isC
+          ? 'For this flat-cut construction, stacking changes the mass above: a staggered plate relies on the offset to close its own gap and can be cut shorter; a continuous plate has no neighbouring layer to rely on and must avoid the gap on its own (CALIBRATION.md section 55).'
+          : 'Stacking changes where each layer\'s joint falls, not the mass above (confirmed directly, CALIBRATION.md section 54) -- every mitred plate here is already self-sufficient against a gap by the mitre alone.'}
+        {' '}Whether it changes no-load loss is an open question this engine does not model either way --
         see section 54's own note on the manufacturer questions this raises.
       </p>
 
