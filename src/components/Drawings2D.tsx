@@ -20,6 +20,24 @@ export interface Drawings2DProps {
   project: any;
 }
 
+/** Two genuinely different "construction" axes exist on a core, and a
+ *  drawing that only shows one of them under the plain label "Construction"
+ *  reads as though the other never changed anything -- confirmed directly:
+ *  selecting Construction B left drawing 6's own "Construction" field
+ *  reading "stepLap" (params.coreType, the whole-core fabrication method,
+ *  step-lap laminated versus amorphous wound) unchanged, because that
+ *  field was never about plate cutting pattern in the first place.
+ *  PLATE_CONSTRUCTION_LABEL is the OTHER axis, always shown under its own
+ *  name, in plain words rather than the raw "A"/"B" the engine uses
+ *  internally -- a reader of a drawing should not need to know the
+ *  engine's own option keys to know what was selected. */
+const PLATE_CONSTRUCTION_LABEL: Record<string, string> = {
+  A: 'Step-lap mitred plates',
+  B: 'V-notch mitred plates',
+};
+const plateConstructionLabel = (coreConstruction: string) =>
+  PLATE_CONSTRUCTION_LABEL[coreConstruction] || coreConstruction;
+
 /**
  * DRAWINGS.md, "Start with the universal requirements" -- this file applies
  * the three universal pieces (DrawingPrimitives.tsx: dimension lines, the
@@ -92,7 +110,8 @@ export function CoreDrawing({ design, params, project }: Drawings2DProps) {
           <UnitsNote x={6} y={box.h - 6} />
         </svg>
         <div className="flex-1 min-w-0 space-y-1">
-          <DataRow label="Construction" value={params.coreType} />
+          <DataRow label="Core Type" value={params.coreType} />
+          <DataRow label="Plate Construction" value={plateConstructionLabel(params.coreConstruction)} />
           <DataRow label="Steps" value={String(params.steps)} />
           <DataRow label="Grade" value={design.grade.name} />
           <DataRow label="Net Core Area" value={design.aNet.toFixed(1)} unit="cm²" />
@@ -209,6 +228,11 @@ export function CoreCrossSection({ design, params, project }: Drawings2DProps) {
           </table>
           <DataRow label="Core Diameter" value={design.dCore.toFixed(1)} unit="mm" />
           <DataRow label="Utilisation Factor" value={(steps.util * 100).toFixed(2)} unit="%" />
+          <DataRow label="Plate Construction" value={plateConstructionLabel(params.coreConstruction)} />
+          <p className="text-[10px] text-steel leading-snug">
+            The stepped cross-section itself does not change between plate constructions -- the cutting pattern
+            affects the limb and yoke plates' own edges, not the stepped-circle shape every construction shares.
+          </p>
         </div>
       </div>
       <TitleBlock
@@ -253,10 +277,11 @@ export function StampingSchedule({ design, params, project }: Drawings2DProps) {
     return (
       <Card
         title="Core Stamping Schedule"
-        subtitle={`Drawing ${drawingNo(project, '21')} · ${sched.thk} mm lamination · Construction B`}
+        subtitle={`Drawing ${drawingNo(project, '21')} · ${sched.thk} mm lamination · ${plateConstructionLabel(params.coreConstruction)}`}
       >
         <table className="w-full max-w-md mb-3">
           <tbody>
+            <DataRow label="Plate Construction" value={plateConstructionLabel(params.coreConstruction)} />
             <DataRow label="No-load loss" value={design.noLoad.toFixed(0)} unit="W" />
             <DataRow label="Rating" value={ratingLabel(params)} />
             <DataRow label="Flux density" value={design.B.toFixed(3)} unit="T" />
@@ -356,6 +381,11 @@ export function StampingSchedule({ design, params, project }: Drawings2DProps) {
         />
         <UnitsNote x={6} y={box.h - 4} />
       </svg>
+      <table className="w-full max-w-xs mt-2">
+        <tbody>
+          <DataRow label="Plate Construction" value={plateConstructionLabel(params.coreConstruction)} />
+        </tbody>
+      </table>
       <p className="text-[10px] text-steel mt-1">
         Centre limb V notch shown schematically on the yoke's inner edge -- its profile is not held by the engine.
       </p>
@@ -468,10 +498,11 @@ export function CoreCuttingChart({ design, params, project }: Drawings2DProps) {
   return (
     <Card
       title="Core Cutting Chart"
-      subtitle={`Drawing ${drawingNo(project, '22')} · ${chart.thk} mm lamination · Construction ${chart.construction}`}
+      subtitle={`Drawing ${drawingNo(project, '22')} · ${chart.thk} mm lamination · ${plateConstructionLabel(params.coreConstruction)}`}
     >
       <table className="w-full max-w-md mb-3">
         <tbody>
+          <DataRow label="Plate Construction" value={plateConstructionLabel(params.coreConstruction)} />
           <DataRow label="No-load loss" value={design.noLoad.toFixed(0)} unit="W" />
           <DataRow label="Rating" value={ratingLabel(params)} />
           <DataRow label="Flux density" value={design.B.toFixed(3)} unit="T" />
