@@ -3245,6 +3245,14 @@ export function computeDesign(core, over = {}, rates = DEFAULT_RATES, extras = [
   const finalConverged = etkFitConverged !== undefined ? etkFitConverged : autoFitConverged;
   const finalCycleNote = etkFitConverged !== undefined ? etkFitCycleNote : autoFitCycleNote;
   const finalFluxLimit = etkFitConverged !== undefined ? etkFitFluxLimit : autoFitFluxLimit;
+  // CALIBRATION.md section 50: only meaningful when something was actually
+  // auto-fit -- a design with both flux and density locked, or autoFit off
+  // entirely, was never at risk of landing near a boundary by chance.
+  const lockF = over.flux !== undefined;
+  const lockD = over.deltaLV !== undefined || over.deltaHV !== undefined;
+  const stability = p.autoFit && !(lockF && lockD)
+    ? checkFitStability(p, design, bom, rates, lockF, lockD)
+    : { fitStable: true };
   return {
     spec, params: p, fitted: fittedAll, design, bom, engineVersion: ENGINE_VERSION, etkSearchNote,
     // CALIBRATION.md section 49: the plateau K itself sits inside, as a
@@ -3254,6 +3262,13 @@ export function computeDesign(core, over = {}, rates = DEFAULT_RATES, extras = [
     etkPlateauLo, etkPlateauHi,
     etkNonCompliant: !!etkNonCompliant, autoFitConverged: finalConverged !== false,
     autoFitCycleNote: finalCycleNote, autoFitFluxLimit: finalFluxLimit,
+    // CALIBRATION.md section 50: fitStable defaults true (nothing found
+    // nearby, or nothing to probe) -- absent-reads-as-fine, the same
+    // convention as autoFitConverged above.
+    fitStable: stability.fitStable !== false, fitInstabilityNote: stability.fitInstabilityNote,
+    fitAlternateExFactory: stability.fitAlternateExFactory, fitAlternateSignature: stability.fitAlternateSignature,
+    fitAlternateAxis: stability.fitAlternateAxis, fitAlternateDelta: stability.fitAlternateDelta,
+    fitAlternateCompliant: stability.fitAlternateCompliant,
   };
 }
 
@@ -3355,6 +3370,78 @@ function describeFitCycle(cycle, S) {
       + `Chose ${stateDesc(cycle.chosen)}, the compliant option closest to the ${Math.round(target)} W margin target.`
     : `Load loss fit was cycling between discrete winding configurations without settling: ${list}. `
       + `Neither meets the ${Math.round(cycle.chosen.best.t.sch.ll)} W schedule limit -- returning the closer of the two, ${stateDesc(cycle.chosen)}.`;
+}
+
+/* CALIBRATION.md section 50: autoFitCycleNote (above) only reports a
+   boundary when the fit's OWN damped iteration happened to visibly cross it
+   -- a trajectory that converges cleanly on its first pass never triggers
+   resolveFitCycle at all, even when the point it settled on sits a
+   fraction of a percent from a different, equally real winding
+   configuration. Checked directly (a starting-point sweep at 630 and 1000
+   kVA, reported alongside this fix): the final discrete state, and so the
+   price, can depend on where the fit happened to start, not only on the
+   enquiry -- a >9% ex-works swing at 630 kVA across a realistic spread of
+   starting points, with no other input changed.
+
+   This probes the CONVERGED point's own immediate neighbourhood directly
+   (designTransformer only, never a re-fit -- this asks "is the point I
+   already have fragile", not "search for a better one") and reports the
+   nearest opposite-signature point found, with its own price, so the
+   uncertainty a single quoted price hides is visible. Distinct from
+   autoFitCycleNote: that says a boundary was crossed and which side was
+   chosen; this says the chosen side, crossed or not, is this close to the
+   other one. Both can fire together, and did in every case checked so
+   far -- a state resolveFitCycle had to arbitrate between is, unsurprisingly,
+   also a state sitting right at a boundary. */
+const FIT_STABILITY_DENSITY_STEPS = [0.005, 0.01, 0.015, 0.02, 0.025, 0.03];
+const FIT_STABILITY_FLUX_STEPS = [0.005, 0.01, 0.015, 0.02];
+
+function describeSignatureDiff(sigA, sigB) {
+  const a = sigA.split("|"), b = sigB.split("|");
+  return FIT_CYCLE_FIELDS.map((f, i) => (a[i] !== b[i] ? `${f} ${a[i]} vs ${b[i]}` : null)).filter(Boolean).join(", ");
+}
+
+function checkFitStability(p, design, bom, rates, lockF, lockD) {
+  const baseSig = discreteGeometrySignature(design);
+  const bMax = CORE_GRADES[p.coreGrade].bMax - 0.02;
+  const bMin = p.coreGrade === "amor" ? 1.20 : 1.42;
+  const axes = [];
+  if (!lockD) {
+    axes.push(["deltaLV", FIT_STABILITY_DENSITY_STEPS, 0.5, CONDUCTORS[p.condLV].dMax]);
+    axes.push(["deltaHV", FIT_STABILITY_DENSITY_STEPS, 0.5, CONDUCTORS[p.condHV].dMax]);
+  }
+  if (!lockF) axes.push(["flux", FIT_STABILITY_FLUX_STEPS, bMin, bMax]);
+  let nearest = null;
+  for (const [axis, steps, lo, hi] of axes) {
+    for (const dir of [1, -1]) {
+      for (const step of steps) {
+        const val = p[axis] + dir * step;
+        if (val < lo || val > hi) break;
+        const d = designTransformer({ ...p, [axis]: val });
+        const sig = discreteGeometrySignature(d);
+        if (sig !== baseSig) {
+          if (!nearest || step < nearest.step) nearest = { axis, dir, step, sig, d };
+          break;
+        }
+      }
+    }
+  }
+  if (!nearest) return { fitStable: true };
+  const altBom = buildBOM(nearest.d, rates);
+  const unit = nearest.axis === "flux" ? "T" : "A/mm²";
+  const altCompliant = nearest.d.compliance.ll.ok && nearest.d.compliance.nll.ok;
+  return {
+    fitStable: false,
+    fitInstabilityNote: `This fit sits only ${nearest.step.toFixed(3)} ${unit} of ${nearest.axis} from a different, `
+      + `real winding configuration (${describeSignatureDiff(baseSig, nearest.sig)}), priced at ${inr(altBom.exFactory)} `
+      + `ex-works against ${inr(bom.exFactory)} here` + (altCompliant ? "" : " -- though that alternate does not itself meet the declared loss limits")
+      + `. A change this small in the enquiry, the rate card, or simply where the fit starts from can move the design between the two.`,
+    fitAlternateExFactory: altBom.exFactory,
+    fitAlternateSignature: nearest.sig,
+    fitAlternateAxis: nearest.axis,
+    fitAlternateDelta: nearest.dir * nearest.step,
+    fitAlternateCompliant: altCompliant,
+  };
 }
 
 export function fitToSchedule(S, over = {}, maxIters = FIT_MAX_ITERS, tol = FIT_CONVERGE_TOL) {

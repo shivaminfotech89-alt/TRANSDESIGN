@@ -579,6 +579,30 @@ console.log("\nwCoreAssembled: purchased vs assembled core mass, and the K-searc
   eq("Construction B's own optimal etK now matches Construction A's at the same design", rB.params.etK, rA2.params.etK);
 }
 
+console.log("\nfit stability: a converged fit that still sits at a discrete boundary is reported, not silent (CALIBRATION.md section 50)");
+{
+  // 630 and 1000 kVA are known unstable at this rate card -- a starting-
+  // point sweep (reported alongside this fix) found a >9% ex-works swing
+  // at 630 kVA purely from where the density fit started, nothing else
+  // changed. Both must be flagged, with a real, buildable alternate design
+  // and its own price, not just a boolean.
+  for (const kva of [630, 1000]) {
+    const r630 = E.computeDesign({ ...E.ESSENTIALS, kva }, { coreConstruction: "A" }, E.DEFAULT_RATES, []);
+    if (r630.fitStable) { failures++; console.log(`  FAIL ${kva} kVA: expected fitStable=false (known boundary case), got true`); }
+    else if (typeof r630.fitAlternateExFactory !== "number" || !r630.fitInstabilityNote) {
+      failures++; console.log(`  FAIL ${kva} kVA: fitStable=false but missing fitAlternateExFactory/fitInstabilityNote`);
+    } else console.log(`  ok   ${kva} kVA flagged unstable, alternate ${E.inr(r630.fitAlternateExFactory)} ex-works against ${E.inr(r630.bom.exFactory)} here`);
+  }
+  // 1250 kVA is the known-stable control -- a wide, flat plateau with no
+  // cycle and no nearby boundary within the probed range.
+  const r1250 = E.computeDesign({ ...E.ESSENTIALS, kva: 1250 }, { coreConstruction: "A" }, E.DEFAULT_RATES, []);
+  eq("1250 kVA reports stable (known wide, flat plateau)", r1250.fitStable, true);
+
+  // Both flux and density locked: nothing was auto-fit, so nothing to probe.
+  const rLocked = E.computeDesign(E.ESSENTIALS, { flux: 1.65, deltaLV: 2.2, deltaHV: 2.2 }, E.DEFAULT_RATES, []);
+  eq("fully locked flux/density reports stable (nothing was auto-fit)", rLocked.fitStable, true);
+}
+
 console.log("\nstaged search finds close to the same minimum as the full grid, at a fraction of the candidates");
 // CALIBRATION.md section 27. Deliberately NOT run at BudgetTab's own full
 // scale -- this project runs test:engine before and after every engine
