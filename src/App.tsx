@@ -221,8 +221,12 @@ export default function App() {
     // ProjectBar already disables the button for this; guarded again here so
     // no future caller can save core/over while a different price (the
     // preview's, or a viewed/locked revision's) sits on screen -- see
-    // previewActive's doc comment.
-    if (!user || budgetPreview || viewingRevision || (liveRevisionLocked && !overrideLock)) return;
+    // previewActive's doc comment. isProvisional guards the same thing one
+    // section later: saving while the design has not settled would freeze
+    // summary/engineVersion off a structurally-frozen, not-yet-reoptimised
+    // fast result -- exactly the mid-drag figure this session's own request
+    // said nobody should quote from.
+    if (!user || budgetPreview || viewingRevision || (liveRevisionLocked && !overrideLock) || isProvisional) return;
     setSavingProject(true);
     try {
       let projectId = currentProjectId;
@@ -245,8 +249,8 @@ export default function App() {
         // priced this quotation.
         rateSnapshot: effectiveRates,
         rateSources,
-        engineVersion: result.engineVersion,
-        summary: summarise(core, result.design, result.bom),
+        engineVersion: settledResult.engineVersion,
+        summary: summarise(core, settledResult.design, settledResult.bom),
         note: copiedFromRev != null ? `Copied forward from rev ${copiedFromRev}` : '',
       });
       setProjectCurrentRevision(newRev);
@@ -261,7 +265,7 @@ export default function App() {
   };
 
   const handleSaveAsCopy = async () => {
-    if (!user || !currentProjectId || budgetPreview || viewingRevision || readOnlyLive) return;
+    if (!user || !currentProjectId || budgetPreview || viewingRevision || readOnlyLive || isProvisional) return;
     setSavingProject(true);
     try {
       const newName = `${projectName} (Copy)`;
@@ -274,8 +278,8 @@ export default function App() {
         rateCardId,
         rateSnapshot: effectiveRates,
         rateSources,
-        engineVersion: result.engineVersion,
-        summary: summarise(core, result.design, result.bom),
+        engineVersion: settledResult.engineVersion,
+        summary: summarise(core, settledResult.design, settledResult.bom),
         note: `Copied from ${projectName}`,
       });
       setProjectName(newName);
@@ -501,19 +505,104 @@ export default function App() {
   // core diameter changes the window, which changes load loss. solveAllPins
   // re-solves in registration order until every pin's achieved value stops
   // moving, or gives up after 5 passes and says which pins are still
-  // fighting rather than presenting an unsettled pass as final.
-  const { result, solveResults, solveConverged, solveFighting } = useMemo(() => {
+  // fighting rather than presenting an unsettled pass as final. Cheap --
+  // computeDesign is not called here -- so this can stay live on every tick.
+  const solved = useMemo(
+    () => solveAllPins(pins, core, over, effectiveRates as any),
     // packages/engine is plain JS; TS infers DEFAULT_RATES's exact literal shape
     // from its default parameter, which is stricter than the editable Record<string,
     // number> this state actually needs to be. Cast at this one boundary rather
     // than propagating that accidental strictness through the app.
-    const solved = solveAllPins(pins, core, over, effectiveRates as any);
-    const result = computeDesign(core, solved.effectiveOver, effectiveRates as any, []);
-    return {
-      result, solveResults: solved.results,
-      solveConverged: solved.converged, solveFighting: solved.fighting,
-    };
-  }, [core, over, effectiveRates, pins]);
+    [pins, core, over, effectiveRates],
+  );
+
+  // The last FULLY settled computeDesign -- fitEtkToCost's own K-plateau
+  // search (CALIBRATION.md section 49) and resolveDiscreteNeighbourhood's
+  // density resolution (section 51), several seconds together -- plus
+  // exactly which inputs produced it. Comparing those inputs against
+  // solved.effectiveOver/core/effectiveRates below is how the app knows
+  // whether what is on screen has caught up or is still provisional.
+  const [settled, setSettled] = useState<{
+    result: any; core: any; over: Record<string, any>; rates: Record<string, number>;
+  } | null>(null);
+  const settleWorkerRef = useRef<Worker | null>(null);
+  const settleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => () => {
+    if (settleTimerRef.current) clearTimeout(settleTimerRef.current);
+    settleWorkerRef.current?.terminate();
+  }, []);
+
+  // Debounced settle: 300ms of no further change to core/over/rates/pins,
+  // same burst-quiet signal the Design Impact Summary already used before
+  // this section, then the real computeDesign runs once, in a worker so a
+  // multi-second solve can never freeze the tab (src/workers/designWorker.ts,
+  // same pattern as the Fit to Budget search's own searchWorker.ts). A new
+  // edit before that fires cancels the pending settle and restarts the
+  // countdown -- only the design at rest ever reaches the worker.
+  useEffect(() => {
+    if (settleTimerRef.current) clearTimeout(settleTimerRef.current);
+    settleTimerRef.current = setTimeout(() => {
+      settleWorkerRef.current?.terminate();
+      const requestCore = core, requestOver = solved.effectiveOver, requestRates = effectiveRates as any;
+      const worker = new Worker(new URL('./workers/designWorker.ts', import.meta.url), { type: 'module' });
+      settleWorkerRef.current = worker;
+      worker.onmessage = (e: MessageEvent) => {
+        if (e.data?.type === 'done') {
+          setSettled({ result: e.data.result, core: requestCore, over: requestOver, rates: requestRates });
+        }
+        worker.terminate();
+        if (settleWorkerRef.current === worker) settleWorkerRef.current = null;
+      };
+      worker.onerror = () => {
+        worker.terminate();
+        if (settleWorkerRef.current === worker) settleWorkerRef.current = null;
+      };
+      worker.postMessage({ type: 'compute', core: requestCore, over: requestOver, rates: requestRates, extras: [] });
+    }, 300);
+    return () => { if (settleTimerRef.current) clearTimeout(settleTimerRef.current); };
+  }, [core, solved.effectiveOver, effectiveRates]);
+
+  // Fast path: freezes whichever structural choices (etK, and flux/density
+  // together) the last SETTLED design already resolved, for any dimension
+  // the user is not directly pinning right now -- so this computeDesign
+  // call never re-enters the K-plateau search or the neighbourhood
+  // resolution (both several seconds), only designTransformer/buildBOM on
+  // whatever the user IS actively changing. Runs on every render, same as
+  // `result` did before this section; only what it computes changed.
+  const fastOver = useMemo(() => {
+    if (!settled) return solved.effectiveOver;
+    const freeze: Record<string, any> = {};
+    if (solved.effectiveOver.etK === undefined) freeze.etK = settled.result.params.etK;
+    if (solved.effectiveOver.flux === undefined) freeze.flux = settled.result.params.flux;
+    if (solved.effectiveOver.deltaLV === undefined && solved.effectiveOver.deltaHV === undefined) {
+      freeze.deltaLV = settled.result.params.deltaLV;
+      freeze.deltaHV = settled.result.params.deltaHV;
+    }
+    return { ...solved.effectiveOver, ...freeze };
+  }, [solved, settled]);
+
+  const result = useMemo(
+    () => computeDesign(core, fastOver, effectiveRates as any, []),
+    [core, fastOver, effectiveRates],
+  );
+  const solveResults = solved.results, solveConverged = solved.converged, solveFighting = solved.fighting;
+
+  // Provisional: the on-screen (fast) result is built from a structural
+  // freeze taken from a settle that used different inputs than today's --
+  // either none has completed yet, or an edit landed since the last one
+  // did. Reference equality is enough: solved.effectiveOver/core/
+  // effectiveRates only get a new identity when solveAllPins/resolveRates
+  // actually recompute, the same assumption every useMemo above already
+  // relies on.
+  const isProvisional = !settled
+    || settled.core !== core || settled.over !== solved.effectiveOver || settled.rates !== effectiveRates;
+  // The authoritative result to use anywhere a number gets persisted or
+  // compared against precisely (saving a revision, the Design Impact
+  // Summary, a budget search's own "against the current design" baseline)
+  // -- never the fast, possibly structurally-frozen one. Falls back to the
+  // fast result only before the very first settle of a session has landed.
+  const settledResult = settled?.result ?? result;
 
   // Read-only overlay for a browsed revision: recomputed only from that
   // revision's own frozen input/rateSnapshot, exactly as saveRevision froze
@@ -591,13 +680,15 @@ export default function App() {
   // compliance, money); buildSummary adds what only the app knows (what was
   // edited, which lever the solver moved and why, what else moved).
   //
-  // `result` itself is never debounced -- the useMemo above recomputes on
-  // every tick so the rating plate and results track the slider live. Only
-  // the summary's own build+display is debounced: `anchor` holds the result
-  // from before the current burst of edits started, fixed for the whole
-  // burst, and the actual summary is built once 300ms passes with no further
-  // change, comparing anchor -> the result at rest, described by whichever
-  // action was most recent.
+  // Built off the SETTLED result, never the fast one -- a description of
+  // "what moved" is only true once the K-plateau search and neighbourhood
+  // density resolution have actually run for these inputs, not off a
+  // structurally-frozen fast estimate. settled only ever updates once per
+  // burst of edits (the settle debounce above already collapses a burst to
+  // its final state before the worker ever runs), so comparing the
+  // previous settle to the new one already captures "before this whole
+  // burst -> after it," the same anchor semantics the old per-tick
+  // debounce used to build by hand.
   const buildSummary = (anchor: typeof result, latest: typeof result, action: EditAction): SummaryData | null => {
     let editTitle = '', editFrom = '', editTo = '';
     let excludeKeys: string[] = [];
@@ -644,30 +735,17 @@ export default function App() {
     return { editTitle, editFrom, editTo, lever, dependents, engineImpacts };
   };
 
-  const prevResultRef = useRef(result);
-  const anchorRef = useRef<typeof result | null>(null);
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => () => { if (debounceRef.current) clearTimeout(debounceRef.current); }, []);
+  const prevSettledRef = useRef<typeof settled>(null);
 
   useEffect(() => {
-    if (prevResultRef.current !== result && lastAction) {
-      if (anchorRef.current === null) anchorRef.current = prevResultRef.current;
-      const anchor = anchorRef.current;
-      const action = lastAction;
-
-      if (debounceRef.current) clearTimeout(debounceRef.current);
-      debounceRef.current = setTimeout(() => {
-        const built = buildSummary(anchor, result, action);
-        if (built) setSummary(built);
-        anchorRef.current = null;
-        debounceRef.current = null;
-      }, 300);
+    if (settled && prevSettledRef.current && lastAction) {
+      const built = buildSummary(prevSettledRef.current.result, settled.result, lastAction);
+      if (built) setSummary(built);
     }
-    prevResultRef.current = result;
+    if (settled) prevSettledRef.current = settled;
     setLastAction(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [result]);
+  }, [settled]);
 
   const standardName = STANDARDS[core.standard]?.name || core.standard;
 
@@ -718,6 +796,20 @@ export default function App() {
 
         <RatingPlate design={activeDesign} bom={activeBom} params={activeParams} />
 
+        {isProvisional && !viewingRevision && !budgetPreview && (
+          <div className="bg-white border border-steel rounded-[2px] px-4 py-3 print:hidden">
+            <div className="text-[11px] font-display uppercase tracking-[0.14em] text-steel mb-1">
+              Provisional -- Settling
+            </div>
+            <p className="text-[11px] text-ink2">
+              Tracking your edit live. The volts-per-turn search and winding neighbourhood resolution have not
+              re-run for this change yet -- the figures on screen are a fast estimate, held at the design&apos;s
+              last settled structural choices. They will update, and this notice will clear, a moment after you
+              stop editing. Saving is disabled until then.
+            </p>
+          </div>
+        )}
+
         {activeEtkWarning && (
           <div className="bg-white border border-amber rounded-[2px] px-4 py-3 print:hidden">
             <div className="text-[11px] font-display uppercase tracking-[0.14em] text-amber mb-1">
@@ -743,7 +835,7 @@ export default function App() {
                 Previewing Budget Option
               </div>
               <p className="text-[11px] text-ink2">
-                {inr(budgetPreview.price)} ex-works against the current {inr(result.bom.exFactory)}. This design is
+                {inr(budgetPreview.price)} ex-works against the current {inr(settledResult.bom.exFactory)}. This design is
                 shown everywhere -- the plate, every tab -- until you adopt or discard it. Editing is disabled
                 until then.
               </p>
@@ -798,6 +890,7 @@ export default function App() {
           onOpenRevisions={() => setShowRevisions(true)}
           currentProjectId={currentProjectId} busy={savingProject} refreshKey={projectListVersion}
           previewActive={!!budgetPreview || !!viewingRevision || readOnlyLive}
+          settling={isProvisional}
           uid={user?.uid || ''}
         />
 
@@ -847,7 +940,8 @@ export default function App() {
           <section>
             <ResultsDisplay
               core={core} design={activeDesign} bom={activeBom} params={activeParams}
-              liveDesign={result.design} liveBom={result.bom} liveParams={result.params} liveOver={over}
+              liveDesign={settledResult.design} liveBom={settledResult.bom} liveParams={settledResult.params}
+              liveOver={settled?.over ?? over}
               project={buildMeta(projectName)}
               orgId={orgId} projectId={currentProjectId} revision={projectCurrentRevision}
               rates={rates} onRatesChange={setRates} effectiveRates={effectiveRates}

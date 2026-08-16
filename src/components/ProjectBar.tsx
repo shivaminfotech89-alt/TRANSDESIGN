@@ -23,12 +23,19 @@ interface ProjectBarProps {
    *  is exactly the "two prices for two designs" state the invariant
    *  forbids. Disabled until the preview is adopted or discarded. */
   previewActive: boolean;
+  /** True while the fast, on-screen design is still structurally frozen to
+   *  an earlier settle -- the K-plateau search and neighbourhood density
+   *  resolution (CALIBRATION.md sections 49/51) have not yet re-run for
+   *  today's inputs. Disabled the same way previewActive is: saving now
+   *  would freeze the revision's summary off a not-yet-reoptimised figure,
+   *  the mid-drag quote this is meant to prevent. */
+  settling: boolean;
   uid: string;
 }
 
 export function ProjectBar({
   projectName, onProjectNameChange, onSave, onSaveAsCopy, onNew, onOpen, onOpenRevisions, currentProjectId, busy,
-  refreshKey, previewActive, uid,
+  refreshKey, previewActive, settling, uid,
 }: ProjectBarProps) {
   const { orgId } = useOrg();
   const [projects, setProjects] = useState<(Project & { id: string })[]>([]);
@@ -78,10 +85,17 @@ export function ProjectBar({
           <input value={projectName} onChange={(e) => onProjectNameChange(e.target.value)} className={inputCls} />
         </div>
 
-        <Button variant="confirm" onClick={onSave} disabled={busy || previewActive}>{busy ? 'Saving' : 'Save'}</Button>
-        <Button variant="secondary" onClick={onSaveAsCopy} disabled={busy || previewActive || !currentProjectId}>Save As Copy</Button>
+        <Button variant="confirm" onClick={onSave} disabled={busy || previewActive || settling}>
+          {busy ? 'Saving' : settling ? 'Settling…' : 'Save'}
+        </Button>
+        <Button variant="secondary" onClick={onSaveAsCopy} disabled={busy || previewActive || settling || !currentProjectId}>
+          Save As Copy
+        </Button>
         {previewActive && (
           <p className="text-[9px] text-steel basis-full">Adopt or discard the previewed option before saving.</p>
+        )}
+        {!previewActive && settling && (
+          <p className="text-[9px] text-steel basis-full">Design is still settling -- one moment before saving.</p>
         )}
 
         <div className="relative">
