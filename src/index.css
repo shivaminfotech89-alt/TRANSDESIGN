@@ -122,4 +122,46 @@ html, body {
     break-after: page;
     page-break-after: always;
   }
+
+  /* Drawings 21 and 22 (StampingSchedule, CoreCuttingChart, Drawings2D.tsx)
+     carry a cutting-schedule table whose row count is design-driven (more
+     core steps means more pockets) -- it can legitimately outgrow one page
+     for a design with more steps than the default case has, exactly the way
+     drawing 22's own table already does for the default case itself. Forcing
+     break-inside: avoid on these two specifically would ask the browser to
+     honour something it cannot: the content is taller than a page regardless.
+     Letting them break is the correct behaviour, not a fallback -- so long as
+     the break lands cleanly (thead repeat + row rules below), not the plain
+     "browser breaks wherever, mid-row, header gone" default. */
+  .drawing-page[data-drawing="stamping"],
+  .drawing-page[data-drawing="cutting-chart"] {
+    break-inside: auto;
+    page-break-inside: auto;
+  }
+
+  /* Any table inside a drawing page: repeat the header row on every printed
+     page it spans (native CSS table pagination -- table-header-group is the
+     browser's own "repeating header" mechanism, no JS involved) and never
+     split a data row across a page boundary, so a break -- when one is
+     unavoidable, drawings 21 and 22 above -- always lands between rows. */
+  .drawing-page table thead {
+    display: table-header-group;
+  }
+  .drawing-page table tr {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  /* TitleBlock (DrawingPrimitives.tsx) is a CSS grid, not a table -- Chrome's
+     print engine does not fragment grid layouts as cleanly as table rows, and
+     letting it sit inside a drawing-page that is now allowed to break
+     (stamping, cutting-chart above) reproduced its own rows on both sides of
+     the break instead of moving as one block. Keeping it atomic is the fix:
+     it either fits on the current page in full or starts the next one in
+     full, the same "never split" guarantee table rows get from the rule
+     above, just via the block-level property since it is not a table. */
+  .drawing-title-block {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
 }

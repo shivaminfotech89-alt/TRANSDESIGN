@@ -280,7 +280,7 @@ export function TitleBlock({
   const thirdAngle = isThirdAngle(standard);
 
   return (
-    <div className="border border-rule rounded-[2px] bg-white text-ink mt-2">
+    <div className="drawing-title-block border border-rule rounded-[2px] bg-white text-ink mt-2">
       <div className="grid grid-cols-2 border-b border-line">
         <Cell label="Project" value={projectName || 'Untitled Design'} mono={false} />
         <Cell label="Customer" value={customer || 'to be specified'} mono={false} />

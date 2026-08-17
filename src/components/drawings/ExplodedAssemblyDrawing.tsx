@@ -67,9 +67,28 @@ export function ExplodedAssemblyDrawing({ design, params, project }: Props) {
   const contentW = Math.max(...rows.map((r) => r.widthMm));
   const contentH = rows.length * sliceH + (rows.length - 1) * gap;
 
-  const box = { w: 620, h: Math.max(560, Math.min(1100, 200 + rows.length * (sliceH + gap) * 0.6)) };
-  const margin = { top: 24, bottom: 40, leftShapes: 30, balloonCol: 210 };
-  const drawW = box.w - margin.leftShapes - margin.balloonCol;
+  const margin = { top: 24, bottom: 40, leftShapes: 20, balloonCol: 130 };
+  // box.w used to be 620 -- far wider than every other drawing's own box
+  // (280-460, see OrthographicDrawing/TankDrawings/SectionDrawings), which
+  // left the parts table too little of the printed page's own width to sit
+  // beside the diagram without wrapping onto many extra lines and pushing
+  // the sheet past one page. Narrowing the SVG column to match the other
+  // drawings' convention gives the table room at real print widths, not
+  // just the wide on-screen layout.
+  const boxW = 340;
+  const drawW = boxW - margin.leftShapes - margin.balloonCol;
+  // This drawing is reliably width-bound: contentW is a real transformer
+  // dimension in mm while contentH is a schematic pixel budget, so scaling
+  // to fit drawW leaves the height ratio slack. The old box.h formula (up
+  // to 1100px) guessed a box first and fit content into it, reserving far
+  // more height than the width-scaled content ever used and pushing the
+  // sheet past one printed page. Size the box to the scaled content instead
+  // -- rowPx floored so balloons and labels never crowd, box.h capped so an
+  // unusually long parts list still degrades gracefully rather than growing
+  // the page.
+  const widthScale = Math.min(4, drawW / Math.max(1, contentW));
+  const rowPx = Math.max(20, (sliceH + gap) * widthScale);
+  const box = { w: boxW, h: Math.max(360, Math.min(620, margin.top + margin.bottom + rows.length * rowPx)) };
   const fit = fitToViewBox(contentW, contentH, drawW, box.h - margin.top - margin.bottom, 4);
   const cx = margin.leftShapes + drawW / 2;
   const balloonX = margin.leftShapes + drawW + 34;
