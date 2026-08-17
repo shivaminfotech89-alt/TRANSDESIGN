@@ -22,6 +22,17 @@ export const RATE_KEY_GROUPS: RateKeyGroup[] = [
     ],
   },
   {
+    // CALIBRATION.md section 56: manufacturer data -- what the supplier
+    // charges, per kg of finished core, above the base core rate, to
+    // process a given cut geometry. Added to `core`, not multiplied; see
+    // coreProcessingRate() in packages/engine/index.js.
+    title: 'Core Processing, by Cut Geometry',
+    fields: [
+      ['coreProcMitre', 'Master Mitre Cut', '₹/kg'], ['coreProcVNotch', 'V-Notch Cut', '₹/kg'],
+      ['coreProcDiamond', 'Diamond Cut', '₹/kg'],
+    ],
+  },
+  {
     title: 'Bushings and Tap Gear',
     fields: [
       ['bushHV', 'HV Bushing, Base Rate', '₹/unit'], ['bushLV', 'LV Bushing, Base Rate', '₹/unit'],

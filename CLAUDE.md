@@ -88,15 +88,28 @@ Default case: 1000 kVA, 11 kV / 433 V, Dyn11, IS, Level 2, copper, ONAN, fin tan
 
 | Quantity | Value |
 |---|---|
-| Ex-works | ₹21,00,057 |
-| Delivered incl. GST | ₹24,78,067 |
-| Tank length | 1506 mm |
-| No-load loss | 1076 W |
-| Load loss | 6088 W |
-| Impedance | 4.87 % |
-| Efficiency | 99.29 % |
-| Core mass | 1021 kg |
+| Ex-works | ₹20,69,911 |
+| Delivered incl. GST | ₹24,42,495 |
+| Tank length | 1502 mm |
+| No-load loss | 1088 W |
+| Load loss | 6342 W |
+| Impedance | 4.90 % |
+| Efficiency | 99.26 % |
+| Core mass | 1030 kg |
 | Stepped core utilisation | 3 steps 0.8510, 9 steps 0.9483, 13 steps 0.9642 |
+
+Current as of ENGINE_VERSION 1.28.0 (CALIBRATION.md sections 56-57): the core
+BOM line now prices the assembled core (`wCoreAssembled`) at the base core
+rate plus a construction-specific processing surcharge, instead of pricing
+the construction-specific purchased mass (`wCore`) at a flat rate — the
+works buys finished core per kg, so scrap is the supplier's own cost,
+recovered through what they charge to process a given cut pattern, not
+through extra kg on our BOM. Separately, the building factor (ratio of
+built core loss to catalogue loss) is no longer one flat figure per joint
+type: it now depends on cut geometry and joint stacking too, manufacturer
+data, and moved the default case's own default from 1.10 to 1.125 (master
+mitre, staggered). Both reachable by the default case (Construction A,
+staggered, both defaults), so both moved every figure in this table.
 
 Current as of ENGINE_VERSION 1.22.0 (CALIBRATION.md section 46): `fitToSchedule`
 used to accept a false-positive convergence — the continuous window-spread
