@@ -3231,6 +3231,18 @@ match Construction A's exactly (239.8 mm, K = 0.48 -- both were),
 confirming the shop-limit infeasibility the inflated `noLoad` was
 manufacturing at low K is gone. Regression-tested in engine.test.mjs.
 
+**Superseded by section 57 below, for the "match exactly" claim only.**
+Section 57 gives Construction B a real, higher building factor than
+Construction A (V-notch runs measurably more loss than master mitre), so
+B's own cost-optimal point is no longer expected to match A's exactly --
+it should, and now does, differ by a modest amount driven by that real
+loss difference. The finding THIS section made -- that the old bug pushed
+B toward a runaway BIGGER core, and that bug is gone -- still stands;
+engine.test.mjs now checks the bounded, buildFactor-explained divergence
+rather than exact equality, and the numbers this section quotes (239.8 mm,
+K = 0.48 both) are the value at the time this section was written, not
+current.
+
 `wFrame` (clamping/frame mass) stays on `wCore`, not `wCoreAssembled`:
 frame sizing is a mechanical consequence of the real, physical,
 purchased core, not of its flux-carrying properties.
@@ -3991,3 +4003,214 @@ not the default case (Construction A), so CLAUDE.md's golden-numbers table
 is unaffected, but invariant 4 ("a quotation issued last year must reprice
 exactly as issued") applies to any opt-in construction just as much as the
 default, so the version moves regardless.
+
+## 56. Core is bought finished, per kg -- scrap is the supplier's cost, not ours; priced by a construction-specific processing charge on the rate, not construction-specific mass
+
+Manufacturer data, not a chart. Important framing correction from the
+designer: the works buys finished core lamination at a rate per kg from an
+outside supplier. Scrap from cutting -- the mitre offcuts, the notch
+cutout, whatever a flat cut avoids -- never reaches the works at all; it is
+the supplier's own material loss, recovered through what they charge to
+process a given cut pattern, not through how much steel our own BOM says
+was bought. Sections 48 and 52-55 had already modelled construction-
+specific PURCHASED mass (`wCore`, `MITRE_K`, `coreConstructionC`) as the
+cost difference between constructions -- correct for what a chart or a
+designer's own worked reference shows about what a SUPPLIER'S steel order
+looks like, wrong for what the WORKS actually pays, which is this
+processing charge instead.
+
+**`coreProcMitre` / `coreProcVNotch` / `coreProcDiamond`** (`DEFAULT_RATES`,
+`packages/engine/index.js`), added to the core rate via
+`coreProcessingRate()`: master mitre Rs 12-18/kg, V-notch Rs 6-9/kg, diamond
+Rs 3-5/kg, defaults at each range's own midpoint (15 / 7.5 / 4.5), editable
+per rate card like every other rate here. The ordering matches the real
+cutting cost: a 45 degree mitre wastes real material slitting from
+rectangular coil stock (highest charge), a flat diamond cut wastes almost
+none (lowest), V-notch in between (a mitre plus one added notch cut).
+
+**What this changes.** `buildBOM`'s own CR-01 line ("Core lamination") now
+prices `wCoreAssembled` -- the same finished, flux-carrying core regardless
+of cut geometry (section 48) -- at `r.core * d.ct.costMul +
+coreProcessingRate(p.coreConstruction, r)`, not `wCore` (the construction-
+specific purchased mass) at a flat rate. `cardCostModel`'s own Core row
+moved the same way, for the same reason its own comment already gives:
+"Core... share buildBOM's own rate keys... so both models move together."
+`wCore`/`wLimb`/`wYoke` are unchanged and still exactly what they were --
+this is not a mass model change, sections 52-55 stand -- they simply no
+longer drive price. They remain what drawing 21/22 order steel against
+(the supplier's own cutting schedule), which is exactly the document they
+were always for.
+
+**Everywhere else `wCore` stood in for the real, physical core -- not the
+supplier's own steel order -- moved to `wCoreAssembled` too, the same
+"physical part, not the construction-specific purchased figure" principle
+section 48 already established for no-load loss:**
+- **Tie rod sizing** (`hardwareSchedule`): tie rods clamp the real,
+  assembled core, not scrap that never left the supplier's factory.
+- **Shipped/handled mass** (`summarise()`'s `totalMass`, and
+  `DesignImpactSummary`'s own weight-impact row): what gets lifted, shipped
+  and supported is the assembled core -- a construction change alone (same
+  core geometry) should not read as a weight change, since none of that
+  scrap was ever physically present at the works.
+
+Both were latent gaps, not new bugs: for Construction A, `wCore` and
+`wCoreAssembled` are identical by construction (section 48), so neither
+ever showed a wrong number until Construction B (and now C) existed to
+actually separate the two.
+
+**Test fixture note.** `card-cost.test.mjs` reproduces a real 1963-style
+per-kg costing sheet, verified to the rupee, that predates both
+`wCoreAssembled` and `coreConstruction` as concepts -- it gives one core
+figure at one flat rate with no way to say whether that was purchased or
+assembled, or what processing premium (if any) the shop's own Rs 240/kg
+already folded in. Fixed by setting the fixture's own `wCoreAssembled`
+equal to its `wCore` (no basis to invent a different assembled figure the
+sheet never gave) and its own `coreProcMitre` to 0 (the sheet's flat rate
+already reproduces the total exactly with no separate line for one, so it
+was evidently all-inclusive already) -- the most literal reading of what
+one flat historical rate can support, not a new assumption layered on top
+of it.
+
+`ENGINE_VERSION` bumped to 1.28.0 (with section 57 below, one bump for
+both -- section 55 above already used 1.27.0, a real, previously shipped
+version, so this round of changes takes the next number, not the same
+one): reachable by the default case (Construction A, master mitre) --
+CLAUDE.md's golden-numbers table updated in the same commit, per invariant
+4.
+
+## 57. Building factor by cut geometry and joint stacking -- previously one flat value per joint type, now six manufacturer figures
+
+Manufacturer data, not a chart. `buildFactor` (ratio of built core loss to
+catalogue/Epstein-strip loss) used to read `CORE_TYPES[ctk].bf`
+unconditionally -- one number per `coreType` (step-lap, D-type, S-type,
+amorphous...), with no way for `coreConstruction`/`jointStacking` to affect
+it even though both are real, physical facts about the same joint the
+building factor is meant to describe. The designer gave real ranges instead:
+
+| Construction | Stacking | Range | Midpoint |
+|---|---|---|---|
+| Master mitre | Staggered | 1.10-1.15 | 1.125 (baseline) |
+| V-notch | Staggered | 1.20-1.28 | 1.24 |
+| Diamond | Staggered | 1.28-1.35 | 1.315 |
+| Master mitre or V-notch | Continuous | 1.32-1.42 | 1.37 |
+| Diamond | Continuous | 1.45-1.60 | 1.525 |
+
+Master mitre and V-notch share one figure when continuous -- the designer
+gave that pair as one combined range, not two, so `BUILD_FACTOR_MSC`
+stores it that way rather than inventing a split the data does not give.
+
+**Scope: applies only when `coreType` is `"stepLap"`.** That is the one
+`CORE_TYPES` entry this session's whole `coreConstruction`/`jointStacking`
+axis has always implicitly described -- a cut, mitred/notched/diamond-cut,
+stacked circular core. D-type, S-type, amorphous wound and the rest keep
+their own existing, unrelated `bf` constants unchanged: the designer's new
+figures were given specifically for master mitre / V-notch / diamond,
+staggered or continuous, not for those other named practices, and
+`"stepLap"` is already the default `coreType` for every non-amorphous
+design, so this reaches the overwhelming majority of real designs without
+touching the others at all. (D-type in particular reads as another named
+45-degree-mitred practice, `bf` 1.18 -- whether it and S-type are actually
+the same underlying practice this session's `coreConstruction` axis
+already covers, just under the old `coreType` framing, is an open
+question worth the designer's own answer before touching it; not resolved
+here.)
+
+**Implementation.** `deriveSpec`'s `coreConstruction`/`jointStacking`/
+`stackingOffset` `put()` calls moved earlier (right after `coreType`,
+before `buildFactor`), since the new default needs both already resolved
+-- previously `buildFactor` was put() straight after `coreType`, before
+`coreConstruction` existed as a concept at all. `buildFactor`'s own range
+widened from `[1.0, 1.45]` to `[1.0, 1.60]`, since the old ceiling could not
+even reach the diamond-continuous midpoint (1.525), let alone its own
+1.60 upper bound. The final value remains fully editable via the same
+slider it always had -- "editable, defaulting to the midpoint" is
+satisfied by the existing control, not a new one.
+
+**This is a real, modelled loss penalty now, not an unstated one.** The
+continuous-stacking warning banner (previous session, App.tsx) is removed:
+it existed specifically because switching to continuous stacking showed no
+loss penalty at all, while a real continuous joint measurably costs more
+in practice -- exactly the gap this section closes. Diamond continuous
+(1.525) in particular can push a design outside its declared loss limits
+entirely where staggered would have been comfortably compliant (checked
+directly: the default 1000 kVA case at Construction C, continuous stacking,
+autoFit cannot find a compliant flux/density combination at all within this
+job's own limits and returns non-compliant at the flux floor -- this is the
+model correctly reporting an infeasible combination, not a bug).
+
+**Construction B's own cost-optimal point no longer matches Construction
+A's exactly** (section 48's own regression test updated, not deleted --
+see the correction note there): V-notch's higher buildFactor (1.24 vs
+1.125 staggered) is a real reason for autoFit to land somewhere genuinely
+different, not the "backwards" bug section 48 fixed. Checked directly at
+the 1250 kVA furnace design: dCore 236.2 mm (B) against 241.8 mm (A), 2.3%
+apart; etK 0.442 against 0.472, 6.4% apart -- both a modest, explainable
+divergence, not the old bug's own runaway-bigger-core shape.
+
+`ENGINE_VERSION` 1.28.0 (shared bump with section 56 above): reachable by
+the default case, golden numbers moved, CLAUDE.md updated in the same
+commit.
+
+## 58. Kerf and limb-yoke fit tolerance tested against MITRE_K -- does not reproduce the chart, MITRE_K kept
+
+Manufacturer data, not a chart: blade kerf 0.8-1.2 mm (recommended 1.0),
+limb-yoke fit tolerance 0.5-1.2 mm (recommended 0.75). Section 53 had
+already found that the outer plate's own fitted deduction (`MITRE_K.outer`,
+no notch involved at all) implied a real joint effect beyond pure mitre
+geometry, and named kerf and fit tolerance directly as candidates. Tested
+here with real numbers, per the designer's own instruction: replace
+`MITRE_K` with the derivation if it reproduces the chart's three totals,
+report the deviation and keep it if not.
+
+**The derivation.** A 45 degree cut's blade removes a kerf-width strip
+measured perpendicular to the cut line; projected onto the plate's own
+length axis (what `MITRE_K` corrects), that is `kerf * cos(45 degrees)`,
+not kerf itself -- a diagonal cut spreads the same perpendicular removal
+across a longer cut line, so less of it lands on the length axis
+specifically. Fit tolerance is given directly as a length-domain
+clearance, and applied the same way for consistency (one clear geometric
+rule, not a special case for each input) rather than left unadjusted,
+which would treat the two inconsistently with no basis to prefer either
+treatment. Each plate has two such mitred (or, for centre, mitred-and-
+pointed) interfaces -- V-notch and outer at each end where they meet the
+outer limbs, centre at each end where it meets the top and bottom yoke --
+so the total length deduction beyond each plate's own pure-mitre baseline
+is `2 * (kerf + fitTolerance) * cos(45 degrees)`, about 2.4749 mm at the
+recommended values, applied on top of each plate's own already-established
+baseline (V-notch and outer: `K = 1.0`; centre: `K = 0.5`, its own
+pointed/chevron shape's real baseline, confirmed directly by shoelace-
+formula area against the drawn geometry -- section 34/35's own stated
+baselines, not re-derived here). V-notch's own real notch cutout (section
+53, `W^2/4`) is subtracted separately, unchanged.
+
+**Result, same 15-step 1250 kVA (750+500) furnace geometry section 35's
+own chart check uses:**
+
+| Plate | Derived | Chart | Deviation |
+|---|---|---|---|
+| V-notch | 418.57 kg | 397.69 kg | +5.25% |
+| Outer | 530.18 kg | 500.25 kg | +5.98% |
+| Centre | 278.08 kg | 223.73 kg | +24.29% |
+| Core total | 1226.84 kg | 1121.67 kg | +9.38% |
+
+**Does not reproduce the chart -- `MITRE_K` is kept, unchanged.** V-notch
+and outer land within the same order of deviation as other single-chart
+fits already accepted in this file (Construction A's own three plates:
+-1.4% to +4.3%, sections 12/15) -- plausible, if not exact, and a real
+improvement in kind over section 53's earlier notch-geometry-only check
+(+5.62% for V-notch alone). Centre does not: +24.29% is far outside that
+family, and checked directly -- widening the interface deduction well past
+any physically defensible kerf/tolerance value (swept to 50 mm, twenty-five
+times the recommended 2 mm total) only closes about half the gap (278.82
+kg down to 248.92 kg against a 223.73 kg target), confirming this is not a
+per-cut deduction centre needs more of, but a different effect entirely
+that this derivation does not capture. Consistent with section 34/35's own
+original finding that centre's fitted residual (`MITRE_K.centre = 1.46509`
+against a 0.5 baseline, a 0.965 gap) was always disproportionately larger
+than V-notch's (0.446) or outer's (0.275) -- unexplained then, still
+unexplained now, not resolved by kerf and fit tolerance alone.
+
+No code change: `MITRE_K` stays exactly as fitted (section 35), the mass
+calculation is untouched. No `ENGINE_VERSION` bump -- this section is a
+check against the existing fit, and the fit did not move, the same outcome
+and the same reason as section 53's own check.

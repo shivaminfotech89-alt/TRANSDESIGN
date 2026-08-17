@@ -8,7 +8,7 @@
  * without bumping it, or old quotations stop reproducing.
  */
 
-export const ENGINE_VERSION = "1.27.0";
+export const ENGINE_VERSION = "1.28.0";
 
 const CONDUCTORS = {
   copper: { name: "Copper, EC grade", rho20: 0.017241, alpha: 0.00393, dens: 8890, dMax: 3.6, short: "Cu", proof: 1.0 },
@@ -33,6 +33,20 @@ const CORE_TYPES = {
   elliptical: { name: "Elliptical wound core", shape: "rect", aspect: 2.0, bf: 1.15, exc: 2.2, costMul: 1.02, grades: "crgo" },
   rectangular: { name: "Rectangular wound core", shape: "rect", aspect: 2.2, bf: 1.15, exc: 2.2, costMul: 1.00, grades: "crgo" },
   ei: { name: "EI stamped core", shape: "rect", aspect: 1.5, bf: 1.38, exc: 4.5, costMul: 0.90, grades: "crgo" },
+};
+
+/* CALIBRATION.md section 57: manufacturer data, not a chart -- building
+   factor by cut geometry (coreConstruction) and joint stacking
+   (jointStacking), stated as ranges, midpoints kept here. Overrides
+   CORE_TYPES.stepLap's own single bf when coreType is "stepLap" -- see the
+   deriveSpec buildFactor put() for why. Master mitre / V-notch continuous
+   share one figure (1.32-1.42, midpoint 1.37): the designer gave that pair
+   as one combined range, not two, so it is stored that way rather than
+   inventing a split the data does not give. */
+const BUILD_FACTOR_MSC = {
+  A: { staggered: 1.125, continuous: 1.37 },   // master mitre: 1.10-1.15, 1.32-1.42
+  B: { staggered: 1.24, continuous: 1.37 },    // V-notch: 1.20-1.28 staggered, 1.32-1.42 continuous (shared with A)
+  C: { staggered: 1.315, continuous: 1.525 },  // diamond: 1.28-1.35, 1.45-1.60
 };
 
 const STEP_UTIL = { 3: 0.851, 5: 0.908, 7: 0.934, 9: 0.948, 11: 0.955, 13: 0.960, 15: 0.963 };
@@ -362,7 +376,6 @@ function deriveSpec(core, over = {}) {
   /* --- core --- */
   const gk = put("coreGrade", gradeSuggest(core.effLevel), null, Object.entries(CORE_GRADES).map(([k, v]) => [k, v.name]), `Thinner, lower-loss steel is what buys the ${EFF_LEVELS[core.effLevel].name} no-load figure.`);
   const ctk = put("coreType", gk === "amor" ? "amorWound" : "stepLap", null, Object.entries(CORE_TYPES).map(([k, v]) => [k, v.name]), "Step-lap mitred joints cut no-load loss and exciting current against a plain mitred or butt-lap joint.");
-  put("buildFactor", CORE_TYPES[ctk].bf, [1.0, 1.45, 0.01], null, "Ratio of built core loss to catalogue loss for this joint. Set it from your own no-load test history if you have it.");
   const fluxSug = put("flux", fluxSuggest(gk, core.effLevel, kva), [1.20, CORE_GRADES[gk].bMax, 0.01], null, "Higher flux means a smaller, cheaper core and a higher no-load loss. This is the single biggest cost-versus-loss lever.");
   /* CALIBRATION.md item 2: raised, and now split by medium -- a dry-type
      winding runs a higher K than the same duty in oil. Fitted from Mehir
@@ -441,7 +454,7 @@ function deriveSpec(core, over = {}) {
      real reference actually shows, not an assumption that stacking is
      always free. It is NOT known to be loss-neutral; see the open question
      in CALIBRATION.md section 54. */
-  put("jointStacking", "staggered", null, [["staggered", "Staggered (offset joints)"], ["continuous", "Continuous (no offset)"]], "Whether successive layers' yoke joints are staggered by an offset or left continuous. Real data exists for staggered Construction A (chart) and staggered Construction C (designer-specified); Construction B has none either way, and this value has no effect on it. Does not change core mass or the modelled no-load loss -- CALIBRATION.md section 54 records why that is an open question, not a confirmed absence of effect.");
+  put("jointStacking", "staggered", null, [["staggered", "Staggered (offset joints)"], ["continuous", "Continuous (no offset)"]], "Whether successive layers' yoke joints are staggered by an offset or left continuous. Real data exists for staggered Construction A (chart) and staggered Construction C (designer-specified); Construction B has none either way, and this value has no effect on it. Now a real loss penalty, not an unstated one: continuous carries a materially higher building factor than staggered (CALIBRATION.md section 57), and continuous Construction C also needs more core steel than staggered (section 55).");
   /* CALIBRATION.md section 54: one shared parameter, not two -- Construction
      A's own 50/25/25 fan always spans all three of 0/10/20 mm when
      staggered (the real chart's own split, not a single pick, so this
@@ -449,6 +462,23 @@ function deriveSpec(core, over = {}) {
      as the single offset every staggered layer shares. Default 10 mm sits
      inside both real sets. */
   put("stackingOffset", 10, null, (S.coreConstruction === "C" ? [[5, "5 mm"], [10, "10 mm"], [20, "20 mm"]] : [[0, "0 mm"], [10, "10 mm"], [20, "20 mm"]]), "Construction C, staggered stacking only: how far successive layers' flat-cut joints are offset along the strip (5/10/20 mm, designer-specified). Not consulted for Construction A, which always spans the full 0/10/20 mm real-chart split when staggered.");
+  /* CALIBRATION.md section 57: manufacturer data, not a chart -- building
+     factor (ratio of built core loss to catalogue/Epstein-strip loss) by
+     cut geometry AND joint stacking, replacing the single flat
+     CORE_TYPES[ctk].bf this used to read unconditionally. Applies only when
+     coreType is "stepLap" -- the one CORE_TYPES entry this session's whole
+     coreConstruction/jointStacking axis has always implicitly described (a
+     cut, mitred/notched/diamond-cut, stacked circular core); dType, sType,
+     amorWound and the rest keep their own existing, unrelated bf constants,
+     since the designer's new figures were given specifically for master
+     mitre / V-notch / diamond, staggered or continuous, not for those other
+     named practices. Moved below coreConstruction/jointStacking (both were
+     put() further up before this section existed) because the lookup needs
+     both already resolved. */
+  const bfSug = ctk === "stepLap"
+    ? (BUILD_FACTOR_MSC[S.coreConstruction]?.[S.jointStacking] ?? CORE_TYPES[ctk].bf)
+    : CORE_TYPES[ctk].bf;
+  put("buildFactor", bfSug, [1.0, 1.60, 0.01], null, "Ratio of built core loss to catalogue loss for this joint and stacking. Set it from your own no-load test history if you have it.");
   put("aspect", aspectSuggest(umHV), [2.0, 3.8, 0.05], null, "Starting window shape. The final height is solved to hit the declared impedance unless you turn that off.");
   /* CALIBRATION.md section 44: window height over window width (maxAspect,
      sections 28/32) replaced by the two real shop limits it was always a
@@ -669,6 +699,18 @@ const DEFAULT_RATES = {
   paint: 340, bushHV: 2400, bushLV: 1900, octc: 9500, oltc: 465000, dualLink: 12000,
   cableBox: 18000, fittings: 26000, plateSet: 3500, resin: 380, enclosure: 155,
   labWind: 65, labCore: 22, labTank: 34, assembly: 42000,
+  /* CALIBRATION.md section 56: manufacturer data, not a chart -- the works
+     buys finished core at a per-kg rate; scrap is the supplier's own cost,
+     recovered through what they charge per kg to process a given cut
+     pattern, not through how much steel our own BOM says we bought. These
+     three are that processing charge, added to `core` (coreProcessingRate()
+     below), one per cut geometry: master mitre costs the supplier the most
+     to process (a 45 degree cut wastes real material slitting from
+     rectangular coil stock), diamond the least (a flat cut wastes almost
+     none), V-notch in between. Stated ranges 12-18 / 6-9 / 3-5 Rs/kg;
+     defaults are each range's own midpoint, editable per rate card like
+     every other rate here. */
+  coreProcMitre: 15, coreProcVNotch: 7.5, coreProcDiamond: 4.5,
   overheadPct: 12, scrapPct: 2.5, freight: 22000, marginPct: 11, gstPct: 18,
   /* CALIBRATION.md section 20: cooling fans, oil pumps and their control
      gear are bought components with no per-kg or per-m² basis anywhere else
@@ -1310,16 +1352,33 @@ function designTransformer(p) {
 
 function rkCond(k) { return k === "copper" ? "condCu" : k === "aluminium" ? "condAl" : "condCca"; }
 function condRate(k, r) { return k === "copper" ? r.condCu : k === "aluminium" ? r.condAl : r.condCca; }
+/* CALIBRATION.md section 56: the construction-specific processing surcharge
+   added to the core rate -- see DEFAULT_RATES' own comment on
+   coreProcMitre/coreProcVNotch/coreProcDiamond for why this replaces, not
+   supplements, the earlier construction-specific MASS as the cost
+   difference between constructions. */
+function coreProcessingRate(coreConstruction, r) {
+  if (coreConstruction === "B") return r.coreProcVNotch;
+  if (coreConstruction === "C") return r.coreProcDiamond;
+  return r.coreProcMitre; // "A", and the default for anything unrecognised
+}
 
 function buildBOM(d, r, extras = []) {
   const p = d.p;
   const bHV = r.bushHV * bushMul(p.umHV);
   const bLV = r.bushLV * bushMul(p.umLV);
   const vg = parseVectorGroup(p.vector);
-  const coreRate = r.core * d.ct.costMul;
+  // CALIBRATION.md section 56: we buy finished core at a per-kg rate, so the
+  // quantity priced is the assembled, flux-carrying steel (wCoreAssembled,
+  // the SAME finished core regardless of cut geometry, section 48) -- not
+  // wCore, the construction-specific purchased mass MITRE_K/coreConstructionC
+  // model, which is now what the SUPPLIER buys and scraps, not us. The cost
+  // difference between constructions is the processing surcharge below, a
+  // rate, not extra kg on this line.
+  const coreRate = r.core * d.ct.costMul + coreProcessingRate(p.coreConstruction, r);
 
   const A = [
-    { code: "CR-01", desc: `Core lamination \u2013 ${d.grade.name}, ${d.ct.name}`, qty: d.wCore, unit: "kg", rate: coreRate, rk: "core" },
+    { code: "CR-01", desc: `Core lamination \u2013 ${d.grade.name}, ${d.ct.name}`, qty: d.wCoreAssembled, unit: "kg", rate: coreRate, rk: "core" },
     { code: "WD-01", desc: `LV winding \u2013 ${d.cLV.name}`, qty: d.wLV, unit: "kg", rate: condRate(p.condLV, r), rk: rkCond(p.condLV) },
     { code: "WD-02", desc: `HV winding \u2013 ${d.cHV.name}, ${d.hvConstruction === "layer" ? `${d.layers} layers` : d.hvConstruction === "crossover" ? `${d.numGroups} crossover coils, ${d.layers} layers each` : `${d.numGroups} discs, ${d.layers} turns each`}`, qty: d.wHV, unit: "kg", rate: condRate(p.condHV, r), rk: rkCond(p.condHV) },
     { code: "IN-01", desc: `Insulation for ${p.bilHV} kVp LI / ${p.acHV} kV AC, class ${p.insClass}`, qty: d.wIns, unit: "kg", rate: r.insulation, rk: "insulation" },
@@ -1465,8 +1524,11 @@ function cardCostModel(d, rates, cardRates = DEFAULT_CARD_RATES, extra = 0) {
   // radiator)" row label -- the numbers were fin numbers regardless of
   // which label printed above them.
   const panels = d.dry ? 0 : (d.cardPanels ?? (d.p.tankType === "radiator" ? radiatorLayout(d).totalPanels : finLayout(d).n));
+  // CALIBRATION.md section 56: same reasoning as buildBOM's own CR-01 row --
+  // wCoreAssembled priced, not wCore, with the construction-specific cost
+  // difference carried by the processing surcharge on the rate instead.
   const rows = [
-    { no: 1, desc: "Core", qty: d.wCore, unit: "Kg", rate: rates.core },
+    { no: 1, desc: "Core", qty: d.wCoreAssembled, unit: "Kg", rate: rates.core + coreProcessingRate(d.p.coreConstruction, rates) },
     { no: 2, desc: "L.T Weight", qty: d.wLVCovered, unit: "Kg", rate: rates.condCu },
     { no: 3, desc: "H.T Weight", qty: d.wHVCovered, unit: "Kg", rate: rates.condCu },
     { no: 4, desc: "M.S Channel", qty: d.wFrame, unit: "Kg", rate: rates.frameMS },
@@ -2251,14 +2313,18 @@ function impacts(a, ba, b, bb, p) {
     });
   }
 
-  /* Weight impact: core, conductor, total. */
-  const totalMass = (d) => d.wCore + d.wLV + d.wHV + d.wIns + d.wFrame + d.wTank + d.wFin + d.wEnclosure + d.fluidLitres * d.fluid.dens;
+  /* Weight impact: core, conductor, total. CALIBRATION.md section 56: the
+     physical mass being lifted, shipped and supported is the assembled core
+     (wCoreAssembled) -- a construction change alone (same core geometry)
+     should not show up here as a weight change, since none of that scrap
+     ever leaves the supplier's own factory. */
+  const totalMass = (d) => d.wCoreAssembled + d.wLV + d.wHV + d.wIns + d.wFrame + d.wTank + d.wFin + d.wEnclosure + d.fluidLitres * d.fluid.dens;
   const aMass = totalMass(a), bMass = totalMass(b);
   const aCond = a.wLV + a.wHV, bCond = b.wLV + b.wHV;
   if (Math.abs(bMass - aMass) > 1) {
     out.push({
       k: "Weight", from: f0(aMass) + " kg total", to: f0(bMass) + " kg total", good: bMass < aMass,
-      body: `Core ${f0(a.wCore)} to ${f0(b.wCore)} kg, conductor ${f0(aCond)} to ${f0(bCond)} kg, total ${f0(aMass)} to ${f0(bMass)} kg. ${bMass > aMass ? "Heavier active part: check crane, foundation loading and transport limits." : "Lighter active part eases handling and transport."}`,
+      body: `Core ${f0(a.wCoreAssembled)} to ${f0(b.wCoreAssembled)} kg, conductor ${f0(aCond)} to ${f0(bCond)} kg, total ${f0(aMass)} to ${f0(bMass)} kg. ${bMass > aMass ? "Heavier active part: check crane, foundation loading and transport limits." : "Lighter active part eases handling and transport."}`,
     });
   }
 
@@ -2398,8 +2464,8 @@ function calcSheet(d, bom) {
     row("Specific core loss", "w", "w = w\u1D63\u2091\u1da0 (B/B\u1D63\u2091\u1da0)^1.9 \u00D7 building factor", `= ${n(d.grade.wRef)} \u00D7 (${n(d.B)}/${n(d.grade.bRef)})^1.9 \u00D7 ${n(p.buildFactor)}`, `${n(d.wPerKg, 3)} W/kg`, REFS.K + " \u00B7 " + REFS.B, "grade, flux density, joint type"),
     row("Core weight, limb", "W\u2097\u1D62\u2098\u1D47", "per step, mitred both ends: length = 2 \u00D7 width (drawing 22, Plate A)", "see drawing 22, core cutting chart", `${n(d.wLimb, 1)} kg`, REFS.B, "stepped widths, lamination thickness"),
     row("Core weight, yoke", "W\u1D67\u2092\u2096\u2091", "W = \u03C1\u1da0\u2091 A\u1D4D \u00D7 2(2C + d)", `= 7650 \u00D7 ${n(d.aGross / 1e4, 5)} \u00D7 2(2\u00D7${n(d.cc / 1000, 3)} + ${n(d.dCore / 1000, 3)})`, `${n(d.wYoke, 1)} kg`, REFS.S, "core area, limb spacing"),
-    row("Core weight, total (purchased)", "W\u1da0\u2091", "W = W\u2097\u1D62\u2098\u1D47 + W\u1D67\u2092\u2096\u2091", `= ${n(d.wLimb, 1)} + ${n(d.wYoke, 1)}`, `${n(d.wCore, 1)} kg`, REFS.S, "limb weight, yoke weight -- priced, ordered and stacked; the cutting/mitre method's own construction-specific mass, CALIBRATION.md section 48"),
-    row("Core weight, assembled (flux-carrying)", "W\u1da0\u2091,\u2090", "Construction A's own limb + yoke formula (the two rows above this table's own \"total\" row), computed unconditionally", p.coreConstruction === "B" ? "differs from the purchased weight above -- Construction B selected" : "identical to the purchased weight above -- Construction A selected, same formula both times", `${n(d.wCoreAssembled, 1)} kg`, REFS.S, "the engine's own best validated estimate (section 15, two real references) of what a real, finished core of this dCore/Hw/cc/steps weighs, independent of which construction cut it -- CALIBRATION.md section 48"),
+    row("Core weight, total (steel order)", "W\u1da0\u2091", "W = W\u2097\u1D62\u2098\u1D47 + W\u1D67\u2092\u2096\u2091", `= ${n(d.wLimb, 1)} + ${n(d.wYoke, 1)}`, `${n(d.wCore, 1)} kg`, REFS.S, "limb weight, yoke weight -- ordered and stacked, the cutting/mitre method's own construction-specific mass, drawings 21/22; NOT what is priced (CALIBRATION.md section 56) -- the works buys finished core per kg, so the BOM prices the assembled weight below at a construction-specific rate instead"),
+    row("Core weight, assembled (flux-carrying)", "W\u1da0\u2091,\u2090", "Construction A's own limb + yoke formula (the two rows above this table's own \"total\" row), computed unconditionally", p.coreConstruction === "A" ? "identical to the steel-order weight above -- Construction A selected, same formula both times" : `differs from the steel-order weight above -- Construction ${p.coreConstruction} selected`, `${n(d.wCoreAssembled, 1)} kg`, REFS.S, "the engine's own best validated estimate (section 15, two real references) of what a real, finished core of this dCore/Hw/cc/steps weighs, independent of which construction cut it -- CALIBRATION.md sections 48 and 56, and what the core BOM line actually prices"),
     row("No-load loss", "P\u2080", "P\u2080 = w \u00D7 W\u1da0\u2091,\u2090", `= ${n(d.wPerKg, 3)} \u00D7 ${n(d.wCoreAssembled, 1)}`, `${n(d.noLoad, 0)} W`, REFS.IS1180, "specific loss, assembled core weight -- not the purchased weight above"),
     row("Exciting volt-amperes", "VA/kg", "VA/kg = va\u1D63\u2091\u1da0 (B/B\u1D63\u2091\u1da0)\u2074 \u00D7 joint factor", `joint factor = ${n(d.ct.exc, 2)} for ${d.ct.name.split(",")[0]}`, `${n(d.vaPerKg, 2)} VA/kg`, REFS.K, "grade, flux density, joint type"),
     row("No-load current", "I\u2080", "I\u2080% = VA/kg \u00D7 W\u1da0\u2091,\u2090 / (S\u00D710\u00B3) \u00D7 100", `= ${n(d.vaPerKg, 2)} \u00D7 ${n(d.wCoreAssembled, 1)} / ${p.kva}000 \u00D7 100`, `${n(d.i0pct)} %`, REFS.K, "exciting VA, assembled core weight -- not the purchased weight above"),
@@ -3139,7 +3205,15 @@ function conductorSchedule(d, p) {
 const HW_REF = { wCore: 1709.3, Hw: 513.8, coreWidth: 1230.9, dCore: 271.7, rodDia: 18, rodLen: 635, boltLen: 380, footW: 100 };
 function hardwareSchedule(d, p) {
   const evenRound = (x) => Math.max(4, 2 * Math.round(x / 2));
-  const rodDia = Math.max(12, 2 * Math.round((HW_REF.rodDia * Math.sqrt(d.wCore / HW_REF.wCore)) / 2));
+  // CALIBRATION.md section 56: tie rods clamp the real, assembled core --
+  // wCoreAssembled, not wCore, the same "physical part, not the
+  // construction-specific purchased figure" principle section 48 already
+  // established for no-load loss. HW_REF's own reference core is
+  // Construction A, where the two are identical, so this does not move that
+  // reference's own rod size; it only stops a Construction B/C core from
+  // sizing its tie rods off scrap the supplier absorbed, not steel actually
+  // being clamped.
+  const rodDia = Math.max(12, 2 * Math.round((HW_REF.rodDia * Math.sqrt(d.wCoreAssembled / HW_REF.wCore)) / 2));
   const rodQty = evenRound((8 * d.coreWidth) / HW_REF.coreWidth);
   const tieRod = {
     dia: rodDia, length: Math.round(d.Hw + 120), threadLength: Math.round(rodDia * 3),
@@ -3889,7 +3963,10 @@ export function summarise(core, design, bom) {
     loadLoss: Math.round(design.loadLoss),
     impedance: +design.pctZ.toFixed(2),
     efficiency: +design.eff100.toFixed(3),
-    totalMass: Math.round(design.wCore + design.wLV + design.wHV + design.wIns +
+    // CALIBRATION.md section 56: the physical, shipped mass -- the
+    // assembled core (wCoreAssembled), not the construction-specific
+    // purchased figure, which never leaves the supplier's own factory.
+    totalMass: Math.round(design.wCoreAssembled + design.wLV + design.wHV + design.wIns +
       design.wFrame + design.wTank + design.wFin + design.wEnclosure +
       design.fluidLitres * design.fluid.dens),
     compliant: design.compliant,
