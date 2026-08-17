@@ -4214,3 +4214,117 @@ No code change: `MITRE_K` stays exactly as fitted (section 35), the mass
 calculation is untouched. No `ENGINE_VERSION` bump -- this section is a
 check against the existing fit, and the fit did not move, the same outcome
 and the same reason as section 53's own check.
+
+## 59. Centre plate's own outer edge was a fixed "-52 mm", not geometrically consistent with the V-notch it must mate with -- corrected to "-w", `MITRE_K.centre` refitted
+
+Section 58's own centre residual -- +24.29%, not closing even at 25x the
+recommended kerf/fit-tolerance deduction -- was flagged as a sign of "a
+different effect entirely," not a bigger deduction. The designer's own
+follow-up named the actual suspect directly: `outerCentre = outerOuter -
+52` uses a FIXED 52 mm at every one of the fifteen steps, taken from one
+chart's own stated comparison at (almost certainly) its widest pocket only
+and never checked for whether it should instead scale with each step's own
+width -- exactly the kind of extrapolation this file's own house style
+distrusts on sight. With the V-notch's real geometry now known (depth W/2,
+90 degree included angle, section 52/53), this is directly checkable: the
+centre limb's chevron must physically reach into that notch to mate with
+it, so its own required length is derivable, not just fittable.
+
+**The derivation.** The outer limb, mitred plainly (no notch), reaches
+only as far as the yoke's own inner (window-facing) edge -- confirmed
+directly, already an established fact: "the outer plate's own innerEdge
+lands exactly on Hw." The centre limb's chevron tip, by contrast, must
+reach PAST that same inner edge, into the V-notch's own cavity, as far as
+the notch's own apex -- W/2 further, cut INTO the yoke's body toward its
+outer edge, at each end (top yoke and bottom yoke). So the centre limb's
+own tip-to-tip reach is `Hw + W/2 + W/2 = Hw + w`, not `Hw` -- and since
+the outer limb's own outer edge is `Hw + 2w`, the centre limb's own outer
+edge is that figure less exactly one `w`: `outerCentre = outerOuter - w`.
+This is not a new geometric idea -- it is the same "chevron point depth
+W/2, mates with the notch by construction" relationship drawing 21's own
+real geometry already uses (section 52/53, DRAWINGS.md drawing 21),
+applied to the plate's own overall length instead of just its point shape.
+
+A clean check confirms it, not just the derivation: with `outerCentre =
+outerOuter - w`, the chevron's own flat (non-pointed) run works out to
+`outerCentre - w` (section 52's own established chevron-length relationship)
+`= Hw` exactly -- the centre limb's straight middle section spans exactly
+the window height, the same physical quantity the outer limb's own inner
+edge already spans. Two different plates, two different shapes, the same
+window they both actually cross -- not a coincidence, confirmation.
+
+**The old "-52" is not simply this relationship evaluated at the chart's
+own widest step.** At the widest pocket (w = 220 mm in the reference
+geometry), the derived subtraction is `w` = 220 mm, not 52 -- nor does 52
+mm correspond to any of the chart's own fifteen step widths. The 52 was
+never decomposed into a notch depth and a point angle on file (section 34
+already said so directly); it appears to be a stated comparison the
+original chart gave once, generalised into a fixed per-step constant
+without checking whether it should scale -- exactly what this section
+found it should.
+
+**Checked against the chart, both ways:**
+
+| Formula | Centre total (baseline, K=0.5, no kerf/tolerance) | Deviation |
+|---|---|---|
+| Old: `outerOuter - 52` | 278.82 kg | +24.63% |
+| New: `outerOuter - w` | 237.29 kg | +6.06% |
+
+| Formula | Centre total (with section 58's own kerf/fit-tolerance deduction) | Deviation |
+|---|---|---|
+| Old geometry | 278.08 kg | +24.29% |
+| New geometry | 236.55 kg | +5.73% |
+
+The corrected geometry alone -- no kerf, no fit tolerance, nothing beyond
+the plain notch-depth derivation -- cuts centre's own deviation from
++24.63% to +6.06%, landing centre in the SAME family as V-notch's own
++5.25% and outer's own +5.98% (section 58) for the first time. This was
+not achieved by adding a bigger deduction; the baseline itself moved,
+because the baseline was wrong.
+
+**`outerCentre = outerOuter - s.w`** (`coreConstructionB()`,
+`packages/engine/index.js`) replaces the fixed `- 52`. **`MITRE_K.centre`
+refitted from 1.46509 to 0.73751** -- solved the same way section 35
+originally solved it (exactly reproduce the chart's own 223.73 kg centre
+total), against the corrected `outerCentre`, not the old one. Refitting
+against the old, wrong `outerCentre` and keeping the new one only in the
+drawing would have let the drawn shape and the priced mass disagree on
+the same plate, exactly the failure mode this file's own "document and
+price agree by construction" principle (sections 15, 35, 52) exists to
+prevent. The new residual (0.73751 - 0.5 = 0.238) is smaller than both
+V-notch's own (0.446) and outer's own (0.275) -- a materially more
+coherent picture than the old fit's 0.965, nearly double outer's own
+residual for a plate this file's own baseline says needs LESS mitre
+correction, not more.
+
+**What this does and does not confirm.** The chart's own three totals
+(397.69 / 500.25 / 223.73 kg) are unchanged and still reproduced exactly
+by construction, the same caveat section 35 already carries: an exact fit
+to three totals with three free coefficients does not, on its own, prove
+the per-step model correct away from this one geometry. What is new here
+is that centre's own coefficient no longer requires an implausibly large,
+unexplained deduction to hit that total -- it requires one in the same
+range the other two plates already need, which is itself evidence
+(not proof) that the corrected geometry is the right one, not merely a
+better-fitting one.
+
+**A drawing was already right, by coincidence of scope, not by having
+been checked.** Drawing 21's own chevron shape (DRAWINGS.md, drawing 21;
+`Drawings2D.tsx`) reads `outerEdge` straight from `coreConstructionB()`,
+so it updates automatically with this fix -- re-verified directly
+(Puppeteer): the centre plate now draws visibly shorter (1041.7 mm against
+the old ~1131 mm at the widest pocket) with the same real 45/135 degree
+point geometry section 52/53 already gave it. The point's own SHAPE was
+never wrong -- only the overall LENGTH the point sat on top of was.
+
+**Unconfirmed at any rating besides this one**, the same caveat every
+other single-chart-fitted constant in this file already carries -- but
+this correction is now geometric, not fitted, so it should generalise
+better than the constant it replaces, which by construction could not.
+
+`ENGINE_VERSION` bumped to 1.29.0 (1.28.0 already shipped in the previous
+commit): reachable by any design that selects Construction B -- checked
+directly, the default case's own Construction A is untouched
+(`outerCentre`/`MITRE_K.centre` are Construction B-only), so CLAUDE.md's
+golden-numbers table needs no change, but invariant 4 requires the bump
+regardless of whether the default case moves.
