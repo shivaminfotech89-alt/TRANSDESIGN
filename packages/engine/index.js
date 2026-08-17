@@ -726,12 +726,20 @@ const DEFAULT_RATES = {
 };
 
 /* ---------------- Formatting ---------------- */
-const inr = (n) => "\u20B9" + Math.round(n || 0).toLocaleString("en-IN");
-const lakhs = (n) => { const v = n || 0; return Math.abs(v) >= 1e7 ? (v / 1e7).toFixed(2) + " Cr" : (v / 1e5).toFixed(2) + " L"; };
-const f1 = (n) => (n || 0).toFixed(1);
-const f2 = (n) => (n || 0).toFixed(2);
-const f3 = (n) => (n || 0).toFixed(3);
-const f0 = (n) => Math.round(n || 0);
+// A non-finite input (NaN from a missing rate propagating through a BOM
+// total; see buildBOM's own "rate-missing" warning) used to fall through
+// `n || 0` -- NaN is falsy in JS, so it silently formatted as a plausible-
+// looking zero, indistinguishable from a real \u20B90 or a real 0.0. That is
+// exactly the "fabricated value worse than a blank" CLAUDE.md invariant 5
+// forbids: every one of these now renders an unmistakable "--" instead,
+// so a computation error reads as an error, not as a suspiciously round
+// number. Does not change how a genuine 0 formats (isFinite(0) is true).
+const inr = (n) => isFinite(n) ? "\u20B9" + Math.round(n).toLocaleString("en-IN") : "\u20B9--";
+const lakhs = (n) => { if (!isFinite(n)) return "--"; const v = n; return Math.abs(v) >= 1e7 ? (v / 1e7).toFixed(2) + " Cr" : (v / 1e5).toFixed(2) + " L"; };
+const f1 = (n) => isFinite(n) ? n.toFixed(1) : "--";
+const f2 = (n) => isFinite(n) ? n.toFixed(2) : "--";
+const f3 = (n) => isFinite(n) ? n.toFixed(3) : "--";
+const f0 = (n) => isFinite(n) ? Math.round(n) : "--";
 
 /* ============================================================
    DESIGN ENGINE
@@ -1456,9 +1464,38 @@ function buildBOM(d, r, extras = []) {
   const warnings = zeroCoolingRows.length
     ? [{
       code: "cooling-cost-zero",
+      title: "Cooling Equipment Priced At Zero",
       message: `${p.cooling} is a forced-cooled design carrying ${zeroCoolingRows.map((x) => x.code).join(", ")} at ₹0 -- enter the fan/pump/control-gear rate before quoting, or this design is being priced without its own cooling equipment.`,
     }]
     : [];
+
+  /* A missing rate key (a rate card saved before that key existed, or one
+     edited by hand with a field left blank) turns qty * undefined into NaN
+     here, and every total downstream is a sum that includes it -- material,
+     factory, works, exFactory, withGst, tco, every one of them NaN. This
+     has already happened once for real: coreProcMitre/VNotch/Diamond
+     (added this session) were missing from cards saved before them, and
+     the price fell straight through the "material" sum to a silent ₹0 on
+     the rating plate (inr()'s own `n || 0` treats NaN as falsy) and a
+     literal "NaN" on the cost card (which formats without that guard).
+     The real fix is at the rate-card loader (src/lib/pricing.ts,
+     withRateDefaults() -- a saved card is merged over DEFAULT_RATES, not
+     read standalone, so a key added later falls back to its own default
+     instead of vanishing). This is the second, independent guard CLAUDE.md
+     invariant 5 asks for regardless: if a non-finite rate reaches this
+     function anyway -- a corrupted saved document, a hand-edited card
+     missing a field, a future bug in the loader -- name exactly which
+     rate keys are missing rather than let a fabricated-looking ₹0 (or a
+     bare "NaN") reach a customer document silently. */
+  const nonFiniteRateRows = [...A, ...Bseg, ...Cseg, ...labour].filter((x) => x.rk && !isFinite(x.rate));
+  if (nonFiniteRateRows.length) {
+    const missingKeys = [...new Set(nonFiniteRateRows.map((x) => x.rk))];
+    warnings.push({
+      code: "rate-missing",
+      title: "Rate Card Incomplete -- Totals Below Are Invalid",
+      message: `Rate card is missing: ${missingKeys.join(", ")} -- ${nonFiniteRateRows.map((x) => x.code).join(", ")} cannot be priced, and every total below is invalid until these rates are entered.`,
+    });
+  }
 
   return {
     segments: [
