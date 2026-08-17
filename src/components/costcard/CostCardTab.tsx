@@ -1,6 +1,7 @@
 import React from 'react';
 import { cardCostModel, conductorSchedule, finLayout, radiatorLayout, conservatorSize, DEFAULT_CARD_RATES } from '@/packages/engine';
 import { Card, DataRow, cardCls, cardHeaderCls, cardTitleCls, cardSubtitleCls, cardBodyCls, thCls, tdCls, inputCls } from '../ui';
+import { fmtMoney } from '../../lib/format';
 
 interface CostCardTabProps {
   design: any;
@@ -11,7 +12,7 @@ interface CostCardTabProps {
 }
 
 const f = (n: number, dp = 1) => (typeof n === 'number' && isFinite(n) ? n.toFixed(dp) : '--');
-const kg = (n: number) => `${Math.round(n).toLocaleString('en-IN')} Kg`;
+const kg = (n: number) => `${fmtMoney(n)} Kg`;
 
 /** CALIBRATION.md section 9: the designer's own per-kg costing card,
  *  reproduced layout for layout against a real one ("630 KVA CU LEVEL 1
@@ -65,8 +66,8 @@ export function CostCardTab({ design: d, params: p, rates, onCardExtraChange, re
                     <td className={`${tdCls} text-[11px] text-ink2`}>{r.desc}</td>
                     <td className={`${tdCls} text-right font-mono text-[11px]`}>{f(r.qty, r.unit === "No's" ? 0 : 2)}</td>
                     <td className={`${tdCls} text-[10px] text-steel`}>{r.unit}</td>
-                    <td className={`${tdCls} text-right font-mono text-[11px]`}>{Math.round(r.rate).toLocaleString('en-IN')}</td>
-                    <td className={`${tdCls} text-right font-mono text-[11px] font-semibold text-ink`}>{Math.round(r.amount).toLocaleString('en-IN')}</td>
+                    <td className={`${tdCls} text-right font-mono text-[11px]`}>{fmtMoney(r.rate)}</td>
+                    <td className={`${tdCls} text-right font-mono text-[11px] font-semibold text-ink`}>{fmtMoney(r.amount)}</td>
                   </tr>
                 ))}
                 <tr>
@@ -84,7 +85,7 @@ export function CostCardTab({ design: d, params: p, rates, onCardExtraChange, re
                       />
                     </div>
                   </td>
-                  <td className={`${tdCls} text-right font-mono text-[11px] font-semibold text-ink align-top`}>{Math.round(cost.extra).toLocaleString('en-IN')}</td>
+                  <td className={`${tdCls} text-right font-mono text-[11px] font-semibold text-ink align-top`}>{fmtMoney(cost.extra)}</td>
                 </tr>
               </tbody>
               <tfoot>
@@ -92,7 +93,7 @@ export function CostCardTab({ design: d, params: p, rates, onCardExtraChange, re
                   <td className={tdCls} colSpan={5}>
                     <span className="text-[11px] font-display uppercase tracking-[0.12em] text-copper">Total</span>
                   </td>
-                  <td className={`${tdCls} text-right font-mono text-[13px] font-bold text-copper`}>{Math.round(cost.total).toLocaleString('en-IN')}</td>
+                  <td className={`${tdCls} text-right font-mono text-[13px] font-bold text-copper`}>{fmtMoney(cost.total)}</td>
                 </tr>
               </tfoot>
             </table>

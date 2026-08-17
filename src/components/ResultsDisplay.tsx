@@ -11,6 +11,7 @@ import { BudgetTab } from './budget/BudgetTab';
 import { CostCardTab } from './costcard/CostCardTab';
 import { CompareQuoteTab } from './compare/CompareQuoteTab';
 import { PRICE_SOURCE_LABELS, type PriceResolution } from '../lib/pricing';
+import { fmtMoney } from '../lib/format';
 
 interface ResultsDisplayProps {
   core: any;
@@ -378,7 +379,7 @@ export function ResultsDisplay({
               {bom.warnings?.map((w: any) => (
                 <div key={w.code} className="bg-white border border-alert rounded-[2px] px-4 py-3 print:hidden">
                   <div className="text-[11px] font-display uppercase tracking-[0.14em] text-alert mb-1">
-                    Cooling Equipment Priced At Zero
+                    {w.title}
                   </div>
                   <p className="text-[11px] text-ink2">{w.message}</p>
                 </div>
@@ -413,7 +414,7 @@ export function ResultsDisplay({
                           </td>
                           <td className={`${tdCls} text-right font-mono text-[11px]`}>{r.qty.toLocaleString('en-IN', { maximumFractionDigits: 1 })}</td>
                           <td className={`${tdCls} text-[10px] text-steel`}>{r.unit}</td>
-                          <td className={`${tdCls} text-right font-mono text-[11px]`}>{Math.round(r.rate).toLocaleString('en-IN')}</td>
+                          <td className={`${tdCls} text-right font-mono text-[11px]`}>{fmtMoney(r.rate)}</td>
                           <td className={tdCls}>
                             {r.rk && (
                               <div className="flex items-center gap-1.5">
@@ -430,7 +431,7 @@ export function ResultsDisplay({
                               </div>
                             )}
                           </td>
-                          <td className={`${tdCls} text-right font-mono text-[11px] font-semibold text-ink`}>{Math.round(r.qty * r.rate).toLocaleString('en-IN')}</td>
+                          <td className={`${tdCls} text-right font-mono text-[11px] font-semibold text-ink`}>{fmtMoney(r.qty * r.rate)}</td>
                         </tr>
                         );
                       })}

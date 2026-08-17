@@ -15,9 +15,41 @@
  * figure (the pre-11.3 "engineering default" -- an estimate, never
  * presented as a supplier's commitment).
  */
+import { DEFAULT_RATES } from '@/packages/engine';
 import type { Item, ItemPrice, PriceSourceTier, PriceResolution } from '../../lib/types';
 
 export type { PriceResolution };
+
+/**
+ * A saved rate card predates every rate key added to DEFAULT_RATES after
+ * it was saved -- a Firestore document only ever has the fields it was
+ * written with, it does not grow new ones on its own. Reading a saved
+ * card's own `rates` object standalone means a key added later (a new
+ * material, the per-construction processing charges added this session)
+ * is simply absent, not zero -- `rates.coreProcMitre` is `undefined`,
+ * `baseRate + undefined` is `NaN`, and that NaN was propagating straight
+ * through buildBOM's own material/factory/works/exFactory sums to a
+ * silent ₹0 on the rating plate and a literal "NaN" on the cost card.
+ *
+ * Every place a saved rate card (or a revision's frozen rateSnapshot) is
+ * loaded into the live `rates` state merges it OVER DEFAULT_RATES, not in
+ * place of it -- a key the card does have always wins (this never
+ * overrides what was actually saved), a key it does not have falls back
+ * to the engine's own current default instead of vanishing. This is the
+ * general fix: it protects every future rate addition the same way, not
+ * only coreProcMitre/VNotch/Diamond.
+ *
+ * For a revision's own frozen rateSnapshot specifically, this does not
+ * conflict with CLAUDE.md invariant 4 ("a quotation issued last year must
+ * reprice exactly as issued"): every key that snapshot actually captured
+ * keeps its exact saved value. A key added after that revision was saved
+ * was never part of what was issued -- there is no "original value" to
+ * reproduce for it, so falling back to the current default is the only
+ * meaningful choice, not a violation of what was frozen.
+ */
+export function withRateDefaults(saved: Record<string, number> | null | undefined): Record<string, number> {
+  return { ...DEFAULT_RATES, ...(saved || {}) };
+}
 
 export const PRICE_SOURCE_LABELS: Record<PriceSourceTier, string> = {
   'project-locked': 'Project-Locked',

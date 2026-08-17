@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { listRateCards, saveRateCard, newRateCardId, currentRateCard } from '../../lib/projects';
 import { RATE_KEY_GROUPS } from '../lib/rateKeys';
+import { withRateDefaults } from '../lib/pricing';
 import { Card, Button, inputCls, labelCls } from './ui';
 import type { RateCard, Rates } from '../../lib/types';
 
@@ -41,7 +42,7 @@ export function RateCardManager({
 
   const [draftName, setDraftName] = useState('Standard rates');
   const [draftEffectiveFrom, setDraftEffectiveFrom] = useState(() => new Date().toISOString().slice(0, 10));
-  const [draftRates, setDraftRates] = useState<Rates>(liveRates);
+  const [draftRates, setDraftRates] = useState<Rates>(withRateDefaults(liveRates));
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -95,7 +96,7 @@ export function RateCardManager({
                   </div>
                   <div className="flex gap-2 shrink-0">
                     <Button variant="secondary" onClick={() => onSelect(c)}>Use This Card</Button>
-                    <Button variant="secondary" onClick={() => { setDraftName(c.name); setDraftRates(c.rates); }}>
+                    <Button variant="secondary" onClick={() => { setDraftName(c.name); setDraftRates(withRateDefaults(c.rates)); }}>
                       Edit As New Version
                     </Button>
                   </div>

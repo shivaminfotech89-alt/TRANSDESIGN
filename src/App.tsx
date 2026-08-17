@@ -21,7 +21,7 @@ import {
 import { solveAllPins } from './lib/classBSolver';
 import { labelFor, fmtWithUnit } from './lib/paramLabels';
 import { diffDependents, type DependentChange } from './lib/impactSummary';
-import { resolveRates, type PriceResolution } from './lib/pricing';
+import { resolveRates, withRateDefaults, type PriceResolution } from './lib/pricing';
 import {
   createProject, renameProject, saveRevision, getRevision, listRateCards, currentRateCard,
   listItems, listSuppliers,
@@ -122,7 +122,7 @@ export default function App() {
         setOrgRateCards(cards);
         const current = currentRateCard(cards);
         if (current) {
-          setRates(current.rates);
+          setRates(withRateDefaults(current.rates));
           setRateCardId(current.id);
         }
       })
@@ -202,7 +202,7 @@ export default function App() {
     // The org's own current rate card, not the bare engine defaults -- falls
     // back to them only if the org somehow has no rate card at all yet.
     const current = currentRateCard(orgRateCards);
-    setRates(current ? current.rates : DEFAULT_RATES);
+    setRates(withRateDefaults(current?.rates));
     setRateCardId(current ? current.id : 'default');
     setProjectName(name);
     setCurrentProjectId(null);
@@ -306,7 +306,7 @@ export default function App() {
       if (rev) {
         setCoreState(rev.input.core);
         setOverState(rev.input.over);
-        setRates(rev.rateSnapshot);
+        setRates(withRateDefaults(rev.rateSnapshot));
         setRateCardId(rev.rateCardId);
         setPriceLocks(rev.input.priceLocks || {});
         // The saved rateSnapshot already reflects whatever the price
@@ -349,7 +349,7 @@ export default function App() {
    *  depth against changing rates while a different design is on screen. */
   const handleSelectRateCard = (card: RateCard & { id: string }) => {
     if (budgetPreview || viewingRevision || readOnlyLive) return;
-    setRates(card.rates);
+    setRates(withRateDefaults(card.rates));
     setRateCardId(card.id);
     setRatesAreFrozen(false);
   };
@@ -357,7 +357,7 @@ export default function App() {
   const handleRateCardSaved = (card: RateCard & { id: string }) => {
     setOrgRateCards((cards) => [card, ...cards]);
     if (budgetPreview || viewingRevision || readOnlyLive) return;
-    setRates(card.rates);
+    setRates(withRateDefaults(card.rates));
     setRateCardId(card.id);
     setRatesAreFrozen(false);
   };
@@ -380,7 +380,7 @@ export default function App() {
     if (viewingRevision) {
       setCoreState(viewingRevision.input.core);
       setOverState(viewingRevision.input.over);
-      setRates(viewingRevision.rateSnapshot);
+      setRates(withRateDefaults(viewingRevision.rateSnapshot));
       setRateCardId(viewingRevision.rateCardId);
       setPriceLocks(viewingRevision.input.priceLocks || {});
       // This is now a fresh, editable draft based on old values -- it should
