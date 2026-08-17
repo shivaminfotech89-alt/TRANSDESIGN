@@ -604,7 +604,12 @@ console.log("\nConstruction B (V-notch/outer/centre) against the 1250 kVA (750+5
     eq("centre outerEdge - innerEdge = 2w", +(r0.C.outerEdge - r0.C.innerEdge).toFixed(4), 2 * r0.w);
     eq("V-notch outerEdge = 2*cc + w (stated)", r0.V.outerEdge, +((2 * 375 + r0.w).toFixed(1)));
     eq("outer outerEdge = Hw + 2w (stated)", r0.O.outerEdge, +((698 + 2 * r0.w).toFixed(1)));
-    eq("centre outerEdge = outer's own outerEdge - 52", r0.C.outerEdge, +((r0.O.outerEdge - 52).toFixed(1)));
+    // CALIBRATION.md section 59: corrected from a fixed "-52" (one chart's
+    // widest pocket, wrongly applied at every step) to "-w", geometrically
+    // derived from the chevron needing to reach the V-notch's own apex
+    // (depth W/2) at both ends -- Hw + w, i.e. outerOuter (Hw + 2w) less
+    // exactly this pocket's own w.
+    eq("centre outerEdge = outer's own outerEdge - w", r0.C.outerEdge, +((r0.O.outerEdge - r0.w).toFixed(1)));
     // The outer plate's own innerEdge is Hw exactly -- the window height
     // itself, not a fitted or rounded approach to it -- a direct geometric
     // check this reference chart's own dCore/cc/Hw inputs make possible.

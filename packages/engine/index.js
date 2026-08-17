@@ -8,7 +8,7 @@
  * without bumping it, or old quotations stop reproducing.
  */
 
-export const ENGINE_VERSION = "1.28.0";
+export const ENGINE_VERSION = "1.29.0";
 
 const CONDUCTORS = {
   copper: { name: "Copper, EC grade", rho20: 0.017241, alpha: 0.00393, dens: 8890, dMax: 3.6, short: "Cu", proof: 1.0 },
@@ -2732,14 +2732,17 @@ function stampingSchedule(d, steps, p) {
    near half the others because there is one centre limb against two of
    everything else, not because centre plates are physically thinner.
 
-   The three stated lengths (2*cc+w for V-notch, Hw+2*w for outer, outer-52
-   for centre) are OUTER edges, not the mean length the mass calculation
-   needs -- reproducing them literally overstates every plate (checked
-   directly: Construction A's own already-validated yoke formula, applied
-   unchanged to this geometry, gives 562.77 kg against the real 397.69 kg,
-   +41.5%). The gap scales linearly with each step's own width, consistent
-   with a 45 degree mitre (section 15's own "long - short = 2w"), so each
-   length is corrected by k*w before use.
+   The three stated lengths (2*cc+w for V-notch, Hw+2*w for outer, outer-w
+   for centre -- CALIBRATION.md section 59, corrected from a fixed "-52"
+   originally taken from one chart's own widest pocket and wrongly applied
+   at every step regardless of width; see that section for the derivation
+   and the check against the chart) are OUTER edges, not the mean length
+   the mass calculation needs -- reproducing them literally overstates
+   every plate (checked directly: Construction A's own already-validated
+   yoke formula, applied unchanged to this geometry, gives 562.77 kg
+   against the real 397.69 kg, +41.5%). The gap scales linearly with each
+   step's own width, consistent with a 45 degree mitre (section 15's own
+   "long - short = 2w"), so each length is corrected by k*w before use.
 
    MITRE_K's three coefficients are solved exactly against the one chart
    available, once the plate-count structure above was pinned by the
@@ -2751,15 +2754,18 @@ function stampingSchedule(d, steps, p) {
    per-step model is fully correct away from this one geometry. Pure
    45-degree-mitre-only geometry (2 ends per plate, w/2 per end) predicts
    1.0 for V-notch and outer, 0.5 for centre -- the solved values (1.446,
-   1.275, 1.465) are well above that, meaning there is a real additional
-   deduction (the V-notch cutout itself, a limb-yoke joint allowance, or
-   both) this engine cannot separate out from one chart's three aggregate
-   totals alone. Unconfirmed at any rating besides this one -- a second
-   real Construction B chart, at different proportions, would let these
-   three numbers actually be checked rather than assumed to hold, the same
-   caveat every other single-chart-fitted constant in this engine already
-   carries. */
-const MITRE_K = { vNotch: 1.44585, outer: 1.27514, centre: 1.46509 };
+   1.275, 0.738 -- centre's own value corrected in section 59 alongside its
+   own outer-edge formula, see that section for why refitting it against
+   the OLD outer-w formula would have been solving against the wrong
+   geometry) are all above that baseline, meaning there is a real
+   additional deduction (the V-notch cutout itself, a limb-yoke joint
+   allowance, or both) this engine cannot separate out from one chart's
+   three aggregate totals alone. Unconfirmed at any rating besides this one
+   -- a second real Construction B chart, at different proportions, would
+   let these three numbers actually be checked rather than assumed to
+   hold, the same caveat every other single-chart-fitted constant in this
+   engine already carries. */
+const MITRE_K = { vNotch: 1.44585, outer: 1.27514, centre: 0.73751 };
 function coreConstructionB(dCore, cc, Hw, steps, thk, dens = 7650) {
   const rows = steps.rows.map((s, i) => {
     const stack = i === 0 ? s.t : 2 * s.t;
@@ -2775,7 +2781,16 @@ function coreConstructionB(dCore, cc, Hw, steps, thk, dens = 7650) {
     const oSheets = nSheets * 2; // two outer limbs
     const massO = ((s.w * lenOuter * thk) / 1e9) * dens * oSheets;
 
-    const outerCentre = outerOuter - 52;
+    // CALIBRATION.md section 59: outerCentre = outerOuter - s.w, not the
+    // old fixed "-52" -- the centre limb's chevron tip must reach past the
+    // yoke's own inner edge into the V-notch's own apex (depth W/2, section
+    // 52/53) at BOTH ends to mate with it, so its own tip-to-tip reach is
+    // Hw + w (window height plus one notch depth at each end), i.e.
+    // outerOuter (Hw + 2w) less exactly one w -- a relationship that scales
+    // with this pocket's own width, the same way every other length in
+    // this file does, not a fixed constant taken from one chart's widest
+    // pocket and applied at every step regardless of its own width.
+    const outerCentre = outerOuter - s.w;
     const lenCentre = outerCentre - MITRE_K.centre * s.w;
     const cSheets = nSheets * 1; // one centre limb
     const massC = ((s.w * lenCentre * thk) / 1e9) * dens * cSheets;
