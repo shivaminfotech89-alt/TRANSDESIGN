@@ -309,20 +309,38 @@ const r = E.computeDesign(E.ESSENTIALS, {}, E.DEFAULT_RATES, []);
 // default case (Construction A, staggered, both defaults). Re-verified
 // directly against computeDesign, not hand-adjusted -- CLAUDE.md's own
 // golden-numbers table updated in the same commit.
-eq("ex-works", Math.round(r.bom.exFactory), 2069911, 800);
-eq("delivered", Math.round(r.bom.withGst), 2442495, 900);
-eq("tank length mm", Math.round(r.design.tankL), 1502, 2);
-eq("no-load loss W", Math.round(r.design.noLoad), 1088, 5);
-eq("load loss W", Math.round(r.design.loadLoss), 6342, 30);
-eq("impedance %", +r.design.pctZ.toFixed(2), 4.90, 0.02);
+// ENGINE_VERSION 1.30.0 (CALIBRATION.md section 60): no-load loss
+// localised to the corner/T-joint mass (Wc, about 17% of wCoreAssembled at
+// this case) instead of one flat building factor over the whole assembled
+// core -- roughly a 9% no-load reduction at this case's own geometry
+// against what the old flat form would have given it, which is within the
+// "up to 10 percent on small distribution units" the peer-reviewed source
+// this section records puts the joint's own share of no-load loss at.
+// Nudges the discrete winding configuration this default case's own
+// fitToSchedule settles at (same bracket-sensitivity cascade every
+// loss-moving change in this file has produced before -- section 51's own
+// note above), which is why the numbers below move together, not just the
+// no-load figure. Re-verified directly against computeDesign, not
+// hand-adjusted -- CLAUDE.md's own golden-numbers table updated in the
+// same commit.
+eq("ex-works", Math.round(r.bom.exFactory), 1992278, 800);
+eq("delivered", Math.round(r.bom.withGst), 2350888, 900);
+eq("tank length mm", Math.round(r.design.tankL), 1532, 2);
+eq("no-load loss W", Math.round(r.design.noLoad), 1084, 5);
+eq("load loss W", Math.round(r.design.loadLoss), 6356, 30);
+eq("impedance %", +r.design.pctZ.toFixed(2), 5.00, 0.02);
 eq("efficiency %", +r.design.eff100.toFixed(2), 99.26, 0.02);
-eq("core mass kg", Math.round(r.design.wCore), 1030, 15);
-// autoFitConverged is now purely a dynamics fact (CALIBRATION.md section
-// 51): did the damped iteration reach a stable point WITHOUT cycling. This
-// default case does cycle (see autoFitCycleNote below), so this is
-// correctly false -- whether the point ultimately built is any good is
-// fitResolutionNote's question, not this one's, and is checked below.
-eq("autoFit converged (dynamics only)", r.autoFitConverged, false);
+eq("core mass kg", Math.round(r.design.wCore), 1105, 15);
+// autoFitConverged is a dynamics fact (CALIBRATION.md section 51): did the
+// damped iteration reach a stable point WITHOUT cycling. Section 59's own
+// no-load change moves this default case off the discrete-configuration
+// boundary it used to cycle across (see autoFitCycleNote below, no longer
+// present) and onto a state the iteration reaches cleanly instead -- it
+// still lands exactly at a zero-margin compliance boundary (fitBoundaryFound/
+// fitResolutionNote below), which is a separate fact from whether the
+// dynamics cycled to get there, and still fires the same neighbourhood-
+// search resolution for that reason.
+eq("autoFit converged (dynamics only)", r.autoFitConverged, true);
 eq("compliant", r.design.compliant, true);
 // ENGINE_VERSION 1.21.0 (CALIBRATION.md section 44): compliance.aspect (the
 // window height/width ratio) replaced by two direct shop limits. This
@@ -331,19 +349,21 @@ eq("compliant", r.design.compliant, true);
 // different design can now clear the old ratio while missing one of these,
 // or the reverse) -- see section 44 for the 2500 kVA furnace case that
 // flips to non-compliant under this default.
-eq("coil height mm", Math.round(r.design.compliance.coilHeight.val), 608, 3);
+eq("coil height mm", Math.round(r.design.compliance.coilHeight.val), 553, 3);
 eq("coil height limit mm", r.design.compliance.coilHeight.lim, 880);
-eq("tank height mm", Math.round(r.design.compliance.tankHeight.val), 1315, 3);
+eq("tank height mm", Math.round(r.design.compliance.tankHeight.val), 1272, 3);
 eq("tank height limit mm", r.design.compliance.tankHeight.lim, 1500);
 eq("HV construction", r.design.hvConstruction, "crossover");
 eq("LV construction", r.design.lvConstruction, "strip");
 eq("etK non-compliant, flagged", r.etkNonCompliant, false);
-// CALIBRATION.md section 51: autoFitCycleNote is now purely descriptive
-// (a cycle was observed, exited early) -- it no longer names a chosen
-// state, since resolveFitCycle's own choosing role is gone. The actual
-// choice, with its margin, is fitResolutionNote's job, checked next.
-eq("autoFit cycle note present", typeof r.autoFitCycleNote, "string");
-console.log(`  ok   autoFit cycle note: "${r.autoFitCycleNote}"`);
+// CALIBRATION.md section 51: autoFitCycleNote only exists when the dynamics
+// actually cycled (see autoFitConverged above) -- this default case no
+// longer does, under section 60, so there is no cycle to describe and this
+// is correctly absent. fitResolutionNote below still fires and still
+// carries the actual choice and its margin, for the separate zero-margin-
+// boundary reason it always could (CALIBRATION.md section 46's own
+// cycling/saturation distinction extends to a third, boundary case here).
+eq("autoFit cycle note absent (dynamics did not cycle)", r.autoFitCycleNote, undefined);
 if (!r.fitBoundaryFound || !r.fitResolutionNote) {
   failures++;
   console.log(`  FAIL expected fitBoundaryFound/fitResolutionNote at the default case (a known boundary case) -- got fitBoundaryFound=${r.fitBoundaryFound}`);
@@ -462,9 +482,17 @@ const impedanceDev = (kva, baselinePct) => {
 // -3.78%, both real shifts from a genuinely different, correctly resolved
 // design, still inside the range this table already accepts. 2000 kVA
 // improves, -3.79% to -0.95%; 2500 kVA stays exact.
+// ENGINE_VERSION 1.30.0 (CALIBRATION.md section 60): no-load loss
+// localised to the corner/T-joint mass moves every stepLap rating's own
+// no-load figure, and so the cost-optimal K each one's window-height
+// bisection brackets around -- same bracket-sensitivity cascade as every
+// earlier loss-moving change in this file. Only 2000 kVA's own bracket
+// crosses into a different discrete state this time (-0.95% to -2.38%,
+// still inside the range 100 and 630 kVA already sit in); 100, 630 and
+// 2500 kVA are unmoved.
 impedanceDev(100, 2.25);
 impedanceDev(630, -3.78);
-impedanceDev(2000, -0.95);
+impedanceDev(2000, -2.38);
 impedanceDev(2500, 0.00);
 
 console.log("\ncooling equipment: fan and pump count follow cooling type, not a fixed number");
@@ -689,7 +717,13 @@ console.log("\nfit resolution: the fitted density is actively resolved to its ch
   // (1.125 vs the old 1.10) -- both reachable by the default case
   // (Construction A, staggered), so both move it. Re-verified directly
   // against computeDesign, not hand-adjusted.
-  for (const [kva, ex] of [[630, 1568538], [1000, 2069911], [1250, 2320715]]) {
+  // ENGINE_VERSION 1.30.0 (CALIBRATION.md section 60): moved again -- no-
+  // load loss now localised to the corner/T-joint mass instead of the flat
+  // building factor these three were priced under above, the same
+  // bracket-sensitivity cascade section 51's own note already describes
+  // for a loss-moving change. Re-verified directly against computeDesign,
+  // not hand-adjusted.
+  for (const [kva, ex] of [[630, 1574782], [1000, 1992278], [1250, 2354283]]) {
     const r = E.computeDesign({ ...E.ESSENTIALS, kva }, { coreConstruction: "A" }, E.DEFAULT_RATES, []);
     if (!r.fitBoundaryFound || !r.fitResolutionNote) {
       failures++; console.log(`  FAIL ${kva} kVA: expected fitBoundaryFound/fitResolutionNote, got fitBoundaryFound=${r.fitBoundaryFound}`);
@@ -870,11 +904,18 @@ console.log("\nfitToSchedule detects a discrete-geometry limit cycle and exits e
 
 console.log("\nfitToSchedule reports flux saturation separately from cycling (CALIBRATION.md section 46)");
 {
-  // 1250 kVA's own default AUTO-K design saturates flux at the grade
+  // 2000 kVA's own default AUTO-K design saturates flux at the grade
   // ceiling with no cycling involved -- the case autoFitFluxLimit exists
   // to name regardless of whether density is also cycling.
-  const r = E.computeDesign({ ...E.ESSENTIALS, kva: 1250 }, {}, E.DEFAULT_RATES, []);
-  if (!r.autoFitFluxLimit) { failures++; console.log("  FAIL expected autoFitFluxLimit at 1250 kVA (flux known to saturate at the grade ceiling here) -- got none"); }
+  // ENGINE_VERSION 1.30.0 (CALIBRATION.md section 60): this used to be the
+  // 1250 kVA case. Localising no-load loss to the corner/T-joint mass
+  // lowers the effective no-load figure at a given flux enough that 1250
+  // kVA's own AUTO-K design no longer needs the ceiling to comply -- a
+  // real, deliberate consequence of the more accurate loss model, not a
+  // defect in the saturation reporting. 2000 kVA still saturates cleanly
+  // under the new model and takes over as this test's own example.
+  const r = E.computeDesign({ ...E.ESSENTIALS, kva: 2000 }, {}, E.DEFAULT_RATES, []);
+  if (!r.autoFitFluxLimit) { failures++; console.log("  FAIL expected autoFitFluxLimit at 2000 kVA (flux known to saturate at the grade ceiling here) -- got none"); }
   else if (r.autoFitFluxLimit.at !== "ceiling") { failures++; console.log(`  FAIL expected flux saturated at the ceiling, got "${r.autoFitFluxLimit.at}"`); }
   else console.log(`  ok   flux saturation reported: at ${r.autoFitFluxLimit.at}, ${r.autoFitFluxLimit.value} T, noLoad ${r.autoFitFluxLimit.noLoad} W against ${r.autoFitFluxLimit.limit} W (compliant: ${r.autoFitFluxLimit.compliant})`);
 }

@@ -4328,3 +4328,196 @@ directly, the default case's own Construction A is untouched
 (`outerCentre`/`MITRE_K.centre` are Construction B-only), so CLAUDE.md's
 golden-numbers table needs no change, but invariant 4 requires the bump
 regardless of whether the default case moves.
+
+## 60. Centre limb T-joint split into its own axis, no-load loss localised to the corner/T-joint mass, step-lap defaults made rating-aware -- and the building-factor bands re-flagged as heuristics, not published constants
+
+Research findings, three of them, landing on the same joint the last several
+sections have been refining.
+
+**Centre limb T-joint is a third independent axis.** `coreConstruction`
+(cut geometry) and `jointStacking` (staggering) were already split apart
+in section 54. A third fact was still folded into the first: whether the
+centre limb's own T-joint -- where it meets each yoke -- is cut as a
+chevron V-notch, a plain angled seat, or a butt joint. Construction B's own
+label, "V-notch cut (V-notch, outer, centre)", said this was that
+construction's own exclusive feature. It is not: a step-lap mitred core
+(Construction A) normally also carries a V-notch centre limb in practice,
+the same conflation section 54 already found once between cut geometry and
+stacking, this time between cut geometry and the centre joint's own shape.
+
+`centreJoint` (`packages/engine/index.js`, `deriveSpec`) is now its own
+`put()`, three values (`vNotch`/`plainSeat`/`butt`), independent of both
+`coreConstruction` and `jointStacking`. Its suggested default is the three
+constructions' own traditional pairing -- Construction B suggests `vNotch`
+(unchanged, it is B's whole identity), Construction A now also suggests
+`vNotch` (the actual change this section makes: A used to have no centre-
+joint concept at all), Construction C suggests `butt` (its own flat 90
+degree cut has no chart evidence for a mitred notch). This is what "keep
+the three manufacturer price tiers as presets that set all three axes at
+once" means in practice: picking a `coreConstruction` re-suggests
+`jointStacking` and `centreJoint` together, the same AUTO/SET cascade
+`deriveSpec` already uses everywhere, not a separate preset mechanism --
+and, like every AUTO field, a design can still set `centreJoint`
+independently of `coreConstruction` (a Construction A core with a plain or
+butt centre seat, or a Construction C core with a V-notch, are real,
+selectable combinations, just not the suggested default).
+
+**Only the V-notch's own geometry is drawn.** `plainSeat` and `butt` are
+labelled and priced identically to their construction's own base geometry
+-- there is no reference chart for either shape, so neither gets a drawn
+notch of its own (CLAUDE.md invariant 5: no invented geometry). `Plate A`,
+`Plate B` and `Plate C` (Construction A's own limb/half-yoke/full-yoke
+plates, `plateTable()`, drawings 21/22) are UNCHANGED -- this section adds
+a label, not a fourth plate or a renumbering. The research behind this
+section also raised a question about whether Plate A/B/C's own names
+should change; that question is about naming convention, inferential, and
+not acted on here. This engine's own Plate A/B/C split is validated
+against a real cutting chart (sections 12/15/16); nothing here touches it.
+
+**No-load loss localised to the corner/T-joint mass.** The building factor
+used to multiply the WHOLE assembled core's specific loss flatly:
+`noLoad = w * buildFactor * wCoreAssembled`. Published sources put the
+joint's own contribution to no-load loss at 3-4% on large power
+transformers and up to 10% on small distribution units -- a flat factor
+cannot represent that, since it applies the same multiplier to steel next
+to a joint and steel in the middle of a straight run alike, and this
+platform's own book of work sits mostly at the small end the flat form
+mis-costs most.
+
+Replaced with the split form the research specified:
+`noLoad = (Wt - Wc) * w + Wc * w * Kc`, where `Wt` is `wCoreAssembled`
+(section 48's own always-Construction-A-shape estimate of the real,
+flux-carrying core, used here for the same reason it is used everywhere
+else: loss physics should not depend on which construction cut the steel),
+`Wc` is the corner-and-T-joint mass, `w` is the catalogue/Epstein-strip
+specific loss (`wRef * (B/bRef)^1.9`, no building factor), and `Kc` is the
+joint's own factor.
+
+**`Wc`, derived, not invented.** Section 16 already established, and this
+file already relies on, one real relationship: a mitred-both-ends limb
+lamination's average length is `2w`, decomposing into a straight-run
+rectangle (length `w`) plus two mitre wedges (the steel present because of
+the 45 degree cut, not the run between cuts) averaging `w` between them --
+exactly half of the trapezoid. `wJoint = 0.5 * wLimbA` (`wLimbA`, not
+`wCore`/`wLimb`: the same section 48 convention of always using
+Construction A's own limb formula for loss physics, regardless of which
+construction is actually selected, so a Construction B or C design's own
+no-load figure is not affected by how much of its own steel that
+construction's particular cut wastes). Only the limb feeds this, not the
+yoke body: corners and T-joints are where a limb ends, not where a yoke
+runs straight.
+
+**`Kc`, the existing manufacturer figures, reused, not replaced.**
+`buildFactor` (section 57's own six manufacturer figures, `BUILD_FACTOR_MSC`)
+is now read as the joint's own factor, not a flat whole-core multiplier.
+This is not a convenience substitution: those figures were always
+described as "building factor... by cut geometry and joint stacking" --
+properties of the JOINT specifically (how it is cut, how it is stacked),
+not of straight-run steel away from one. Concentrating them onto the mass
+that is actually at the joint is arguably more faithful to what they were
+always describing, not a reinterpretation invented for this section.
+
+**Checked against the research's own range, at the default case.** At the
+default 1000 kVA case (Construction A, staggered, `buildFactor` 1.125),
+`Wc` comes to 189.2 kg against `wCoreAssembled` 1105.4 kg -- 17.1% of the
+assembled core. Against what the OLD flat form would have given the SAME
+geometry (`w * buildFactor * wCoreAssembled` = 1194.2 W), the split form
+gives 1084.2 W -- a 9.2% reduction. 1000 kVA is squarely a small
+distribution rating, and 9.2% sits right at the "up to 10 percent on small
+distribution units" edge the research quotes, without this section having
+tuned `Wc` or `Kc` to hit that number -- it falls out of reusing an
+already-validated geometric relationship and an already-sourced factor.
+Not proof the model is right (no chart backs `Wc` the way section 15/35
+back the plate masses), but a real, unforced consistency check.
+
+**Scope: `coreType` `"stepLap"` only**, the same scope section 57's own
+`buildFactor` figures already carry -- D-type, S-type, amorphous and the
+rest keep the flat form, since there is no joint-mass breakdown behind
+those `bf` constants.
+
+**This moves the default case, deliberately, and cascades further than the
+no-load figure alone.** A 9.2% no-load reduction at fixed geometry is a
+real change to the loss landscape `fitToSchedule`'s own discrete-
+configuration search resolves against -- the same bracket-sensitivity
+cascade every prior loss-moving change in this file has produced (sections
+30/32/39/46/51/57 among them), not a new kind of effect. This default
+case's own numbers move together, not just no-load, and its own dynamics
+now converge cleanly where they used to cycle (`autoFitConverged` true, was
+false) -- it still lands exactly at a zero-margin compliance boundary
+(`fitResolutionNote` still fires), which is a separate fact from whether
+the iteration cycled to get there. `engine.test.mjs` and CLAUDE.md's own
+golden-numbers table updated in the same commit, re-verified directly
+against `computeDesign`, not hand-adjusted. 2000 kVA's own impedance-solve
+bracket crosses into a different discrete state (`impedanceDev` -0.95% to
+-2.38%, still inside the range 100/630 kVA already sit in); 100, 630 and
+2500 kVA are unmoved. 1250 kVA's own default AUTO-K design no longer
+saturates flux at the grade ceiling (a real consequence of the lower
+effective no-load figure, not a defect in the saturation reporting) --
+`engine.test.mjs`'s own flux-saturation check moved to 2000 kVA, which
+still saturates cleanly under the new model.
+
+**Step-lap defaults made rating-aware.** `stackingOffset`'s own default
+used to be a flat 10 mm regardless of rating. Below 160 kVA a step-lap
+core is commonly built with a tighter 10 mm shift (fewer, narrower steps
+make a 20 mm offset a bigger fraction of the yoke length); above it, 20 mm
+is the more usual shop figure. `deriveSpec` now suggests `kva < 160 ? 10 :
+20` -- still fully editable, Construction C's own explicit 5/10/20 mm
+option list unaffected. Two further parameters recorded, editable, not yet
+consulted by any mass or loss formula, the same "real manufacturer figure,
+honestly not wired into a computation it cannot yet support" treatment
+`stackingOffset` itself had before section 54 gave it a real consumer:
+`overlapLength` (step-lap overlap between successive layers at the joint,
+default 10 mm) and `laminationsPerStep` (sheets grouped at one cut position
+before the joint advances, default 6 -- the midpoint of the manufacturer's
+own stated 5-7 sheet range -- for `coreType` `"stepLap"`, 2 for
+conventional construction).
+
+**The building-factor bands are manufacturer heuristics, not published
+constants.** Section 57 already said as much ("manufacturer data, not a
+chart") but this is worth restating plainly now that a genuinely
+peer-reviewed figure has been checked against one of the constants this
+file has been treating as a fixed input: `CORE_TYPES.stepLap.bf` (1.10)
+against `dType`'s 1.18 and `sType`'s 1.26 encode step-lap's own advantage
+over D-type/S-type at 7.3% and 12.7% respectively -- an "8 to 12 percent"
+sort of figure, which is what this platform was quoted. The peer-reviewed
+literature instead puts step-lap's real core-loss benefit at 2 to 4.4
+percent. This is not acted on here -- changing `CORE_TYPES`' own `bf`
+constants without knowing which of D-type or S-type (or both) the
+peer-reviewed comparison was actually made against would be swapping one
+unverified number for another, not a correction -- but it is recorded so
+the next person relying on `CORE_TYPES.stepLap`'s own advantage over
+D-type/S-type knows that figure is a manufacturer quote overstating the
+peer-reviewed benefit by roughly 2 to 3 times, not an independently
+confirmed one.
+
+**Flag: the master mitre versus V-notch conclusion (sections 48/57) depends
+on which figure is right.** Section 57 concluded "V-notch runs measurably
+more loss than master mitre" from `BUILD_FACTOR_MSC`'s own manufacturer
+midpoints (master mitre staggered 1.125, V-notch staggered 1.24). Those are
+the same class of quoted figure the paragraph above just found overstated
+step-lap's own benefit by 2 to 3 times. The crossover point -- the V-notch
+building factor at which its higher processing cost advantage (section 56:
+V-notch's own `coreProcVNotch` Rs 6-9/kg against master mitre's own
+`coreProcMitre` Rs 12-18/kg) and its loss disadvantage roughly offset -- is
+1.137, close enough to master mitre's own 1.125 that the two constructions
+would read as near-equivalent overall, not master-mitre-preferred. If
+V-notch's true building factor sits nearer the peer-reviewed literature's
+own lower end than the manufacturer's quoted 1.24, section 57's own
+"master mitre is genuinely lower-loss" conclusion softens toward parity or
+reverses. Not resolved here -- `BUILD_FACTOR_MSC` is left unchanged,
+since swapping a manufacturer heuristic for an inferred crossover value
+without the same chart-level confirmation section 15/35/48 hold every
+other constant in this file to would trade one unverified figure for
+another -- but recorded so the next design office decision between master
+mitre and V-notch construction is made knowing the loss-driven case for
+either currently rests on a manufacturer heuristic, not a settled figure.
+
+**No renumbering of Plate A, B or C.** The research behind this section
+also touched on plate naming; that part is inferential, this engine's own
+Plate A/B/C split is validated against a real chart (sections 12/15/16),
+and neither the names nor the geometry they describe are changed here.
+
+`ENGINE_VERSION` bumped to 1.30.0: reachable by the default case (`coreType`
+`"stepLap"`, the default for every non-amorphous design) -- every number
+in CLAUDE.md's own golden-numbers table for the default case moved, and
+that table is updated in the same commit.

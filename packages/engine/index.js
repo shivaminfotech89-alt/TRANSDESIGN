@@ -8,7 +8,7 @@
  * without bumping it, or old quotations stop reproducing.
  */
 
-export const ENGINE_VERSION = "1.29.0";
+export const ENGINE_VERSION = "1.30.0";
 
 const CONDUCTORS = {
   copper: { name: "Copper, EC grade", rho20: 0.017241, alpha: 0.00393, dens: 8890, dMax: 3.6, short: "Cu", proof: 1.0 },
@@ -461,7 +461,49 @@ function deriveSpec(core, over = {}) {
      value is not consulted for A); Construction C uses this value directly
      as the single offset every staggered layer shares. Default 10 mm sits
      inside both real sets. */
-  put("stackingOffset", 10, null, (S.coreConstruction === "C" ? [[5, "5 mm"], [10, "10 mm"], [20, "20 mm"]] : [[0, "0 mm"], [10, "10 mm"], [20, "20 mm"]]), "Construction C, staggered stacking only: how far successive layers' flat-cut joints are offset along the strip (5/10/20 mm, designer-specified). Not consulted for Construction A, which always spans the full 0/10/20 mm real-chart split when staggered.");
+  /* CALIBRATION.md section 60: below 160 kVA a step-lap core is commonly
+     built with a tighter 10 mm shift (fewer, narrower steps make a 20 mm
+     offset a bigger fraction of the yoke length); above it, 20 mm is the
+     more usual shop figure. Rating-keyed default only -- construction C's
+     own explicit 5/10/20 mm option list is unaffected, and any value here
+     stays fully editable regardless of which side of 160 kVA the design
+     lands on. */
+  const stackOffSug = kva < 160 ? 10 : 20;
+  put("stackingOffset", stackOffSug, null, (S.coreConstruction === "C" ? [[5, "5 mm"], [10, "10 mm"], [20, "20 mm"]] : [[0, "0 mm"], [10, "10 mm"], [20, "20 mm"]]), `Construction C, staggered stacking only: how far successive layers' flat-cut joints are offset along the strip (5/10/20 mm, designer-specified). Not consulted for Construction A, which always spans the full 0/10/20 mm real-chart split when staggered. Defaults to ${stackOffSug} mm for this ${kva} kVA rating (10 mm below 160 kVA, 20 mm above).`);
+  /* CALIBRATION.md section 60: the centre limb's own T-joint (where the
+     centre limb meets each yoke) is a third independent axis, not a
+     property of coreConstruction. A step-lap mitred core (Construction A)
+     normally also carries a V-notch centre limb in practice -- this used to
+     be modelled as Construction B's own exclusive feature (the "V-notch cut
+     (V-notch, outer, centre)" label), which conflated "the limb/yoke plates
+     are V-notch cut" with "the centre limb has a V-notch seat," two
+     different facts the way cut geometry and joint stacking were conflated
+     before section 54 split those two apart. Suggested value is the
+     three-construction preset's own traditional pairing (B is built around
+     the V-notch; A is given the same seat now that it is known to be normal
+     practice there too; C's own flat 90 degree cut has no chart evidence for
+     a mitred notch, so it defaults to the plain butt its cutting method
+     already implies) -- picking a different coreConstruction re-suggests
+     this value like every other AUTO field, but does not force it: a
+     Construction A core with a plain or butt centre seat, or a Construction
+     C core built with a V-notch, are real, buildable, independently
+     selectable combinations. Only the V-notch's own geometry is currently
+     drawn (StampingSchedule/CoreCuttingChart's existing V/centre plates,
+     CALIBRATION.md section 35) -- plainSeat and butt are labelled and
+     costed the same as the construction's own base geometry, not yet drawn
+     with a distinct shape, since no reference chart exists for either. */
+  put("centreJoint", S.coreConstruction === "C" ? "butt" : "vNotch", null,
+    [["vNotch", "Chevron V-notch"], ["plainSeat", "Plain angled seat"], ["butt", "Butt joint"]],
+    "How the centre limb meets the yoke -- independent of cut geometry (coreConstruction) and joint stacking (jointStacking). Chevron V-notch is normal practice on a step-lap mitred core, not exclusive to the V-notch cut construction.");
+  /* CALIBRATION.md section 60: step-lap manufacturing detail, editable, not
+     yet consulted by a mass or loss formula -- there is no reference chart
+     here either, only the manufacturer's own stated practice (overlap
+     length) and range (laminations per step). Recorded so a real cutting
+     schedule can carry the figures a shop actually asks for, the same
+     "editable, not invented into a formula it cannot support" treatment
+     stackingOffset itself had before section 54 gave it a real consumer. */
+  put("overlapLength", 10, [5, 30, 1], null, "Step-lap overlap length between successive layers at the joint, mm -- how far two overlapping layers' cut ends run past each other. Independent of stackingOffset, which is how far each layer's own joint position is shifted along the strip, not how much the layers overlap at it.");
+  put("laminationsPerStep", ctk === "stepLap" ? 6 : 2, [1, 10, 1], null, ctk === "stepLap" ? "Sheets grouped at one cut position before the step-lap joint advances to the next, real step-lap practice being 5 to 7 sheets per step; 6 kept here as that range's own midpoint." : "Sheets grouped at one cut position before the joint advances. Conventional (non-step-lap) construction steps every 2 sheets.");
   /* CALIBRATION.md section 57: manufacturer data, not a chart -- building
      factor (ratio of built core loss to catalogue/Epstein-strip loss) by
      cut geometry AND joint stacking, replacing the single flat
@@ -1139,8 +1181,39 @@ function designTransformer(p) {
   const wFrame = 0.11 * wCore;
 
   /* losses */
-  const wPerKg = grade.wRef * Math.pow(B / grade.bRef, 1.9) * p.buildFactor;
-  const noLoad = wPerKg * wCoreAssembled;
+  /* CALIBRATION.md section 60: no-load loss localised to the corner/T-joint
+     mass instead of one flat building factor over the whole assembled
+     core. wJoint approximates that mass from the same 45 degree mitre
+     relationship section 16 already validated for the limb's own average
+     length (long - short = 2w): a mitred-both-ends limb's trapezoid
+     decomposes into a straight-run rectangle plus two mitre wedges -- the
+     steel present because of the cut, not the run between cuts -- and
+     those wedges average out to exactly half of wLimbA's own total.
+     wLimbA only, not wYokeA: corners and T-joints are where a LIMB ends,
+     and the whole assembled-core estimate stays on wLimbA/wYokeA (section
+     48's "always Construction A's own shape for loss physics" convention)
+     regardless of which coreConstruction is actually selected, for the
+     same reason wCoreAssembled itself does. Applies only when coreType is
+     "stepLap" -- the one practice buildFactor's own manufacturer figures
+     (section 57) describe; D-type, S-type, amorphous and the rest have no
+     joint-mass breakdown behind them, so they keep the flat form. Read as
+     the joint's own factor now (Kc), not a flat whole-core multiplier --
+     the straight run and the yoke body run at catalogue loss (factor 1),
+     the way a well-annealed core does away from a joint, so the same
+     manufacturer bf figures now describe a smaller, more concentrated mass
+     and produce a smaller total no-load figure than the old flat form did
+     at the same rating (CALIBRATION.md section 60: this moves the default
+     case's own golden number, deliberately -- the flat form is what
+     misprices the small end). wPerKg below is the resulting EFFECTIVE
+     W/kg (noLoad / wCoreAssembled), kept for calcSheet's own display and
+     searchDesigns' cost comparisons, both of which only need one
+     comparable specific-loss figure, not the two-term split behind it. */
+  const wPerKgBase = grade.wRef * Math.pow(B / grade.bRef, 1.9);
+  const wJoint = p.coreType === "stepLap" ? 0.5 * wLimbA : 0;
+  const noLoad = p.coreType === "stepLap"
+    ? wPerKgBase * ((wCoreAssembled - wJoint) + wJoint * p.buildFactor)
+    : wPerKgBase * p.buildFactor * wCoreAssembled;
+  const wPerKg = noLoad / wCoreAssembled;
   const vaPerKg = grade.vaRef * Math.pow(B / grade.bRef, 4.0) * ct.exc;
   const i0pct = ((vaPerKg * wCoreAssembled) / (p.kva * 1000)) * 100;
   const loadLoss = g.loadLoss;
@@ -1337,7 +1410,7 @@ function designTransformer(p) {
     lvID: g.lvID, lvOD: g.lvOD, hvID: g.hvID, hvOD: g.hvOD, lmtLV: g.lmtLV, lmtHV: g.lmtHV, hLV: g.hLV, hHV: g.hHV,
     wLV, wHV, wLVCovered, wHVCovered, wCore, wCoreAssembled, wLimb, wYoke, wIns, wFrame, wTank, wFin, wEnclosure, fluidLitres, coilArea,
     coreHeight, coreWidth, yokeDepth, tankL, tankW, tankH, tankArea, finAreaReq,
-    wPerKg, noLoad, loadLoss, totalLoss, i0pct, i2rLV: g.i2rLV, i2rHV: g.i2rHV, rLV: g.rLV, rHV: g.rHV,
+    wPerKg, wJoint, noLoad, loadLoss, totalLoss, i0pct, i2rLV: g.i2rLV, i2rHV: g.i2rHV, rLV: g.rLV, rHV: g.rHV,
     pctX: g.pctX, pctR: g.pctR, pctZ: g.pctZ, regFull, oilRise, windRise, grad, hotspot, hotspotAvg, lifeFactor,
     riseLimit, wRiseLimit, eff100: effAt(1), eff75: effAt(0.75), eff50: effAt(0.5), maxEffLoad,
     iscLV: iLV * iscMult, iscHV: iHV * iscMult, iscMult, noise, sch, compliance, compliant,
@@ -2498,12 +2571,17 @@ function calcSheet(d, bom) {
   ]);
 
   sec("6. Core weight, no-load loss and exciting current", REFS.K, [
-    row("Specific core loss", "w", "w = w\u1D63\u2091\u1da0 (B/B\u1D63\u2091\u1da0)^1.9 \u00D7 building factor", `= ${n(d.grade.wRef)} \u00D7 (${n(d.B)}/${n(d.grade.bRef)})^1.9 \u00D7 ${n(p.buildFactor)}`, `${n(d.wPerKg, 3)} W/kg`, REFS.K + " \u00B7 " + REFS.B, "grade, flux density, joint type"),
+    row("Specific core loss, catalogue", "w", "w = w\u1D63\u2091\u1da0 (B/B\u1D63\u2091\u1da0)^1.9", `= ${n(d.grade.wRef)} \u00D7 (${n(d.B)}/${n(d.grade.bRef)})^1.9`, `${n(d.grade.wRef * Math.pow(d.B / d.grade.bRef, 1.9), 3)} W/kg`, REFS.K + " \u00B7 " + REFS.B, "grade, flux density -- the Epstein-strip figure, before any joint effect"),
     row("Core weight, limb", "W\u2097\u1D62\u2098\u1D47", "per step, mitred both ends: length = 2 \u00D7 width (drawing 22, Plate A)", "see drawing 22, core cutting chart", `${n(d.wLimb, 1)} kg`, REFS.B, "stepped widths, lamination thickness"),
     row("Core weight, yoke", "W\u1D67\u2092\u2096\u2091", "W = \u03C1\u1da0\u2091 A\u1D4D \u00D7 2(2C + d)", `= 7650 \u00D7 ${n(d.aGross / 1e4, 5)} \u00D7 2(2\u00D7${n(d.cc / 1000, 3)} + ${n(d.dCore / 1000, 3)})`, `${n(d.wYoke, 1)} kg`, REFS.S, "core area, limb spacing"),
     row("Core weight, total (steel order)", "W\u1da0\u2091", "W = W\u2097\u1D62\u2098\u1D47 + W\u1D67\u2092\u2096\u2091", `= ${n(d.wLimb, 1)} + ${n(d.wYoke, 1)}`, `${n(d.wCore, 1)} kg`, REFS.S, "limb weight, yoke weight -- ordered and stacked, the cutting/mitre method's own construction-specific mass, drawings 21/22; NOT what is priced (CALIBRATION.md section 56) -- the works buys finished core per kg, so the BOM prices the assembled weight below at a construction-specific rate instead"),
     row("Core weight, assembled (flux-carrying)", "W\u1da0\u2091,\u2090", "Construction A's own limb + yoke formula (the two rows above this table's own \"total\" row), computed unconditionally", p.coreConstruction === "A" ? "identical to the steel-order weight above -- Construction A selected, same formula both times" : `differs from the steel-order weight above -- Construction ${p.coreConstruction} selected`, `${n(d.wCoreAssembled, 1)} kg`, REFS.S, "the engine's own best validated estimate (section 15, two real references) of what a real, finished core of this dCore/Hw/cc/steps weighs, independent of which construction cut it -- CALIBRATION.md sections 48 and 56, and what the core BOM line actually prices"),
-    row("No-load loss", "P\u2080", "P\u2080 = w \u00D7 W\u1da0\u2091,\u2090", `= ${n(d.wPerKg, 3)} \u00D7 ${n(d.wCoreAssembled, 1)}`, `${n(d.noLoad, 0)} W`, REFS.IS1180, "specific loss, assembled core weight -- not the purchased weight above"),
+    row("Corner and T-joint mass", "W\u1D04", p.coreType === "stepLap" ? "W\u1D04 = 0.5 \u00D7 assembled limb mass (mitre-wedge estimate)" : "Not modelled for this joint type -- see note below", "CALIBRATION.md section 60", `${n(d.wJoint, 1)} kg`, REFS.B, "assembled core geometry -- the mass this engine estimates sits right at the corners and the centre-limb T-joints, the rest of the core running close to catalogue loss"),
+    row("No-load loss", "P\u2080", p.coreType === "stepLap" ? "P\u2080 = w(W\u1da0\u2091,\u2090 \u2212 W\u1D04) + w \u00D7 W\u1D04 \u00D7 Kc" : "P\u2080 = w \u00D7 building factor \u00D7 W\u1da0\u2091,\u2090",
+      p.coreType === "stepLap"
+        ? `= ${n(d.grade.wRef * Math.pow(d.B / d.grade.bRef, 1.9), 3)}\u00D7(${n(d.wCoreAssembled, 1)}\u2212${n(d.wJoint, 1)}) + ${n(d.grade.wRef * Math.pow(d.B / d.grade.bRef, 1.9), 3)}\u00D7${n(d.wJoint, 1)}\u00D7${n(p.buildFactor)}`
+        : `= ${n(d.grade.wRef * Math.pow(d.B / d.grade.bRef, 1.9), 3)} \u00D7 ${n(p.buildFactor)} \u00D7 ${n(d.wCoreAssembled, 1)}`,
+      `${n(d.noLoad, 0)} W`, REFS.IS1180, p.coreType === "stepLap" ? "catalogue specific loss, assembled core weight, joint mass, Kc (buildFactor, now read as the joint's own factor -- CALIBRATION.md section 60)" : "specific loss, assembled core weight -- not the purchased weight above"),
     row("Exciting volt-amperes", "VA/kg", "VA/kg = va\u1D63\u2091\u1da0 (B/B\u1D63\u2091\u1da0)\u2074 \u00D7 joint factor", `joint factor = ${n(d.ct.exc, 2)} for ${d.ct.name.split(",")[0]}`, `${n(d.vaPerKg, 2)} VA/kg`, REFS.K, "grade, flux density, joint type"),
     row("No-load current", "I\u2080", "I\u2080% = VA/kg \u00D7 W\u1da0\u2091,\u2090 / (S\u00D710\u00B3) \u00D7 100", `= ${n(d.vaPerKg, 2)} \u00D7 ${n(d.wCoreAssembled, 1)} / ${p.kva}000 \u00D7 100`, `${n(d.i0pct)} %`, REFS.K, "exciting VA, assembled core weight -- not the purchased weight above"),
     row("Conductor weight, bare", "W\u1D04\u1d64", "W = 3 N L\u2098\u209C a \u03C1\u2098", `LV: 3\u00D7${d.nLV}\u00D7${n(d.lmtLV, 3)}\u00D7${n(d.aLVreq)}\u00D710\u207B\u2076\u00D7${d.cLV.dens}`, `${n(d.wLV, 1)} + ${n(d.wHV, 1)} kg`, REFS.S, "turns, mean turn, area, density"),
