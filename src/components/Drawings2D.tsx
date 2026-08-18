@@ -50,6 +50,20 @@ const JOINT_STACKING_LABEL: Record<string, string> = {
 const jointStackingLabel = (jointStacking: string) =>
   JOINT_STACKING_LABEL[jointStacking] || jointStacking || 'Staggered joints';
 
+/** CALIBRATION.md section 60: the centre limb's own T-joint is a third
+ *  independent axis from both labels above -- shown alongside them, not
+ *  folded into either, for the same reason. Only the V-notch is currently
+ *  drawn (the existing V-notch/centre plate geometry); plain angled seat
+ *  and butt read the same construction-specific plate shape with just this
+ *  label changed, since no reference chart exists for either yet. */
+const CENTRE_JOINT_LABEL: Record<string, string> = {
+  vNotch: 'Chevron V-notch',
+  plainSeat: 'Plain angled seat',
+  butt: 'Butt joint',
+};
+const centreJointLabel = (centreJoint: string) =>
+  CENTRE_JOINT_LABEL[centreJoint] || centreJoint || 'Chevron V-notch';
+
 /**
  * DRAWINGS.md, "Start with the universal requirements" -- this file applies
  * the three universal pieces (DrawingPrimitives.tsx: dimension lines, the
@@ -429,6 +443,7 @@ export function StampingSchedule({ design, params, project }: Drawings2DProps) {
         <table className="w-full max-w-md mb-3">
           <tbody>
             <DataRow label="Plate Construction" value={plateConstructionLabel(params.coreConstruction)} />
+            <DataRow label="Centre Joint" value={centreJointLabel(params.centreJoint)} />
             <DataRow label="No-load loss" value={design.noLoad.toFixed(0)} unit="W" />
             <DataRow label="Rating" value={ratingLabel(params)} />
             <DataRow label="Flux density" value={design.B.toFixed(3)} unit="T" />
@@ -540,6 +555,7 @@ export function StampingSchedule({ design, params, project }: Drawings2DProps) {
           <tbody>
             <DataRow label="Plate Construction" value={plateConstructionLabel(params.coreConstruction)} />
             <DataRow label="Joint Stacking" value={jointStackingLabel(params.jointStacking)} />
+            <DataRow label="Centre Joint" value={centreJointLabel(params.centreJoint)} />
             {staggered && <DataRow label="Stacking Offset" value={params.stackingOffset ?? 10} unit="mm" />}
             <DataRow label="No-load loss" value={design.noLoad.toFixed(0)} unit="W" />
             <DataRow label="Rating" value={ratingLabel(params)} />
@@ -667,6 +683,7 @@ export function StampingSchedule({ design, params, project }: Drawings2DProps) {
         <tbody>
           <DataRow label="Plate Construction" value={plateConstructionLabel(params.coreConstruction)} />
           <DataRow label="Joint Stacking" value={jointStackingLabel(params.jointStacking)} />
+          <DataRow label="Centre Joint" value={centreJointLabel(params.centreJoint)} />
         </tbody>
       </table>
       <p className="text-[10px] text-steel mt-1">
@@ -684,6 +701,14 @@ export function StampingSchedule({ design, params, project }: Drawings2DProps) {
         approximation does not model. Stacking does not change mass either way, and it is not known whether
         it changes no-load loss, which this engine does not model.
       </p>
+      {params.coreType === 'stepLap' && (
+        <p className="text-[10px] text-steel mt-1">
+          Step-lap practice: {params.laminationsPerStep ?? 6} laminations grouped at one cut position before the
+          joint advances to the next, {params.overlapLength ?? 10} mm overlap between successive layers at the
+          joint (CALIBRATION.md section 60) -- manufacturer figures, editable, not yet consulted by the mass or
+          loss formulas above.
+        </p>
+      )}
       <table className="w-full mt-3">
         <thead>
           <tr>
@@ -799,12 +824,21 @@ export function CoreCuttingChart({ design, params, project }: Drawings2DProps) {
         <tbody>
           <DataRow label="Plate Construction" value={plateConstructionLabel(params.coreConstruction)} />
           <DataRow label="Joint Stacking" value={jointStackingLabel(params.jointStacking)} />
+          <DataRow label="Centre Joint" value={centreJointLabel(params.centreJoint)} />
           {staggered && !isB && <DataRow label="Stacking Offset" value={isC ? (params.stackingOffset ?? 10) : '0 / 10 / 20 (chart split)'} unit={isC ? 'mm' : undefined} />}
           <DataRow label="No-load loss" value={design.noLoad.toFixed(0)} unit="W" />
+          {params.coreType === 'stepLap' && <DataRow label="Corner and T-joint mass" value={design.wJoint.toFixed(0)} unit="kg" />}
           <DataRow label="Rating" value={ratingLabel(params)} />
           <DataRow label="Flux density" value={design.B.toFixed(3)} unit="T" />
         </tbody>
       </table>
+      {params.coreType === 'stepLap' && (
+        <p className="text-[10px] text-steel mb-3">
+          No-load loss now localises the building factor to the corner and T-joint mass above (CALIBRATION.md
+          section 60) rather than applying it flatly across the whole assembled core -- the straight run and the
+          yoke body run close to catalogue loss, only the joint region carries the full building factor.
+        </p>
+      )}
       {isB && (
         <p className="text-[10px] text-steel mb-3">
           Joint stacking has no effect on Construction B: the one furnace chart this construction is checked

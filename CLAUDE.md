@@ -88,15 +88,30 @@ Default case: 1000 kVA, 11 kV / 433 V, Dyn11, IS, Level 2, copper, ONAN, fin tan
 
 | Quantity | Value |
 |---|---|
-| Ex-works | ₹20,69,911 |
-| Delivered incl. GST | ₹24,42,495 |
-| Tank length | 1502 mm |
-| No-load loss | 1088 W |
-| Load loss | 6342 W |
-| Impedance | 4.90 % |
+| Ex-works | ₹19,92,278 |
+| Delivered incl. GST | ₹23,50,888 |
+| Tank length | 1532 mm |
+| No-load loss | 1084 W |
+| Load loss | 6356 W |
+| Impedance | 5.00 % |
 | Efficiency | 99.26 % |
-| Core mass | 1030 kg |
+| Core mass | 1105 kg |
 | Stepped core utilisation | 3 steps 0.8510, 9 steps 0.9483, 13 steps 0.9642 |
+
+Current as of ENGINE_VERSION 1.30.0 (CALIBRATION.md section 60): no-load
+loss is no longer the whole assembled core's mass at one flat building
+factor. It is now split — the corner-and-T-joint mass (about 17% of the
+assembled core at this case, estimated from the same validated mitre-wedge
+relationship the limb mass itself already uses) carries the building
+factor; the rest of the core runs at the catalogue specific loss. Published
+sources put the joint's own share of no-load loss at 3-4% on large power
+transformers and up to 10% on small distribution units — most of this
+platform's own book of work — which a flat factor cannot represent. This
+is roughly a 9% no-load reduction against what the flat form gave the same
+geometry, which is enough to shift which discrete winding configuration
+`fitToSchedule` settles on for the default case (the same bracket-
+sensitivity cascade every prior loss-moving change in this table has
+produced), so every figure above moved together, not just no-load.
 
 Current as of ENGINE_VERSION 1.28.0 (CALIBRATION.md sections 56-57): the core
 BOM line now prices the assembled core (`wCoreAssembled`) at the base core

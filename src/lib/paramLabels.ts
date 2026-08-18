@@ -14,7 +14,8 @@ export const LABELS: Record<string, string> = {
   kva2: 'Second rating', cooling2: 'Second rating, cooling', limitNLL2: 'Second rating, no-load loss limit', limitLL2: 'Second rating, load loss limit',
   coreGrade: 'Core steel grade', coreType: 'Core / joint construction', coreConstruction: 'Core plate cut geometry',
   jointStacking: 'Yoke joint stacking', stackingOffset: 'Joint stacking offset',
-  buildFactor: 'Building factor',
+  centreJoint: 'Centre limb T-joint', overlapLength: 'Step-lap overlap length', laminationsPerStep: 'Laminations per step',
+  buildFactor: 'Building factor (joint)',
   flux: 'Flux density', steps: 'Core steps', etK: 'Volts-per-turn constant (K)', aspect: 'Window aspect ratio',
   autoWindow: 'Solve window height for impedance', autoFit: 'Fit flux / current density to loss limits',
   windowSpace: 'Window space factor numerator',
@@ -49,6 +50,7 @@ export const UNITS: Record<string, string> = {
   hvTankClr: 'mm', endTankClr: 'mm', cylThk: 'mm',
   lvIns: 'mm', hvPaper: 'mm', hvInterlayer: 'mm', insFactor: '×', topOilSpace: 'mm',
   bottomClr: 'mm', finDiss: 'W/m²', tankDiss: 'W/m²', airDiss: '', stackingOffset: 'mm',
+  overlapLength: 'mm', laminationsPerStep: '',
   tariff: '₹/kWh', years: 'yr', loadFactor: '', pf: '',
   kva: 'kVA', hv: 'V', lv: 'V', hv2: 'V', lv2: 'V', freq: 'Hz',
 };
