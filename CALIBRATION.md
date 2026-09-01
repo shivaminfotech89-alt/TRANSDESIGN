@@ -4833,17 +4833,31 @@ buying real thermal margin is cheap insurance. What it is not is a reason
 to leave `tankDiss` unresolved, because the same constant also sets the
 predicted rise that a heat run is judged against.
 
-**Open question, recorded not resolved: the 880 W on their own sheet.**
-Their heat dissipation calculation uses 2690 W where their own guaranteed
-figures give 470 + 3100 = 3570 W. The 880 W difference is on their sheet,
-not ours. It is not simply a temperature-correction basis: 3100 W
-corrected from 100 to 75 degrees C would be about 2869 W, giving 3339 W
-total, not 2690 W. One observation worth putting alongside the question:
-our own law over their actual 20 fins at 2690 W gives a 40.9 K rise, which
-is exactly the sort of figure a 40 K design basis would be built around --
-so 2690 W may be a deliberate different basis rather than an arithmetic
-slip. That is speculation and is flagged as such. **Do not adopt 2690 W
-for anything, and do not adopt their 7-fin result**, which depends on it.
+**RESOLVED in section 71: the 880 W is not a discrepancy.** This section
+originally recorded it as an open question and warned "do not adopt 2690 W
+for anything". That warning was wrong, and the resolution came out of
+section 71's work rather than from any new data -- the sheet already
+contained it. Their full-load copper loss is **2220 W**, and every figure
+on the sheet follows:
+
+- 50 % load, stated 1025 W = no-load 470 + 0.25 x 2220 = **1025** exactly.
+- Heat dissipation, using 2690 W = no-load 470 + 2220 = **2690** exactly.
+- I2R computed from their own stated conductor areas and mean turns is
+  1814 W at 75 C and 1960 W at 100 C; x1.20 stray gives 2176 and 2352 W,
+  bracketing 2220 W at about an 85 C reference.
+
+So 2690 W is the design's own **calculated** total loss and 3100 W is the
+**guaranteed** load loss, which carries tender margin -- about 28 % of it.
+Two different quantities, both correct, never reconciled on the sheet
+because a designer reading it would not need them to be. Nothing on their
+sheet is wrong.
+
+This matters beyond tidying an open question, in two directions. It means
+their fin count should be judged against 2690 W, where their own 7 fins is
+arithmetically right and the "why 20" question is about margin policy, not
+error -- and separately it means **the real design's load-loss target is
+2220 W, not 3100**, which is what section 71 measures the engine's own load
+loss against.
 
 **Nothing changed.** No constant moved, no margin parameter added, no
 default set, `ENGINE_VERSION` unmoved.
@@ -5406,3 +5420,127 @@ to point the right way on one design.
 **Both references now run at their own step counts** (16 and 17) in
 `reference-designs.test.mjs`, and neither is given a core grade any more --
 the test asserts `gradeSuggest` finds `m0h` on its own, which is the fix.
+
+## 71. The entangled fix, attempted and NOT landed: all three changes are blocked on the window solve having no discrete-neighbourhood resolution
+
+The effective height (section 62), the current density (section 61) and the
+LV radial build were to be corrected together, because section 67 showed
+they partly cancel. All three were implemented and measured against all
+five references. **None is committed.** Each is individually defensible and
+each makes at least one reference materially worse, for a reason that is
+now identified and is none of the three.
+
+**First, two things the work established that are worth more than the fix
+was going to be.**
+
+**Our loss model is right; only the density feeding it is wrong.** Fed the
+315's own stated current densities (1.52 / 1.43 A/mm2) the engine returns
+`aLVreq` 276.3 mm2 against the sheet's 275.67 (**+0.2 %**), `aHVreq` 6.68
+against 6.69 (**-0.1 %**), and a load loss of 2278 W against the sheet's
+own calculated 2220 W (**+2.6 %**). Section 61 read the conductor-area gap
+as evidence the area model was broken. It is not: it is exactly right, and
+every bit of the gap is the current density handed to it.
+
+**And the density gap is smaller than section 61 claimed, because `autoFit`
+already closes most of it.** `densitySuggest` returns 2.60 / 2.75, but on
+the normal path -- `autoFit` on, the sheet's own declared limits -- the
+engine fits down to **2.10 / 2.22** and meets both limits (463 W against
+470, 2947 W against 3100). The real design sits at 1.52 / 1.43 not because
+our fit is broken but because it targets its own **calculated** 2220 W
+rather than its **guaranteed** 3100 W: a 28 % margin, against the 7 %
+`marginTargetLL` leaves. That is a commercial policy, not physics, and the
+630 kVA reference's copper mass (280 kg against 292, -4 %) says the
+suggestion is roughly right where no tender margin is in play. **Section
+61's density finding is hereby narrowed**: `densitySuggest` not taking
+`effLevel` is real, but it is worth far less than the 41 %/48 % area gap
+that section implied, most of which is margin policy on one tender job.
+
+**The measured matrix, all five references, each change alone and
+together.** LV build in mm, copper in kg, arrangement as axial x radial.
+
+| | impedance % | aspect | LV build | copper | arrangement |
+|---|---|---|---|---|---|
+| **315** (sheet: build 31, aspect 1.84, 1ax x 8rad) | | | | | |
+| baseline | 4.75 | 2.20 | **30.3** | 204 | 1 x 5 |
+| Rogowski only | 4.62 | 2.08 | 30.3 | 204 | 1 x 5 |
+| strand aspect only | 4.75 | 2.16 | 17.4 | 191 | 1 x 5 |
+| both | **6.51** | 1.60 | 40.7 | 217 | 1 x 5, **2 layers** |
+| **630 dry** (sheet: build 20, Cu 292, 4ax x 2rad) | | | | | |
+| baseline | **4.50** | 2.63 | 13.0 | 280 | **4 x 2** |
+| Rogowski only | **5.07** | 2.25 | 32.0 | 303 | 4 x 2, **2 layers** |
+| strand aspect only | 4.50 | 2.62 | 14.8 | 283 | **2 x 4** |
+| both | 4.50 | 2.46 | 14.8 | 283 | **2 x 4** |
+| **1250** (sheet: Cu 982, 5ax x 6rad) | | | | | |
+| baseline | 4.93 | **2.44** | 30.7 | 555 | **4 x 5** |
+| Rogowski only | 5.00 | 2.21 | 30.7 | 558 | 4 x 5 |
+| strand aspect only | 5.28 | 2.31 | 33.2 | 564 | **2 x 9** |
+| both | 5.00 | 2.22 | 33.2 | 564 | 2 x 9 |
+| **500** (sheet: 3ax x 4rad) | | | | | |
+| baseline | 4.65 | 2.89 | 24.4 | 320 | **2 x 4** |
+| both | 4.49 | 2.75 | 25.9 | 322 | **1 x 7** |
+| **1000 default** | | | | | |
+| baseline | **5.00** | 2.57 | 31.2 | 618 | 4 x 5 |
+| Rogowski only | **4.82** | 2.44 | 31.8 | 644 | 4 x 5 |
+| both | 5.00 | 2.38 | 36.4 | 662 | 2 x 10 |
+
+**Why the strand aspect fails.** The physical observation is not in doubt:
+the 315 winds eight 3.28 x 10.78 flats -- 3.29:1 -- on their short edge,
+and the engine sizes strands square. But squareness is compensating for the
+density error. At our high density `aLVreq` is small, and a square stack of
+a small area gives 30.3 mm against the sheet's 31; make the strand flat at
+the same small area and the build collapses to 17.4. Correct only the
+strand and the 315 gets worse. And the arrangement moves the wrong way on
+three references at once: the 630's measured **4 x 2** becomes 2 x 4, the
+1250's **5 x 6** target goes from 4 x 5 to 2 x 9, the 500's **3 x 4** goes
+from 2 x 4 to 1 x 7. One aspect constant cannot serve them, which is the
+same objection sections 9-11 raised when they retired `lvStripAspect`.
+
+**Why the Rogowski fix fails, and this is the real finding.** It is correct
+-- at the 315's own dimensions it moves predicted impedance from 4.70 % to
+4.26 % against 4.20 % measured. But it shortens the window on every design,
+and a shorter window tips the LV over a discrete layer boundary. On the 630
+dry, `lvTurnLayers` goes 1 to 2, the build jumps **13.0 to 32.0 mm** in one
+step, and %Z lands at **5.07 against 4.50 declared -- +12.7 %, outside IS
+2026's own +/-10 %**. On the 1000 kVA default the solve misses its target
+entirely, 4.82 against 5.00.
+
+The window sweep shows why, and it is not a tuning problem:
+
+```
+630 dry, Rogowski applied, window swept:
+  Hw 438 -> Z 11.97, 1 layer      Hw 536 -> Z 6.63, 1 layer
+  Hw 554 -> Z  5.73, 1 layer      Hw 634 -> Z 5.07, 2 LAYERS
+```
+
+Z(Hw) is **discontinuous** at the layer boundary: the build more than
+doubles in one step, so reactance jumps, and the declared 4.50 % can fall
+in the gap between the two branches. `autoWindow` is a bisection, and a
+bisection on a discontinuous function does not converge to a target that
+lies in a jump -- it lands on whichever branch it was last on.
+
+**So the blocker is none of the three changes.** It is that the
+window-height solve has no discrete-neighbourhood resolution, where the
+loss fit gained one in sections 50-51 for exactly this class of fault.
+Section 66 already recorded this in passing, as the cause of the 630's
+impedance deviation moving under the corner radius, and said "that is the
+real fix and it is not this section's". It is now the thing standing
+between the platform and three separate corrections it is otherwise ready
+to make. The baseline agreements these references currently show -- the
+1250's 2.44 aspect, the 630's 4 x 2 arrangement, the 315's 30.3 mm build --
+are **compensations, not confirmations**, and every one of them breaks the
+moment a single error is removed in isolation.
+
+**Recommended order, not started here:**
+1. Give `autoWindow` a discrete-neighbourhood resolution: detect that the
+   solve is straddling a configuration jump, enumerate the nearby
+   compliant states, and choose deliberately -- the same shape as
+   `resolveDiscreteNeighbourhood`, and reusing its convention of reporting
+   the choice rather than hiding it.
+2. Then land the Rogowski sign fix, which is the best-evidenced of the
+   three and whose only failure mode above is the solver.
+3. Then density and strand aspect together, re-measured, since neither can
+   be judged while the other is wrong.
+
+**Nothing changed in the engine.** `ENGINE_VERSION` unmoved at 1.33.0, all
+three suites green, no golden number touched. Section 63's 880 W open
+question is closed by this work and corrected in place.
