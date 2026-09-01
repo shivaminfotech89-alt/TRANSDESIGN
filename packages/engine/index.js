@@ -8,7 +8,7 @@
  * without bumping it, or old quotations stop reproducing.
  */
 
-export const ENGINE_VERSION = "1.33.0";
+export const ENGINE_VERSION = "1.34.0";
 
 const CONDUCTORS = {
   copper: { name: "Copper, EC grade", rho20: 0.017241, alpha: 0.00393, dens: 8890, dMax: 3.6, short: "Cu", proof: 1.0 },
@@ -1169,18 +1169,38 @@ function designTransformer(p) {
   const Hw0 = Math.max(200, Math.sqrt(aWin / p.aspect) * p.aspect * 1000);
 
   /* solve the window height for the declared impedance: taller window, lower reactance */
-  let g = build(Hw0), solvedZ = false;
+  let g = build(Hw0), solvedZ = false, windowNote = null, windowStraddle = false, windowResolved = false;
   if (p.autoWindow !== false && p.targetZ > 0) {
-    let lo = 0.35 * Hw0, hi = 6 * Hw0;
+    const lo0 = 0.35 * Hw0, hi0 = 6 * Hw0;
+    let lo = lo0, hi = hi0;
+    let bisected = null;
     if (build(hi).pctZ <= p.targetZ && build(lo).pctZ >= p.targetZ) {
       for (let i = 0; i < 44; i++) {
         const mid = (lo + hi) / 2;
         if (build(mid).pctZ > p.targetZ) lo = mid; else hi = mid;
       }
-      g = build((lo + hi) / 2);
+      bisected = build((lo + hi) / 2);
+    }
+    /* CALIBRATION.md section 73. Two ways the plain bisection fails, and
+       both need the same answer:
+         - it brackets and converges onto a JUMP rather than a root, then
+           reports success while missing the declared value;
+         - it does not bracket at all, because %Z(Hw) is not monotone, and
+           the old code silently returned an interval endpoint.
+       Only a bisection that actually landed on the declared value is taken
+       as solved. Everything else goes to the neighbourhood search, which
+       sweeps the whole interval, refines within each continuous branch, and
+       says which it chose -- or that none reaches the target. */
+    if (bisected && Math.abs(bisected.pctZ - p.targetZ) <= WINDOW_Z_TOL) {
+      g = bisected;
       solvedZ = true;
     } else {
-      g = build(build(lo).pctZ < p.targetZ ? lo : hi);
+      const res = resolveWindowNeighbourhood(build, (bisected ? bisected.Hw : Hw0), lo0, hi0, p.targetZ, Math.min(p.zTol, std.zTol));
+      g = res.g || bisected || build(build(lo0).pctZ < p.targetZ ? lo0 : hi0);
+      solvedZ = res.solved;
+      windowStraddle = res.straddle;
+      windowNote = res.note;
+      windowResolved = true;
     }
   }
   const Hw = g.Hw;
@@ -1559,6 +1579,7 @@ function designTransformer(p) {
 
   return {
     p, grade, ct, std, fluid, dryT, cls, dry, B, cLV, cHV, dLV, dHV, clr, refT, shape, solvedZ,
+    windowNote, windowStraddle, windowResolved,
     hvConn, lvConn, hvPh, lvPh, hvDesign, lvDesign, iLineHV, iLineLV, iHV, iLV,
     et, nLV, nHV, nHVmax, ratioErr, tapSteps, turnsPerStep,
     aNet: aNet * 1e4, aGross: aGross * 1e4, dCore, coreW, coreD, Hw, Ww: g.Ww, cc: g.cc,
@@ -1584,6 +1605,114 @@ function designTransformer(p) {
     lvConstruction: p.kva < p.lvFoilMaxKva ? "foil" : "strip",
     hvCondShape: g.hvRound ? "round" : "strip",
   };
+}
+
+/* ============================================================
+   CALIBRATION.md section 73: window-height solve, discrete resolution.
+
+   autoWindow bisects the window height until calculated %Z equals the
+   declared value. That assumes %Z(Hw) is continuous and monotone. It is
+   neither: the LV turn-layer count, the HV group and layer counts and the
+   duct counts are all integers derived from the window, and when one of
+   them steps the radial build jumps, so %Z jumps with it. Measured on the
+   630 kVA dry reference, with the section 62 effective-height correction
+   applied (which is what exposed this):
+
+     Hw 554 -> Z 5.73, 1 LV layer      Hw 634 -> Z 5.07, 2 LV LAYERS
+
+   The build more than doubles across that step. A bisection run over a
+   discontinuity converges on the JUMP, not on a root -- it returns
+   whichever branch it was last on and reports success. The engine was
+   landing at 5.07% against 4.50% declared, +12.7%, outside IS 2026's own
+   +/-10%, while calcSheet printed "converged yes".
+
+   Same class of fault as sections 46/50/51 in the loss fit, resolved the
+   same way: sweep the interval, group samples by discrete signature, refine
+   WITHIN each branch (where %Z really is continuous), and choose between
+   branches deliberately rather than accepting wherever a bisection stopped.
+   And when no branch can reach the declared value, the straddle is
+   REPORTED -- the honest answer to "what window height gives 4.50%" is
+   sometimes that none does, and a nearest miss presented as a solution is
+   worse than saying so. */
+const WINDOW_SIG_FIELDS = ["lvTurnLayers", "lvAxCount", "lvRadCount", "numGroups", "layers", "turnsPerLayer", "hvDucts"];
+const windowSignature = (g) => WINDOW_SIG_FIELDS.map((f) => g[f]).join("|");
+const describeWindowSig = (a, b) => {
+  const x = a.split("|"), y = b.split("|");
+  return WINDOW_SIG_FIELDS.map((f, i) => (x[i] !== y[i] ? `${f} ${x[i]} vs ${y[i]}` : null)).filter(Boolean).join(", ");
+};
+const WINDOW_Z_TOL = 0.01;   // absolute % of impedance: 4.50 against 4.51
+const WINDOW_SCAN_SPAN = 0.10;   // +/-10% of the bisection's own window
+const WINDOW_SCAN_N = 96;
+
+function resolveWindowNeighbourhood(build, seedHw, lo, hi, target, tolPct) {
+  /* %Z(Hw) is a DENSE staircase, not a smooth curve with a few jumps. At
+     100 kVA the LV foil's own turn-layer count steps every millimetre or so
+     of window and %Z swings between 4.8% and 17.9% across a 5 mm span. That
+     rules out two tempting approaches: a coarse global sweep grouped into
+     "branches" (checked directly -- its verdict flipped with the sweep
+     resolution, 63/100/500 kVA reporting a straddle at 64 and 128 samples
+     and solving cleanly at 256, which is the sampling artefact section 51
+     warned about), and any method assuming monotonicity.
+
+     What is stable is a LOCAL search around the bisection's own answer. The
+     bisection lands within one step of the target by construction, because
+     it genuinely brackets; it just cannot see the step. So scan a
+     neighbourhood of it finely enough to resolve individual steps, take the
+     closest achievable %Z, and refine once around that. Deterministic --
+     the grid is defined relative to the bisection's answer, not to an
+     arbitrary global interval -- and verified stable against the scan
+     resolution below. */
+  const at = (h) => { const g = build(h); return { h, g, err: Math.abs(g.pctZ - target) }; };
+  const scan = (centre, span, n) => {
+    let best = null;
+    for (let i = 0; i <= n; i++) {
+      const h = centre * (1 - span) + ((centre * 2 * span) * i) / n;
+      if (h <= 0) continue;
+      const c = at(h);
+      if (!Number.isFinite(c.g.pctZ)) continue;
+      if (!best || c.err < best.err || (c.err === best.err && c.h < best.h)) best = c;
+    }
+    return best;
+  };
+
+  const centre = Math.min(hi, Math.max(lo, seedHw));
+  let best = scan(centre, WINDOW_SCAN_SPAN, WINDOW_SCAN_N);
+  if (best) {
+    const finer = scan(best.h, (2 * WINDOW_SCAN_SPAN) / WINDOW_SCAN_N, WINDOW_SCAN_N);
+    if (finer && finer.err < best.err) best = finer;
+  }
+  if (!best) return { g: null, solved: false, straddle: false, note: null };
+
+  if (best.err <= WINDOW_Z_TOL) {
+    return {
+      g: best.g, solved: true, straddle: false,
+      note: `The window-height solve crosses a winding configuration boundary at the declared impedance, so it was resolved by a neighbourhood search rather than by bisection alone. A ${Math.round(best.g.Hw)} mm window holds ${target.toFixed(2)}% exactly. This choice does not depend on where the solve started.`,
+    };
+  }
+
+  /* The declared value is not exactly achievable. Say so -- but scale the
+     alarm to the size of the miss, because on a dense staircase "not
+     exactly achievable" is the normal case, not an emergency. A miss inside
+     the standard's own impedance tolerance is a fact worth stating, not a
+     failure; a miss outside it is a design that cannot be built as declared
+     and is flagged as a straddle so the UI raises it. */
+  let above = null, below = null;
+  for (let i = 0; i <= WINDOW_SCAN_N; i++) {
+    const h = best.h * (1 - WINDOW_SCAN_SPAN) + ((best.h * 2 * WINDOW_SCAN_SPAN) * i) / WINDOW_SCAN_N;
+    if (h <= 0) continue;
+    const g = build(h);
+    if (!Number.isFinite(g.pctZ)) continue;
+    if (g.pctZ >= target && (!above || g.pctZ < above.pctZ)) above = g;
+    if (g.pctZ <= target && (!below || g.pctZ > below.pctZ)) below = g;
+  }
+  const step = above && below ? describeWindowSig(windowSignature(below), windowSignature(above)) : "";
+  const devPct = (Math.abs(best.g.pctZ - target) / target) * 100;
+  const breach = devPct > (tolPct || 10);
+  const reach = above && below
+    ? `The closest reachable values are ${below.pctZ.toFixed(2)}% and ${above.pctZ.toFixed(2)}%`
+    : `The closest reachable value is ${best.g.pctZ.toFixed(2)}%`;
+  const note = `No window height gives the declared ${target.toFixed(2)}% impedance exactly: the winding configuration steps across it${step ? ` (${step})` : ""} and %Z steps with it. ${reach}; ${best.g.pctZ.toFixed(2)}% is used, at a ${Math.round(best.g.Hw)} mm window -- ${devPct.toFixed(1)}% from declared, ${breach ? `OUTSIDE the ${tolPct}% tolerance. This design cannot be built to its declared impedance: change the declared value, or a parameter that moves the winding.` : `within the ${tolPct}% tolerance. Reported rather than presented as a converged solve.`}`;
+  return { g: best.g, solved: false, straddle: breach, note };
 }
 
 /* ============================================================
@@ -2690,7 +2819,7 @@ function calcSheet(d, bom) {
     row("Final window height", "H\u1D65\u1D65", p.autoWindow !== false
       ? "bisection on H\u1D65\u1D65 until the calculated %Z equals the declared value"
       : "H\u1D65\u1D65 = H\u1D65\u1D65\u2080 (impedance not enforced)",
-      p.autoWindow !== false ? `target %Z = ${n(p.targetZ)} \u2192 converged ${d.solvedZ ? "yes" : "hit a bound"}` : "n/a",
+      p.autoWindow !== false ? `target %Z = ${n(p.targetZ)} → ${d.windowStraddle ? "no window height reaches it, see the note" : d.solvedZ ? (d.windowResolved ? "resolved by neighbourhood search" : "converged") : "hit a bound"}` : "n/a",
       `${n(d.Hw, 0)} mm`, REFS.K + " \u00B7 leakage reactance control", "declared impedance, coil builds"),
     row("Window width, built", "W\u1D65\u1D65", "W\u1D65\u1D65 = C \u2212 d", `= ${n(d.cc, 0)} \u2212 ${n(d.dCore, 0)}`, `${n(d.Ww, 0)} mm`, REFS.S, "coil radial builds, clearances"),
     row("Limb centre distance", "C", "C = D\u2081\u2092 + phase clearance", `= ${n(d.hvOD, 0)} + ${n(p.phaseClr, 0)}`, `${n(d.cc, 0)} mm`, REFS.IEC3, "HV outer diameter, clearance"),

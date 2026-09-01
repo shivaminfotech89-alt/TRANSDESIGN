@@ -5621,3 +5621,101 @@ than against one that was compensating for it.
 **Nothing changed in the engine here.** This section records a confirmed
 model and a quantified error; the fix belongs with the section 71 work,
 after the window solve can survive it.
+
+## 73. The window-height solve was a bisection on a dense staircase, reporting convergence it had not achieved
+
+`autoWindow` bisects the window height until calculated %Z equals the
+declared value. That is only valid if %Z(Hw) is continuous and monotone. It
+is neither, and the engine has been reporting "converged yes" while missing
+its own target by up to 5.75 %.
+
+**What the function actually looks like.** Sweeping the window at 100 kVA
+and printing the discrete signature at each step:
+
+```
+  Hw 302.5  Z  5.70   38|1|1|1|15|119|2
+  Hw 302.5  Z  6.44   40|1|1|1|16|119|2
+  Hw 302.5  Z 17.88   60|1|1|1|24|119|2
+  Hw 307.7  Z  4.86   20|1|1|1|15|122|2
+  Hw 309.0  Z  4.83   20|1|1|1|15|123|2
+```
+
+Not a smooth curve with a few jumps: a **dense staircase**. The LV foil's
+own turn-layer count steps every millimetre or so of window, and %Z swings
+between 4.8 % and 17.9 % inside a 5 mm span. A bisection over that
+converges on a step, not a root -- and the old code then set `solvedZ =
+true` regardless, because it had bracketed. `calcSheet` printed "converged
+yes" underneath. Measured at HEAD: 315 kVA 3.41 % off its declared value,
+630 kVA 5.21 %, 1250 kVA 5.75 %, all reported as converged. With section
+62's effective-height correction applied it reached **12.7 %, outside IS
+2026's own +/-10 %** -- which is what made this a correctness problem in
+its own right rather than a tuning question.
+
+**Two approaches were tried and rejected, both recorded because the second
+looked right.** A coarse global sweep grouped into contiguous "branches",
+refined within each: its verdict was **not stable against its own sweep
+resolution** -- 63/100/500 kVA reported an unsolvable straddle at 64 and
+128 samples and solved cleanly at 256, and 100 kVA flipped back at 512.
+That is precisely the sampling artefact section 51 warned about, and a
+solver whose answer depends on an arbitrary grid is not a solver. Assuming
+monotonicity within a branch fails for the same reason: on a dense
+staircase a "branch" is often one sample wide.
+
+**What works is a LOCAL search anchored on the bisection's own answer.**
+The bisection genuinely brackets, so it lands within one step of the
+target; it simply cannot see the step. So scan a +/-10 % neighbourhood of
+its answer finely enough to resolve individual steps, take the closest
+achievable %Z, refine once around that. Verified stable: identical results
+at 96, 192, 384 and 768 scan points. Deterministic, because the grid is
+defined relative to the bisection's answer rather than to an arbitrary
+global interval.
+
+**Severity is scaled to the miss, deliberately.** On a dense staircase "the
+declared value is not exactly achievable" is the normal case, not an
+emergency, and a solver that cries wolf on nine designs in fourteen would
+be ignored. So: an exact hit reports converged and says nothing; a miss
+inside the standard's own impedance tolerance reports the choice and what
+was reachable; a miss **outside** that tolerance sets `windowStraddle`,
+which the UI raises as "Declared Impedance Is Not Achievable" and which
+tells the user plainly that the design cannot be built as declared. That is
+the requirement -- say so rather than return a nearest miss -- without
+turning it into noise.
+
+**Result, across the rating range:**
+
+| kVA | HEAD %Z | dev | new %Z | dev | |
+|---|---|---|---|---|---|
+| 63 | 4.594 | 2.09 % | 4.410 | 1.99 % | better |
+| 100 | 4.500 | 0.00 % | 4.560 | 1.34 % | worse |
+| 315 | 4.347 | **3.41 %** | 4.525 | **0.56 %** | better |
+| 630 | 4.735 | **5.21 %** | 4.450 | **1.12 %** | better |
+| 1250 | 4.713 | **5.75 %** | 5.067 | **1.35 %** | better |
+| 1600 | 5.000 | 0.00 % | 4.882 | 2.35 % | worse |
+| 2000 | 4.879 | 2.42 % | 4.879 | 2.42 % | same |
+
+Worst deviation across fourteen ratings falls from **5.75 % to 2.42 %**;
+four better, two worse, eight unchanged. The two that get worse were exact
+by luck -- the old bisection happened to land on a step that sat on the
+target -- and are now honestly reported as near misses instead.
+
+**A real side effect, worth more than it looks.** The loss fit no longer
+cycles at 1000 kVA, at any flux from 1.60 to 1.78 T. Section 46's cycling
+diagnosis was partly the loss fit chasing a geometry that was itself
+jumping between window solutions; stabilise the window and the fit settles.
+The cycle-detection path still needs exercising, so `engine.test.mjs`'s
+fixture moves to 100 kVA, which still cycles at 1.55, 1.65 and 1.75 T
+(315 kVA does too). **Do not delete that check if 100 kVA also stops
+cycling** -- find another rating first, and if none cycles anywhere, say so
+there rather than quietly dropping the coverage.
+
+**Cost.** 2564 ms to 2717 ms per design, about 6 %. The 2.5 second baseline
+is pre-existing and untouched by this.
+
+`ENGINE_VERSION` 1.34.0. The default 1000 kVA case is unmoved, so the
+golden-numbers table stands; 630 kVA ex-works falls 16,24,153 to 15,88,168
+and 1250 kVA 23,53,174 to 23,01,914, both because a better-resolved window
+is a smaller one.
+
+**This unblocks section 71.** The Rogowski sign fix, the current density and
+the strand aspect were all blocked on this solve, and can now be attempted
+against a window solve that survives them.

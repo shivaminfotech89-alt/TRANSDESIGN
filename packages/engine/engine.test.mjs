@@ -505,7 +505,7 @@ const impedanceDev = (kva, baselinePct) => {
 // crosses into a different discrete state this time (-0.95% to -2.38%,
 // still inside the range 100 and 630 kVA already sit in); 100, 630 and
 // 2500 kVA are unmoved.
-impedanceDev(100, 0.00);
+impedanceDev(100, 1.34);
 impedanceDev(630, 5.21);
 impedanceDev(2000, -2.42);
 impedanceDev(2500, 0.00);
@@ -738,7 +738,7 @@ console.log("\nfit resolution: the fitted density is actively resolved to its ch
   // bracket-sensitivity cascade section 51's own note already describes
   // for a loss-moving change. Re-verified directly against computeDesign,
   // not hand-adjusted.
-  for (const [kva, ex] of [[630, 1624153], [1000, 2005344], [1250, 2353174]]) {
+  for (const [kva, ex] of [[630, 1588168], [1000, 2005344], [1250, 2301914]]) {
     const r = E.computeDesign({ ...E.ESSENTIALS, kva }, { coreConstruction: "A" }, E.DEFAULT_RATES, []);
     if (!r.fitBoundaryFound || !r.fitResolutionNote) {
       failures++; console.log(`  FAIL ${kva} kVA: expected fitBoundaryFound/fitResolutionNote, got fitBoundaryFound=${r.fitBoundaryFound}`);
@@ -882,7 +882,18 @@ console.log("\nstaged search finds close to the same minimum as the full grid, a
 
 console.log("\nfitToSchedule detects a discrete-geometry limit cycle and exits early, resolution then picks the actual state (CALIBRATION.md sections 46/51)");
 {
-  const kva = 1000;
+  // ENGINE_VERSION 1.34.0 (CALIBRATION.md section 73): this fixture used to
+  // be 1000 kVA, which section 46 found oscillating between numGroups 5/6
+  // and 6/7 at flux 1.75. It no longer cycles -- at ANY flux from 1.60 to
+  // 1.78, checked directly -- because the window-height solve now resolves
+  // its own discrete boundary instead of jumping across it, and the loss
+  // fit was partly chasing that jumping geometry. A real improvement, and
+  // recorded as one; but the cycle DETECTION path still needs a case that
+  // exercises it, so the fixture moves to 100 kVA, which still cycles at
+  // 1.55, 1.65 and 1.75 T (315 kVA does too, at 1.65 and 1.75). If this
+  // ever stops cycling as well, do not delete the check -- find another
+  // rating first, and if none cycles anywhere, say so here.
+  const kva = 100;
   const core = { ...E.ESSENTIALS, kva };
   // 1.75 T is a plain interior flux value (not a grade boundary) that
   // section 46's own diagnosis found oscillating between numGroups 5/6
@@ -892,7 +903,7 @@ console.log("\nfitToSchedule detects a discrete-geometry limit cycle and exits e
   const over = { flux: 1.75 };
   const spec = E.deriveSpec(core, over);
   const r = E.fitToSchedule(spec.S, over, undefined, undefined, E.DEFAULT_RATES, true);
-  if (!r.autoFitCycleNote) { failures++; console.log("  FAIL expected a detected limit cycle at flux=1.75, 1000 kVA -- got none (has the underlying geometry changed?)"); }
+  if (!r.autoFitCycleNote) { failures++; console.log("  FAIL expected a detected limit cycle at flux=1.75, 100 kVA -- got none (try 315 kVA before deleting this)"); }
   else console.log(`  ok   cycle detected: "${r.autoFitCycleNote}"`);
   // CALIBRATION.md section 51: autoFitConverged is now purely a dynamics
   // fact -- a cycle was, in fact, detected here, so this is correctly
