@@ -57,14 +57,29 @@ Break any of these and the product is wrong, not just untidy.
    `documentRegister` returns against what the phase you just finished
    actually built, not just the rows the phase obviously touches.
 
+8. **The Layout section and the script names must be checked whenever
+   either changes.** Same class of problem as a stale `documentRegister`
+   entry (invariant 7) and a drifted golden-numbers table: a document whose
+   only job is to be accurate, quietly not being. Move a directory, add a
+   top-level folder, rename or add an npm script, and the Layout block or
+   the Commands block above is wrong in the same commit — fix it there, not
+   next time someone notices. This is not hypothetical maintenance: Layout
+   described `apps/web/` with a Next.js App Router and routed tabs, and
+   Commands named a `typecheck` script, through the entire Vite rebuild
+   until it was caught. Both were wrong in a way that reads as authoritative
+   — an agent trusting them looks for files that do not exist and runs a
+   script that is not there. A wrong map is worse than no map.
+
 ---
 
 ## Commands
 
 ```bash
-npm run dev              # Next.js dev server
-npm run typecheck        # tsc --noEmit, must be clean before commit
-npm run test:engine      # golden numbers, must pass before AND after engine edits
+npm run dev              # Vite dev server, port 3000
+npm run lint             # tsc --noEmit, must be clean before commit (there is no `typecheck` script)
+npm run build            # vite build
+npm run test:engine      # engine.test.mjs + reference-designs + card-cost
+                         # golden numbers, must pass before AND after engine edits
 firebase deploy --only firestore:rules,firestore:indexes,storage
 firebase deploy --only functions   # syncOrgClaims, generateReportPdf -- see functions/.env.example
 ```
@@ -88,15 +103,29 @@ Default case: 1000 kVA, 11 kV / 433 V, Dyn11, IS, Level 2, copper, ONAN, fin tan
 
 | Quantity | Value |
 |---|---|
-| Ex-works | ₹19,92,278 |
-| Delivered incl. GST | ₹23,50,888 |
-| Tank length | 1532 mm |
-| No-load loss | 1084 W |
+| Ex-works | ₹20,05,344 |
+| Delivered incl. GST | ₹23,66,306 |
+| Tank length | 1541 mm |
+| No-load loss | 1088 W |
 | Load loss | 6356 W |
 | Impedance | 5.00 % |
 | Efficiency | 99.26 % |
-| Core mass | 1105 kg |
+| Core mass | 1109 kg |
 | Stepped core utilisation | 3 steps 0.8510, 9 steps 0.9483, 13 steps 0.9642 |
+
+Current as of ENGINE_VERSION 1.31.0 (CALIBRATION.md section 66): rectangular
+strip conductor now carries a corner radius (`cornerRadius`, default 1 mm).
+The 315 kVA reference states this on its own sheet -- 3.28 x 10.78 over 8
+conductors is 282.87 mm2 of rectangle but 275.67 mm2 of copper. The engine
+sizes copper first, so the correction runs the other way here: the envelope
+a strip winding physically occupies is inflated by (4 - pi)r^2 per strand,
+where before envelope and copper were the same number and every strip
+winding was built marginally too small. That is the only change moving this
+table -- setting `cornerRadius` to 0 reproduces every figure below at
+ENGINE_VERSION 1.30.0 exactly. HV round enamelled wire was also made a real
+selectable construction in the same version, but it is chosen by HV current
+and the default case sits above the threshold on strip either way, so it
+moves nothing here.
 
 Current as of ENGINE_VERSION 1.30.0 (CALIBRATION.md section 60): no-load
 loss is no longer the whole assembled core's mass at one flat building
@@ -140,14 +169,31 @@ that deliberately-chosen, genuinely stable design, not the old snapshot.
 ## Layout
 
 ```
-apps/web/               Next.js 14, App Router, TypeScript
-  app/org/[orgId]/projects/[id]/{design,calculations,drawings,model,costing,budget,documents,revisions}
-  components/
-  lib/{firebase.ts,types.ts,projects.ts}
+src/                    Vite + React 18, TypeScript, single-page, no router
+  App.tsx                         owns the design, the live BOM and the preview banner
+  components/                     ResultsDisplay.tsx holds TABS, the tab order users see
+  components/{budget,cad,compare,costcard,documents,drawings,manufacturing,reports}/
+  lib/                            UI-side logic: pinRegistry, classBSolver, pricing, format
+  workers/{designWorker.ts,searchWorker.ts}  the multi-second solves, off the tab thread
+lib/{firebase.ts,projects.ts,types.ts}   Firebase and the revision read/write layer
 packages/engine/index.js          pure, do not add dependencies
-functions/                        Cloud Functions: PDF, CAD export
+functions/src/                    Cloud Functions, two of them: syncOrgClaims
+                                  (claims.ts), generateReportPdf (reportPdf.ts)
 firestore.rules storage.rules firestore.indexes.json
 ```
+
+There is no router and no `apps/` directory. The tabs are client state in
+`ResultsDisplay.tsx`, not routes, which is what makes invariant 3 cheap to
+hold: every tab reads the one design object `App.tsx` owns.
+
+`@` resolves to the repository root in both `vite.config.ts` and
+`tsconfig.json`, so `@/lib/firebase` is the top-level `lib/` and
+`@/packages/engine` is the engine. Note the two `lib` directories are
+different: top-level `lib/` is the Firebase layer, `src/lib/` is UI logic.
+
+There is no CAD export Cloud Function — the 3D model is rendered and
+exported in the browser (`src/components/cad/`, `src/lib/exportUtils.ts`).
+The Layout block said there was one for as long as it said `apps/web/`.
 
 ---
 

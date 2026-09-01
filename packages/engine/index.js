@@ -8,7 +8,7 @@
  * without bumping it, or old quotations stop reproducing.
  */
 
-export const ENGINE_VERSION = "1.30.0";
+export const ENGINE_VERSION = "1.31.0";
 
 const CONDUCTORS = {
   copper: { name: "Copper, EC grade", rho20: 0.017241, alpha: 0.00393, dens: 8890, dMax: 3.6, short: "Cu", proof: 1.0 },
@@ -50,6 +50,10 @@ const BUILD_FACTOR_MSC = {
 };
 
 const STEP_UTIL = { 3: 0.851, 5: 0.908, 7: 0.934, 9: 0.948, 11: 0.955, 13: 0.960, 15: 0.963 };
+
+/* Area a radiused corner removes from a rectangle, per unit r^2, over all
+   four corners: 4(r^2 - pi r^2/4) = (4 - pi) r^2. CALIBRATION.md section 66. */
+const CORNER_K = 4 - Math.PI;
 
 /* Highest voltage for equipment -> standard withstand levels (IS 2026 / IEC 60076-3) */
 const UM_LEVELS = {
@@ -591,6 +595,35 @@ function deriveSpec(core, over = {}) {
     [["layer", "Single continuous layer"], ["crossover", "Crossover coils"], ["disc", "Disc wound"]],
     `${kva} kVA${tt === "oltc" ? " with an on-load tap changer" : ""} normally uses ${hvConstructionSug} construction.`);
   put("hvCrossoverTurnsPerLayer", 10, [4, 20, 1], null, "Turns per axial layer within one crossover coil, kept small so each coil stays easy to wind and handle. Fitted from the 630 kVA dry reference.");
+  /* CALIBRATION.md section 66: HV conductor SHAPE, previously an implicit
+     "aHVreq > 6 mm^2" cutoff buried in the geometry closure with no
+     parameter, no note and no reference behind the 6. Both new references
+     wind round enamelled wire well above it -- the 315 at 2.92 dia
+     (6.697 mm^2, its sheet states 6.69) and the 500 at 9 SWG 3.657 dia
+     (10.504 mm^2) -- so the old cutoff put both real designs on strip.
+     Keyed to HV CURRENT, not to the conductor area this engine computes.
+     That is deliberate. Area here is iHV/deltaHV, and section 61 found
+     deltaHV is roughly 1.9x what these works actually run, so our computed
+     conductor is about half the real one and a diameter rule reads a real
+     strip winding as round. Current is an input, not a fitted quantity, so
+     it is uncontaminated by that error. Tried the diameter form first: at a
+     commercially honest 4 mm it flipped the 630 kVA dry reference to round
+     and broke its own measured winding structure (6 coils of 13 layers
+     became 8 of 10), which is exactly the misclassification the density
+     error predicts.
+
+     The threshold is bracketed by two real designs, not fitted to one:
+     the 500 kVA winds ROUND at 15.15 A (9 SWG, 3.657 dia) and the 630 kVA
+     dry needs STRIP at 19.09 A for its own 6 x 13 structure to come out.
+     18 A sits between them, and lands independently: a 4.0 mm round wire
+     -- about the largest drawn and enamelled -- carries 17.97 A at the
+     1.43 A/mm^2 these sheets actually run. Two unrelated arguments, same
+     figure. Revisit once deltaHV is corrected, at which point a diameter
+     rule becomes viable and is the better physical statement. */
+  put("hvCondShape", "auto", null,
+    [["auto", "Auto, by HV current"], ["round", "Round enamelled wire"], ["strip", "Rectangular strip"]],
+    "Round enamelled wire up to the current limit, rectangular strip above it. Both new references are round.");
+  put("hvRoundMaxAmp", 18, [5, 60, 0.5], null, "Highest HV line current the works will wind in round enamelled wire before moving to rectangular strip. Bracketed by the 500 kVA reference (15.2 A, round) and the 630 kVA (19.1 A, strip).");
   /* 20 mm reproduces the 630 kVA dry reference's 6 coils of 13 layers of 10
      turns almost exactly (6/13/10 against a target of 6/13/10). Confirmed
      dry-type only -- an oil-immersed crossover winding would plausibly need
@@ -653,6 +686,20 @@ function deriveSpec(core, over = {}) {
   put("lvFoilMaxKva", 300, [50, 1000, 50], null, "Below this rating, LV is a single conductor -- full-height foil, or a thin strip if several turns share an axial pass. Above it, LV splits into parallel conductors.");
   put("lvStripMaxMM2", 40, [10, 150, 5], null, "Practical area for one LV strip conductor before it splits into more than one, arranged axial x radial.");
   put("lvStripGap", 2, [0.5, 6, 0.5], null, "Gap between LV strip conductors placed side by side axially within one turn.");
+  /* CALIBRATION.md section 66: rectangular magnet wire is supplied with
+     radiused corners, so a strip's copper area is its nominal envelope
+     less (4 - pi) r^2, not the full rectangle. The 315 kVA sheet states
+     this explicitly -- 3.28 x 10.78 over 8 conductors is 282.87 mm^2 of
+     rectangle but 275.67 mm^2 of copper, which back-solves to r = 1.024 mm
+     and reproduces to 0.12% at exactly 1 mm. The engine sizes the copper
+     first (aLVreq/aHVreq are copper, and stay copper for resistance and
+     mass), so the correction runs the other way here: the ENVELOPE the
+     winding physically occupies is inflated by (4 - pi) r^2 per strand.
+     Before this, envelope and copper were the same number and every strip
+     winding was built marginally too small. Applies to rectangular strip
+     only -- foil is a rolled sheet with no meaningful corner radius, and a
+     round conductor has no corners at all. */
+  put("cornerRadius", 1.0, [0, 2.5, 0.05], null, "Corner radius on rectangular strip conductor. Copper area is the nominal rectangle less (4 - pi)r^2 per strand. 1 mm is the 315 kVA reference's own figure.");
 
   /* --- construction constants --- */
   put("lvIns", 0.30, [0.10, 1.20, 0.05], null, "Interturn insulation on the LV foil or strip.");
@@ -902,8 +949,12 @@ function designTransformer(p) {
       lvRadCount = Math.max(1, Math.ceil(n / lvAxCount));
       n = lvAxCount * lvRadCount;
       const stripArea = aLVreq / n;
-      tLV = Math.sqrt(stripArea);
-      foilW = Math.sqrt(stripArea);
+      /* section 66: aLVreq is COPPER. The strip's own envelope is larger by
+         the four radiused corners, and it is the envelope the coil has to
+         find room for. */
+      const stripEnv = stripArea + CORNER_K * p.cornerRadius * p.cornerRadius;
+      tLV = Math.sqrt(stripEnv);
+      foilW = Math.sqrt(stripEnv);
       const turnAxialWidth = lvAxCount * (foilW + p.lvStripGap);
       const perAxial = Math.max(1, Math.floor(hLV / turnAxialWidth));
       lvTurnLayers = Math.ceil(nLV / perAxial);
@@ -957,20 +1008,29 @@ function designTransformer(p) {
        length this radial build feeds) load loss all previously sized
        themselves against a single conductor's footprint regardless of how
        many actually run in parallel. */
-    let axHV, rdHV, hvAxCount, hvRdCount;
+    /* section 66: strip envelope carries the corner radius, round wire does
+       not. hvRound decides the shape of ONE strand -- a multi-strand split
+       is always strip, since the reason to split is that no single round
+       wire is drawn that large. */
+    const stripEnv = (a) => a + CORNER_K * p.cornerRadius * p.cornerRadius;
+    let axHV, rdHV, hvAxCount, hvRdCount, hvRound = false;
     if (aHVreq > HV_STRAND_MAX_MM2) {
       const hvAspect = 2.1;
       let n = Math.ceil(aHVreq / HV_STRAND_MAX_MM2);
       hvRdCount = Math.max(1, Math.round(Math.sqrt(n / hvAspect)));
       hvAxCount = Math.ceil(n / hvRdCount);
       n = hvAxCount * hvRdCount;
-      const strandArea = aHVreq / n;
-      rdHV = Math.sqrt(strandArea / hvAspect);
+      const strandEnv = stripEnv(aHVreq / n);
+      rdHV = Math.sqrt(strandEnv / hvAspect);
       axHV = hvAspect * rdHV;
     } else {
       hvAxCount = 1; hvRdCount = 1;
-      if (aHVreq > 6) { rdHV = Math.sqrt(aHVreq / 2.1); axHV = 2.1 * rdHV; }
-      else { const dia = Math.sqrt((4 * aHVreq) / Math.PI); axHV = dia; rdHV = dia; }
+      const dia = Math.sqrt((4 * aHVreq) / Math.PI);
+      hvRound = p.hvCondShape === "round" ? true
+              : p.hvCondShape === "strip" ? false
+              : iHV <= p.hvRoundMaxAmp;
+      if (hvRound) { axHV = dia; rdHV = dia; }
+      else { const e = stripEnv(aHVreq); rdHV = Math.sqrt(e / 2.1); axHV = 2.1 * rdHV; }
     }
     /* CALIBRATION.md section 41: every parallel strand gets its own full
        covering allowance, the same convention LV's own multi-strand split
@@ -1026,7 +1086,7 @@ function designTransformer(p) {
     const pctR = (loadLoss / (p.kva * 1000)) * 100;
     return {
       Hw, hLV, hHV, foilW, tLV, lvRadial, axHV, rdHV, turnsPerLayer, layers, hvRadial,
-      lvTurnLayers, hvDucts, dEff, hEff, X, lmtMean, tLVin, tLVout, tHVin, tHVout,
+      lvTurnLayers, hvDucts, dEff, hEff, X, lmtMean, tLVin, tLVout, tHVin, tHVout, hvRound,
       lvID, lvOD, hvID, hvOD, cc, Ww, lmtLV, lmtHV, rLV, rHV, i2rLV, i2rHV, loadLoss,
       pctX, pctR, pctZ: Math.sqrt(pctX * pctX + pctR * pctR),
       voltsPerLayer: et * turnsPerLayer,
@@ -1424,6 +1484,7 @@ function designTransformer(p) {
     lvAxCount: g.lvAxCount, lvRadCount: g.lvRadCount,
     hvAxCount: g.hvAxCount, hvRdCount: g.hvRdCount,
     lvConstruction: p.kva < p.lvFoilMaxKva ? "foil" : "strip",
+    hvCondShape: g.hvRound ? "round" : "strip",
   };
 }
 
@@ -2596,7 +2657,7 @@ function calcSheet(d, bom) {
     row("Reactance component", "%X", "%X = X I\u2082\u209A\u2095 / V\u2082\u209A\u2095 \u00D7 100", `= ${n(d.X, 5)} \u00D7 ${n(d.iLV, 1)} / ${n(d.lvPh, 1)} \u00D7 100`, `${n(d.pctX)} %`, REFS.S, "reactance, current, voltage"),
     row("Impedance", "%Z", "%Z = \u221A(%R\u00B2 + %X\u00B2)", `= \u221A(${n(d.pctR)}\u00B2 + ${n(d.pctX)}\u00B2)`, `${n(d.pctZ)} %`, REFS.IS2026 + ` \u00B7 tolerance \u00B1${n(p.zTol, 1)}%`, "%R, %X"),
     row("Regulation", "\u03B5\u1D63", "\u03B5\u1D63 = %R cos\u03C6 + %X sin\u03C6", `= ${n(d.pctR)}\u00D7${n(p.pf)} + ${n(d.pctX)}\u00D7${n(Math.sqrt(Math.max(0, 1 - p.pf * p.pf)))}`, `${n(d.regFull)} %`, REFS.S, "%R, %X, power factor"),
-    row("Symmetrical fault current", "I\u209B\u1D04", "I\u209B\u1D04 = I\u1D63\u2090\u209C\u2091\u1D48 \u00D7 100/%Z", `= ${n(d.iLV, 1)} \u00D7 100/${n(d.pctZ)}`, `${n(d.iscLV, 0)} A LV, ${n(d.iscHV, 0)} A HV`, REFS.IEC1 + " \u00B7 short-circuit withstand", "impedance, rated current"),
+    row("Symmetrical fault current", "Iₛᴄ", "Iₛᴄ = Iᵣₐₜₑᵈ × 100/%Z", `= ${n(d.iLV, 1)} × 100/${n(d.pctZ)}`, `${n(d.iscLV, 0)} A LV, ${n(d.iscHV, 0)} A HV`, REFS.IEC1 + " · short-circuit withstand", "impedance, rated current"),
   ]);
 
   const thermal = d.dry

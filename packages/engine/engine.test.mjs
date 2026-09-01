@@ -323,14 +323,14 @@ const r = E.computeDesign(E.ESSENTIALS, {}, E.DEFAULT_RATES, []);
 // no-load figure. Re-verified directly against computeDesign, not
 // hand-adjusted -- CLAUDE.md's own golden-numbers table updated in the
 // same commit.
-eq("ex-works", Math.round(r.bom.exFactory), 1992278, 800);
-eq("delivered", Math.round(r.bom.withGst), 2350888, 900);
-eq("tank length mm", Math.round(r.design.tankL), 1532, 2);
-eq("no-load loss W", Math.round(r.design.noLoad), 1084, 5);
+eq("ex-works", Math.round(r.bom.exFactory), 2005344, 800);
+eq("delivered", Math.round(r.bom.withGst), 2366306, 900);
+eq("tank length mm", Math.round(r.design.tankL), 1541, 2);
+eq("no-load loss W", Math.round(r.design.noLoad), 1088, 5);
 eq("load loss W", Math.round(r.design.loadLoss), 6356, 30);
 eq("impedance %", +r.design.pctZ.toFixed(2), 5.00, 0.02);
 eq("efficiency %", +r.design.eff100.toFixed(2), 99.26, 0.02);
-eq("core mass kg", Math.round(r.design.wCore), 1105, 15);
+eq("core mass kg", Math.round(r.design.wCore), 1109, 15);
 // autoFitConverged is a dynamics fact (CALIBRATION.md section 51): did the
 // damped iteration reach a stable point WITHOUT cycling. Section 59's own
 // no-load change moves this default case off the discrete-configuration
@@ -349,9 +349,9 @@ eq("compliant", r.design.compliant, true);
 // different design can now clear the old ratio while missing one of these,
 // or the reverse) -- see section 44 for the 2500 kVA furnace case that
 // flips to non-compliant under this default.
-eq("coil height mm", Math.round(r.design.compliance.coilHeight.val), 553, 3);
+eq("coil height mm", Math.round(r.design.compliance.coilHeight.val), 561, 3);
 eq("coil height limit mm", r.design.compliance.coilHeight.lim, 880);
-eq("tank height mm", Math.round(r.design.compliance.tankHeight.val), 1272, 3);
+eq("tank height mm", Math.round(r.design.compliance.tankHeight.val), 1280, 3);
 eq("tank height limit mm", r.design.compliance.tankHeight.lim, 1500);
 eq("HV construction", r.design.hvConstruction, "crossover");
 eq("LV construction", r.design.lvConstruction, "strip");
@@ -421,6 +421,21 @@ console.log("\nimpedance solve tracks the declared value across ratings");
 // 2500 kVA's own -3.39% is exactly the "misses target by a few tenths of a
 // per cent from integer quantisation" case this section used to hide by
 // swapping away from it; it is recorded here instead, visible on every run.
+/* ENGINE_VERSION 1.31.0 (CALIBRATION.md section 66): the 100 kVA and 630 kVA
+   baselines here had gone STALE -- recorded as 2.25% and -3.78% while the
+   engine was actually delivering -0.00% and -0.18%. Because this check only
+   fails when a deviation GROWS, a slack baseline silently licenses a
+   regression all the way back up to it. Both are now recorded at what the
+   engine actually does. 630's own 5.21% is a real worsening from the corner
+   radius (section 66) pushing that rating across a discrete winding
+   boundary -- 7 coils of 14 layers became 6 of 16 -- not a slack figure:
+   swept across fifteen ratings the corner radius leaves 11 unchanged, makes
+   315 and 630 worse and 1250 and 1600 better, which is discrete reshuffling
+   rather than a systematic loss of accuracy. 4.735% against 4.5% declared is
+   still inside IS 2026's own +/-10%. The underlying cause is that the
+   window-height solve has no neighbourhood resolution of its own, unlike the
+   loss fit (sections 46/50/51); that is the real fix and it is not this
+   section's. */
 const impedanceDev = (kva, baselinePct) => {
   const d = E.computeDesign({ ...E.ESSENTIALS, kva }, {}, E.DEFAULT_RATES, []);
   const pct = ((d.design.pctZ - d.params.targetZ) / d.params.targetZ) * 100;
@@ -490,9 +505,9 @@ const impedanceDev = (kva, baselinePct) => {
 // crosses into a different discrete state this time (-0.95% to -2.38%,
 // still inside the range 100 and 630 kVA already sit in); 100, 630 and
 // 2500 kVA are unmoved.
-impedanceDev(100, 2.25);
-impedanceDev(630, -3.78);
-impedanceDev(2000, -2.38);
+impedanceDev(100, 0.00);
+impedanceDev(630, 5.21);
+impedanceDev(2000, -2.42);
 impedanceDev(2500, 0.00);
 
 console.log("\ncooling equipment: fan and pump count follow cooling type, not a fixed number");
@@ -723,7 +738,7 @@ console.log("\nfit resolution: the fitted density is actively resolved to its ch
   // bracket-sensitivity cascade section 51's own note already describes
   // for a loss-moving change. Re-verified directly against computeDesign,
   // not hand-adjusted.
-  for (const [kva, ex] of [[630, 1574782], [1000, 1992278], [1250, 2354283]]) {
+  for (const [kva, ex] of [[630, 1624153], [1000, 2005344], [1250, 2353174]]) {
     const r = E.computeDesign({ ...E.ESSENTIALS, kva }, { coreConstruction: "A" }, E.DEFAULT_RATES, []);
     if (!r.fitBoundaryFound || !r.fitResolutionNote) {
       failures++; console.log(`  FAIL ${kva} kVA: expected fitBoundaryFound/fitResolutionNote, got fitBoundaryFound=${r.fitBoundaryFound}`);
