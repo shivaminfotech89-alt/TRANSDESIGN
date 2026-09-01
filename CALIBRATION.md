@@ -4639,7 +4639,7 @@ load loss, every copper mass and every price in the platform, and it
 deserves its own section and its own `ENGINE_VERSION` bump rather than
 being folded into a reference-intake commit.
 
-**Finding 2: `STEP_UTIL` stops at 15 steps and both new references are
+**RESOLVED in section 70.** **Finding 2: `STEP_UTIL` stops at 15 steps and both new references are
 past it.** `STEP_UTIL` holds odd counts 3 to 15 only, `put("steps", ...)`
 offers exactly those as the UI options, and `const util = STEP_UTIL[p.steps]
 || 0.94` catches everything else. The 315 is a 16-step core and the 500 is
@@ -4932,7 +4932,8 @@ of the efficiency level, and to buy the level with flux and geometry
 instead. Tying `coreGrade` to `effLevel` encodes a purchasing decision the
 works does not make.
 
-**Recommendation, not acted on here.** Do not remove or lower the floor on
+**Recommendation. The `gradeSuggest` half of this is DONE in section 70;
+the floor is still untouched, as recommended.** Do not remove or lower the floor on
 this evidence -- it is not the binding constraint on any of these three
 designs, and the one design below it is below it by 0.025 T. Fix
 `gradeSuggest` first: it is a first-order error worth 24 % of no-load loss
@@ -5320,3 +5321,88 @@ is precisely the failure mode invariant 7 describes. Corrected to 84.
   was describing as missing.
 
 Statuses after this batch: 6 done, 14 part, 8 need, 28 rows.
+
+## 70. `gradeSuggest` tied Level 1 to the wrong steel, and `STEP_UTIL` fell off a cliff past 15 steps -- both fixed against real sheets
+
+Two defects section 61 and section 64 identified and left standing. Both
+are closed here. `ENGINE_VERSION` 1.33.0.
+
+**`gradeSuggest("level1")` returned `m4`.** At the sheets' own flux and
+step counts:
+
+| grade | | 315 (sheet 470 W) | 500 (sheet 545 W) |
+|---|---|---|---|
+| `m4` CRGO M4, 0.27 mm | wRef 1.05 | 586 W, **+24.7 %** | 640 W, **+17.4 %** |
+| **`m0h`** M0H HiB, 0.23 mm | wRef 0.88 | **491 W, +4.5 %** | **536 W, -1.6 %** |
+| `zdkh` laser-scribed, 0.23 mm | wRef 0.78 | 435 W, -7.3 % | 476 W, -12.7 % |
+
+Both sheets name their steel -- **23HP80** on the 315 and **23HP75** on the
+500, both 0.23 mm high-permeability -- and `m0h` reproduces both. So
+`level1` now returns `m0h`.
+
+The deeper point is that tying the *grade* to the efficiency level encoded
+a purchasing decision this works does not make. It stocks 0.23 mm Hi-B and
+buys the loss level with flux and geometry, which `fluxSuggest` already
+varies by level. `level2` keeps `m0h` and `level3` keeps `zdkh`, unchanged
+-- there is no Level 2 or Level 3 reference to move them against, and
+`level1` now sharing `level2`'s grade is the finding, not a collision.
+
+**Recorded because it is not visible in the table above: `m0h`'s wRef is
+doing some compensating.** By catalogue naming 23HP80 is 0.80 W/kg at
+1.7 T and 23HP75 is 0.75 -- at or below `zdkh`'s 0.78, not `m0h`'s 0.88.
+And `zdkh` under-predicts both sheets, by 7 % and 13 %. So the engine
+agrees with reality when fed 0.88 and disagrees when fed these grades' own
+catalogue figures, which means roughly 10 % of no-load is being carried by
+`wRef` that belongs somewhere else in the no-load model -- section 60's
+joint-mass split being the obvious suspect. `m0h` is adopted on the
+measured agreement, not on a claim that 0.88 is these grades' true specific
+loss. **Do not "correct" `wRef` to 0.80 in isolation**; it would make both
+references worse, which is the signature of removing one of two offsetting
+errors, exactly as section 67 found for the effective height.
+
+**`STEP_UTIL` stopped at 15 and everything past it fell onto a flat 0.94**
+-- *lower* than the 0.963 held at 15, so asking the engine for more steps
+made it believe the core filled its circle worse. Both new references are
+past the old end of the table (16 and 17 steps), so neither was selectable
+and both were told a 16- or 17-step core packs like a 5-step one.
+
+The 16-step entry is **measured, not fitted**: the 315 sheet's own gross
+294.1 cm2 against its 197 mm circle's 304.81 cm2 is **0.9649**.
+`stepUtil(n)` now interpolates between tabulated counts and **holds** the
+top value above the table. Holding is deliberate -- more steps cannot fill
+a circle worse, so a held value is never wrong-signed, only conservative,
+where a curve fitted past the last real measurement would be inventing the
+thing sections 1 and 53 both declined to invent from a single point. 17 is
+offered as a selectable count (the 500 is a 17-step core, and a real design
+the product cannot express is a real gap) but takes 16's figure until
+someone measures one.
+
+**What actually moved, all five references, before and after:**
+
+| | grade | no-load W | core kg | ex-works |
+|---|---|---|---|---|
+| 315 UGVCL Level 1 | m4 -> **m0h** | 595 -> **491** (+26.7 % -> **+4.5 %**) | 688 -> 678 | 9,82,077 -> 9,71,410 |
+| 500 | m0h (same) | 546 -> 536 (+0.2 % -> -1.6 %) | 884 -> 869 | 13,37,632 -> 13,22,639 |
+| 1250 OLTC | m0h (same) | 1371 -> 1371 | 1710 -> 1710 | **unchanged** |
+| 630 dry | m0h (same) | 1033 -> 1033 | 1290 -> 1290 | **unchanged** |
+| 1000 default | m0h (same) | 1088 -> 1088 | 1109 -> 1109 | **unchanged** |
+
+**The golden-numbers table does not move**, because the default case is
+Level 2 and was already on `m0h` at 15 steps. The version is still bumped:
+a formula changed, and invariant 4 is per formula change, not per moved
+price.
+
+**One honest regression, not smoothed over.** The 500's core mass goes
+from -6.2 % to **-7.8 %** against its sheet. The old 0.94 fallback
+understated utilisation, which inflated the computed core toward the
+sheet's 942.3 kg -- for the wrong reason. Removing a compensating error
+makes the residual visible, and that residual is section 65's open
+question: the `stepWidths` ladder and `STEP_UTIL` disagree by 2-3 % about
+the same core's area, and this sheet gives no core diameter to settle
+which is right. Getting a *worse* number by removing a wrong mechanism is
+the correct trade; the alternative is keeping a defect because it happened
+to point the right way on one design.
+
+**Both references now run at their own step counts** (16 and 17) in
+`reference-designs.test.mjs`, and neither is given a core grade any more --
+the test asserts `gradeSuggest` finds `m0h` on its own, which is the fix.

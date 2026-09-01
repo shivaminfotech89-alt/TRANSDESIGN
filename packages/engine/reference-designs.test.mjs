@@ -209,12 +209,14 @@ console.log("\n315 kVA, 11/0.433 kV, Dyn11, oil, copper, Level 1 -- Mehir/UGVCL 
 const core315 = { ...E.ESSENTIALS, kva: 315, application: "distribution", vector: "Dyn11", effLevel: "level1", condPref: "copper" };
 const over315 = {
   etK: 9.615 / Math.sqrt(315),   // sheet Et 9.615 (433/sqrt(3) over 26 turns)
-  steps: 15,                     // sheet is 16; STEP_UTIL stops at 15 (section 61)
-  flux: 1.5182, coreGrade: "m0h",
+  steps: 16,                     // the sheet's own step count, representable since section 70
+  flux: 1.5182,                  // coreGrade deliberately NOT pinned: gradeSuggest("level1")
+                                 // must now return m0h on its own (section 70)
   limitNLL: 470, limitLL: 3100, targetZ: 4.75,
   autoFit: false,
 };
 const r315 = E.computeDesign(core315, over315, E.DEFAULT_RATES, []);
+exact("core grade auto-selected from Level 1", r315.params.coreGrade, "m0h");
 exact("LV turns", r315.design.nLV, 26);
 exact("HV turns", r315.design.nHV, 1144);
 within("core diameter mm", +r315.design.dCore.toFixed(1), 197, 1.5);
@@ -237,12 +239,13 @@ console.log("\n500 kVA, 11/0.433 kV, Dyn11, oil, copper -- Mehir Transformers sh
 const core500 = { ...E.ESSENTIALS, kva: 500, application: "distribution", vector: "Dyn11", condPref: "copper" };
 const over500 = {
   etK: 10.416 / Math.sqrt(500),  // the sheet's own volts per turn
-  steps: 15,                     // sheet is 17; STEP_UTIL stops at 15
-  flux: 1.3947, coreGrade: "m0h",  // sheet 23HP75, a 0.23 mm Hi-B
+  steps: 17,                     // the sheet's own step count (section 70)
+  flux: 1.3947,                  // sheet 23HP75, a 0.23 mm Hi-B -- gradeSuggest must find m0h
   limitNLL: 545, targetZ: 4.65,
   autoFit: false,
 };
 const r500 = E.computeDesign(core500, over500, E.DEFAULT_RATES, []);
+exact("core grade auto-selected", r500.params.coreGrade, "m0h");
 exact("LV turns", r500.design.nLV, 24);
 // Core-to-LV clearance runs slightly generous on both new references
 // (315: 212.9 against 205, +3.9%; 500: 230.1 against 223, +3.2%). Same
@@ -269,8 +272,10 @@ knownGap("315 load loss W", Math.round(r315.design.loadLoss), 3100, 22.0,
   "given 2.60/2.75 A/mm^2 where the sheet runs 1.52/1.43. Conductor areas come out 41% (LV) and 48% (HV) " +
   "short, and the load loss follows. Same root cause as the 1250/630 kVA LV-area gap open since section 11.");
 knownGap("500 core mass kg", +r500.design.wCore.toFixed(1), 942.3, -8.0,
-  "CALIBRATION.md section 65: the sheet is a 17-step core and STEP_UTIL stops at 15, so this runs at 15 " +
-  "steps; separately the stepWidths ladder and STEP_UTIL disagree by 2-3% about the same core's area.");
+  "CALIBRATION.md section 65: the stepWidths ladder and STEP_UTIL disagree by 2-3% about the same " +
+  "core's area, and this sheet gives no core diameter to settle which is right. The 17-step count " +
+  "itself is now representable (section 70), which moved this gap from -6.2% to -7.8%: the old 0.94 " +
+  "fallback understated utilisation, which inflated the core toward the sheet for the wrong reason.");
 
 console.log(failures
   ? `\n${failures} FAILURES -- a hard assertion broke, a regression.`

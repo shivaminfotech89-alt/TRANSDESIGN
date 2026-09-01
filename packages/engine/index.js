@@ -8,7 +8,7 @@
  * without bumping it, or old quotations stop reproducing.
  */
 
-export const ENGINE_VERSION = "1.32.0";
+export const ENGINE_VERSION = "1.33.0";
 
 const CONDUCTORS = {
   copper: { name: "Copper, EC grade", rho20: 0.017241, alpha: 0.00393, dens: 8890, dMax: 3.6, short: "Cu", proof: 1.0 },
@@ -49,7 +49,38 @@ const BUILD_FACTOR_MSC = {
   C: { staggered: 1.315, continuous: 1.525 },  // diamond: 1.28-1.35, 1.45-1.60
 };
 
-const STEP_UTIL = { 3: 0.851, 5: 0.908, 7: 0.934, 9: 0.948, 11: 0.955, 13: 0.960, 15: 0.963 };
+/* CALIBRATION.md section 70. The 16-step figure is MEASURED, not fitted:
+   the 315 kVA sheet's own gross area 294.1 cm2 against its 197 mm circle's
+   304.81 cm2 is 0.9649. Everything else here predates that sheet.
+
+   Before this, the table stopped at 15 and every count past it fell onto a
+   flat 0.94 -- lower than the 0.963 held at 15, so asking the engine for
+   MORE steps made it believe the core filled its circle WORSE. Both new
+   references are past the old end of the table (16 and 17 steps), so
+   neither was representable and both were being told a 16- or 17-step core
+   packs like a 5-step one. */
+const STEP_UTIL = { 3: 0.851, 5: 0.908, 7: 0.934, 9: 0.948, 11: 0.955, 13: 0.960, 15: 0.963, 16: 0.9649 };
+const STEP_KEYS = Object.keys(STEP_UTIL).map(Number).sort((a, b) => a - b);
+/* Selectable step counts. 17 is offered because the 500 kVA reference is a
+   17-step core and a real design the product cannot express is a real gap
+   -- but there is no 17-step measurement, so stepUtil holds it at 16's
+   figure rather than extrapolating one. */
+const STEP_OPTIONS = [...STEP_KEYS, 17];
+
+/* Interpolates between tabulated counts and HOLDS the top value above the
+   table. Holding is deliberate: more steps cannot fill a circle worse, so a
+   held value is never wrong-signed, only conservative -- where a fitted
+   curve past the last real measurement would be inventing the very thing
+   sections 1 and 53 both declined to invent from a single point. */
+function stepUtil(n) {
+  if (STEP_UTIL[n] != null) return STEP_UTIL[n];
+  if (n <= STEP_KEYS[0]) return STEP_UTIL[STEP_KEYS[0]];
+  const top = STEP_KEYS[STEP_KEYS.length - 1];
+  if (n >= top) return STEP_UTIL[top];
+  const hi = STEP_KEYS.find((k) => k > n);
+  const lo = STEP_KEYS[STEP_KEYS.indexOf(hi) - 1];
+  return STEP_UTIL[lo] + ((n - lo) / (hi - lo)) * (STEP_UTIL[hi] - STEP_UTIL[lo]);
+}
 
 /* Area a radiused corner removes from a rectangle, per unit r^2, over all
    four corners: 4(r^2 - pi r^2/4) = (4 - pi) r^2. CALIBRATION.md section 66. */
@@ -229,7 +260,33 @@ function zSuggest(kva, um) {
   else if (um >= 36 && kva > 2500) z = Math.max(z, 8);
   return z;
 }
-const gradeSuggest = (lvl) => (lvl === "conventional" ? "m5" : lvl === "level1" ? "m4" : lvl === "level2" ? "m0h" : "zdkh");
+/* CALIBRATION.md section 70. level1 returned "m4" (CRGO M4, 0.27 mm) until
+   two real Level-class sheets showed the works buying 0.23 mm Hi-B instead:
+   the 315 kVA UGVCL job names 23HP80 and the 500 kVA names 23HP75. At the
+   sheets' own flux and step counts, no-load comes out:
+
+     m4   (0.27 mm, wRef 1.05)   315: 586 W vs 470 (+24.7%)   500: 640 vs 545 (+17.4%)
+     m0h  (0.23 mm, wRef 0.88)   315: 491 W vs 470 ( +4.5%)   500: 536 vs 545 ( -1.6%)
+     zdkh (0.23 mm, wRef 0.78)   315: 435 W vs 470 ( -7.3%)   500: 476 vs 545 (-12.7%)
+
+   So level1 -> m0h. Tying the GRADE to the efficiency level encoded a
+   purchasing decision this works does not make: it stocks 0.23 mm Hi-B and
+   buys the loss level with flux and geometry, which fluxSuggest already
+   varies by level. level2 keeps m0h and level3 keeps zdkh -- unchanged,
+   because there is no Level 2 or Level 3 reference to move them against,
+   and level1 sharing level2's grade is the point rather than a collision.
+
+   Recorded because it matters and is not visible from the numbers above:
+   m0h's own wRef 0.88 is doing some compensating. By catalogue naming
+   23HP80 is 0.80 W/kg at 1.7 T and 23HP75 is 0.75, which would sit at or
+   below zdkh's 0.78 -- and zdkh under-predicts both sheets by 7% and 13%.
+   The engine agrees with reality when fed 0.88 and disagrees when fed the
+   grades' own catalogue figures, which means roughly 10% of no-load is
+   being carried by wRef that belongs somewhere else in the no-load model
+   (section 60's joint-mass split is the obvious suspect). m0h is adopted
+   on the measured agreement, not on a claim that 0.88 is these grades'
+   true specific loss. Do not "correct" wRef to 0.80 in isolation. */
+const gradeSuggest = (lvl) => (lvl === "conventional" ? "m5" : lvl === "level2" || lvl === "level1" ? "m0h" : "zdkh");
 function fluxSuggest(gk, lvl, kva) {
   if (gk === "amor") return 1.35;
   const nudge = kva < 250 ? 0.08 : kva < 630 ? 0.04 : 0;
@@ -427,7 +484,7 @@ function deriveSpec(core, over = {}) {
   const etTrialSug = etkEff * Math.sqrt(kva);
   const aNetEst = etTrialSug / (4.44 * (core.freq || 50) * fluxSug);
   const dCoreEst = Math.sqrt((4 * aNetEst) / (Math.PI * 0.94 * CORE_GRADES[gk].sf)) * 1000;
-  put("steps", stepsSuggest(dCoreEst), null, Object.keys(STEP_UTIL).map((k) => [+k, k + " steps"]), "More steps fill the coil circle better and save steel, but cost more to cut and stack.");
+  put("steps", stepsSuggest(dCoreEst), null, STEP_OPTIONS.map((k) => [k, k + " steps"]), "More steps fill the coil circle better and save steel, but cost more to cut and stack.");
   put("stepIncrement", 10, [5, 25, 5], null, "Lamination is slit to standard widths, not cut to a continuous optimum. Step widths round down to the nearest multiple of this -- rounding up can put the widest step past the core diameter itself.");
   /* CALIBRATION.md section 35/54: Construction A (limb / half-yoke /
      full-yoke) is the established, better-evidenced pattern -- confirmed
@@ -892,7 +949,7 @@ function designTransformer(p) {
   let dCore, coreW, coreD;
   const shape = ct.shape;
   if (shape === "circ") {
-    const util = STEP_UTIL[p.steps] || 0.94;
+    const util = stepUtil(p.steps);
     dCore = Math.sqrt((4 * aNet) / (Math.PI * util * grade.sf)) * 1000;
     coreD = dCore; coreW = dCore;
   } else {
@@ -1517,7 +1574,7 @@ function designTransformer(p) {
     iscLV: iLineLV * iscMult, iscHV: iscHVline, iscMult, zSys, zTx, noise, sch, compliance, compliant,
     fanCount, pumpCount,
     dualForced, dualLoadLoss, dualTotalLoss, dualOilRise, dualWindRise, dualCompliance, dualCompliant,
-    Kw, aWin, Hw0, util: shape === "circ" ? (STEP_UTIL[p.steps] || 0.94) : ct.aspect, sf: grade.sf,
+    Kw, aWin, Hw0, util: shape === "circ" ? stepUtil(p.steps) : ct.aspect, sf: grade.sf,
     kTank, kFin, tankDissip, riseTarget, forcedMul, vaPerKg,
     rhoLV: rho(cLV), rhoHV: rho(cHV), dEff: g.dEff, hEff: g.hEff, X: g.X, lmtMean: g.lmtMean,
     lvTurnLayers: g.lvTurnLayers, hvDucts: g.hvDucts, i2r: g.i2rLV + g.i2rHV,
@@ -3702,7 +3759,7 @@ function routineTestSchedule(d) {
    ------------------------------------------------------------------ */
 
 export {
-  CONDUCTORS, CORE_GRADES, CORE_TYPES, STEP_UTIL, UM_LEVELS, FLUIDS, DRY_TYPES,
+  CONDUCTORS, CORE_GRADES, CORE_TYPES, STEP_UTIL, stepUtil, UM_LEVELS, FLUIDS, DRY_TYPES,
   INS_CLASS, STANDARDS, APPS, EFF_LEVELS, ESSENTIALS, DEFAULT_RATES, UM_STEPS,
   lossSchedule, clearancesFrom, umFor, zSuggest, gradeSuggest, fluxSuggest,
   stepsSuggest, densitySuggest, aspectSuggest,
