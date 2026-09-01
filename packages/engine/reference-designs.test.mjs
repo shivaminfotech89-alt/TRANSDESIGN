@@ -180,10 +180,10 @@ knownGap("Disc count", r1250.design.numGroups, 53, -7.55,
   "packing share one geometry, so a short LV area changes how many discs the window holds. Re-fitting hvDiscGap " +
   "now would fit against a target that moves again once the area question closes -- deferred on purpose.");
 knownGap("LV OD mm", +r1250.design.lvOD.toFixed(1), 374, -6.84,
-  "The LV conductor area itself is short (CALIBRATION.md open questions): the split shape is now confirmed " +
-  "correct (see the arrangement line below), but a correct shape built from a too-small area is still a " +
-  "too-small winding. This assertion passed before ENGINE_VERSION 1.9.0 only because two packing bugs were " +
-  "adding radial depth this design does not have.");
+  "CALIBRATION.md section 72: the area MODEL is exact -- fed the 315 sheet's own densities it returns " +
+  "aLVreq to +0.2% and load loss to +2.6%. What is short is the current density fed to it: densitySuggest's " +
+  "oil baseline runs about 1.72x high, flat across 315 and 1250 kVA. Not a packing or split defect, and no " +
+  "longer an open question -- it waits on the section 71 window-solve work before it can safely be corrected.");
 console.log(`  gap  LV conductor arrangement: got ${r1250.design.lvAxCount} axial x ${r1250.design.lvRadCount} radial x ${r1250.design.lvTurnLayers} layers `
   + `(${r1250.design.lvAxCount * r1250.design.lvRadCount} total), target 5 axial by 6 radial (30 total)`);
 console.log("         The split's SHAPE is now right -- more radial than axial, same direction as the sheet -- confirmed by");
@@ -192,9 +192,10 @@ console.log("         (CALIBRATION.md). The count is still short because aLVreq 
 
 console.log("\n630 kVA, 11/0.433 kV, dry type, copper -- Mehir Transformers sheet");
 knownGap("LV radial build mm", +((r630.design.lvOD - r630.design.lvID) / 2).toFixed(2), 20, -35.75,
-  "The same LV area gap the 1250 kVA reference has, previously masked here by the same two packing bugs " +
-  "(ENGINE_VERSION 1.8.0/1.9.0) that were adding radial depth neither real winding has. This design's own " +
-  "axial x radial split (4x2) still matches the sheet exactly -- only the resulting build depth does not.");
+  "CALIBRATION.md section 72. Note this is the DRY reference, and its own density suggestion is right " +
+  "(2.80 against the sheet's 2.84, ratio 0.99) -- so unlike the 1250 kVA gap this one is NOT the oil " +
+  "density error. Its axial x radial split (4x2) matches the sheet exactly; only the build depth does not, " +
+  "which points at the strand shape (section 71) rather than the area.");
 
 /* CALIBRATION.md section 61: the 315 kVA UGVCL and 500 kVA sheets. Both are
    given their own Et, step count and flux, autoFit off, the same treatment

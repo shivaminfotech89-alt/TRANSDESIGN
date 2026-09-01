@@ -660,6 +660,14 @@ baseline against section 11 below, not treated as a defect of its own.
 
 ## 11. Open questions: HV conductor shape, and design margin vs densitySuggest accuracy
 
+**The `densitySuggest` half of this is RESOLVED in section 72.** The
+question below -- whether the margin is rating-dependent or
+`densitySuggest` is simply wrong -- is answered by a third reference with
+its density stated outright: the oil baseline is about 1.72x too high,
+flat across 315 and 1250 kVA, and this section's own 1250 kVA figure
+(~1.44 against a 2.5 suggestion) was already that same ratio. The HV
+conductor shape question below is still open.
+
 Two things investigated while chasing the 1250 kVA copper gap that are not
 settled, and should not be settled by fitting a constant to two points.
 Recorded here as open, with the evidence gathered, rather than inferred.
@@ -5544,3 +5552,72 @@ moment a single error is removed in isolation.
 **Nothing changed in the engine.** `ENGINE_VERSION` unmoved at 1.33.0, all
 three suites green, no golden number touched. Section 63's 880 W open
 question is closed by this work and corrected in place.
+
+## 72. The LV area gap is closed: the area model was never wrong, and the density error is systematic to oil, not tender margin
+
+The gap open since section 11 -- the engine's conductor areas and copper
+masses running short against every reference -- is resolved. It was never
+the area model.
+
+**The area model is exact.** Fed the 315 kVA sheet's own stated current
+densities (1.52 / 1.43 A/mm2), with nothing else changed:
+
+| | engine | sheet | |
+|---|---|---|---|
+| `aLVreq` | 276.3 mm2 | 275.67 | **+0.2 %** |
+| `aHVreq` | 6.68 mm2 | 6.69 | **-0.1 %** |
+| load loss | 2278 W | 2220 (calculated) | **+2.6 %** |
+
+Two conductor areas to a fifth of a per cent and the load loss to under
+three. Sections 8-11 spent a long time on the packing and the axial/radial
+split looking for a missing area; there was none. `aLVreq = iLV / dLV` was
+always right, and every apparent area gap was the density handed to it.
+This closes section 11's LV strand question and the `knownGap` entries that
+have carried it on the 1250 and 630 kVA references.
+
+**The density error is systematic, consistent, and specific to oil.**
+Three sheets now state or imply their own current density:
+
+| | `densitySuggest` | sheet | ratio |
+|---|---|---|---|
+| 1250 kVA oil | 2.50 | ~1.44 | **1.74** |
+| 315 kVA oil | 2.60 | 1.52 | **1.71** |
+| 630 kVA dry | 2.80 | 2.84 | **0.99** |
+
+Two oil designs, four times apart in rating, land at the same **1.72**.
+The one dry design lands at 1.00 -- so item 4's dry correction (x1.10,
+fitted to that sheet) is confirmed by a second look, and it is the **oil
+baseline that is about 1.72x too high**, not the medium correction and not
+the rating slope. That the ratio is flat across 315 and 1250 kVA is the
+useful part: it is an intercept error, the same shape as section 1's
+clearance finding, and it does not need a new rating-dependent term.
+
+**This supersedes "tender margin policy" as the explanation, and the
+correction is worth stating plainly because it was my own.** The reasoning
+that led there was: `autoFit` already pulls the 315 from 2.60 down to 2.10
+and meets both declared limits, so the further drop to 1.52 looked like a
+works choosing to build inside its guarantee. That is still true as far as
+it goes. But it cannot explain why the **1250 kVA**, a different job at a
+different rating, sits at the same ratio -- and section 11 had already
+recorded that reference's own implied ~1.44 A/mm2 against a 2.5
+suggestion, which is the same 1.74, from evidence that predates the 315
+sheet entirely. One design carrying margin is policy. Two designs at the
+same ratio, four times apart in rating, is a constant in the wrong place.
+
+Margin is probably still *part* of it -- a designer aiming under a
+guaranteed figure on the test floor is real, and section 11's own list of
+reasons still stands -- but it is not the main term and it is not what
+should be adjusted first. **Correct the oil baseline in `densitySuggest`;
+do not reach for `marginTargetLL`.**
+
+**What this gives the entangled work (section 71).** That section could not
+judge the strand aspect because the density feeding it was wrong, and could
+not judge the density because it had no target. There is now a target, from
+two independent references agreeing to within 2 %: oil copper at these
+ratings runs about **1.45-1.52 A/mm2**, roughly `densitySuggest / 1.72`.
+The strand aspect can finally be measured against a correct area rather
+than against one that was compensating for it.
+
+**Nothing changed in the engine here.** This section records a confirmed
+model and a quantified error; the fix belongs with the section 71 work,
+after the window solve can survive it.
