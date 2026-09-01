@@ -8,7 +8,7 @@
  * without bumping it, or old quotations stop reproducing.
  */
 
-export const ENGINE_VERSION = "1.31.0";
+export const ENGINE_VERSION = "1.32.0";
 
 const CONDUCTORS = {
   copper: { name: "Copper, EC grade", rho20: 0.017241, alpha: 0.00393, dens: 8890, dMax: 3.6, short: "Cu", proof: 1.0 },
@@ -375,6 +375,16 @@ function deriveSpec(core, over = {}) {
   put("limitNLL", Math.round(sch.nll), [Math.round(sch.nll * 0.5), Math.round(sch.nll * 2), 5], null, `Estimated from the level formula for ${kva} kVA. Replace it with the figure in the enquiry.`);
   put("limitLL", Math.round(sch.ll), [Math.round(sch.ll * 0.5), Math.round(sch.ll * 2), 25], null, `Estimated for ${kva} kVA. Replace it with the figure in the enquiry.`);
   const z = put("targetZ", zSuggest(kva, umHV), [3, 14, 0.25], null, `Standard value for ${kva} kVA at ${umHV} kV. Going lower raises fault current; going higher worsens regulation.`);
+  /* CALIBRATION.md section 68: IS 2026:2011 Part V clause 4.1 puts the
+     SOURCE impedance in series with the transformer's own, so the fault
+     current a winding actually has to withstand is lower than the
+     impedance-only figure. 500 MVA is the figure the 315 kVA UGVCL sheet
+     states and a common assumption for an 11 kV distribution feeder; it is
+     a property of the network the machine is going into, not of the
+     machine, so it is an input with no defensible derivation from the
+     rating. Setting it to 0 means an infinite bus and reproduces the old
+     impedance-only figure exactly. */
+  put("systemFaultMVA", 500, [0, 5000, 25], null, "Three-phase symmetrical fault level of the system the transformer is connected to. IS 2026 Part V puts this in series with the transformer's own impedance. 0 means an infinite bus (transformer impedance alone).");
   put("zTol", z >= 10 ? 7.5 : std.zTol, [5, 10, 0.5], null, `${std.name} allows \u00B1${z >= 10 ? 7.5 : std.zTol}% on the declared impedance.`);
 
   /* --- core --- */
@@ -1391,7 +1401,38 @@ function designTransformer(p) {
   const out = p.kva * 1000 * p.pf;
   const effAt = (k) => ((k * out) / (k * out + noLoad + loadLoss * k * k)) * 100;
   const maxEffLoad = Math.sqrt(noLoad / Math.max(1, loadLoss));
-  const iscMult = 100 / g.pctZ;
+  /* CALIBRATION.md section 68: fault current to IS 2026:2011 Part V clause
+     4.1, checked against the 315 kVA sheet's own four figures exactly.
+
+       Zs = Um^2 / Sfault          system impedance, at the HIGHEST voltage
+       Zt = (%Z/100) x V^2 / S     transformer impedance, at the RATED voltage
+       Isc(HV) = V / (sqrt(3) (Zs + Zt))
+       Isc(LV) = Isc(HV) x V(HV)/V(LV)
+
+     The mixed voltage basis is not a slip and is not ours to tidy: Zs is
+     built on Um (12 kV here) because a system fault level is quoted at the
+     system's own highest voltage, while Zt and the current are on the
+     transformer's rated 11 kV. Using one voltage throughout reproduces
+     neither of the sheet's figures -- Um for Zt gives 21.714 against a
+     stated 18.246, and Um in the current gives 0.374 kA against a stated
+     0.343 kA. Both hit exactly on the mixed basis.
+
+     iscMult is kept as the ratio actually applied, so anything downstream
+     reading it still sees the true multiplier rather than 100/%Z. With
+     systemFaultMVA at 0 this reduces to exactly 100/%Z, the previous
+     behaviour.
+
+     Both fault currents are LINE currents, which is how a sheet quotes them
+     and how switchgear is rated. That is a change of basis on the HV side:
+     iscHV used to be iHV (a PHASE current on a delta HV) times 100/%Z,
+     while iscLV was iLV (phase = line on a star LV) times the same factor,
+     so the two were quoted on different bases and printed side by side in
+     calcSheet as though they were not. At the 315 that made the HV figure
+     198 A where the sheet says 343 A -- the ratio being exactly sqrt(3). */
+  const zSys = p.systemFaultMVA > 0 ? (p.umHV * p.umHV) / p.systemFaultMVA : 0;
+  const zTx = (g.pctZ / 100) * ((p.hv / 1000) * (p.hv / 1000)) / (p.kva / 1000);
+  const iscHVline = p.hv / (Math.sqrt(3) * (zSys + zTx));
+  const iscMult = iscHVline / Math.max(1e-9, iLineHV);
   const noise = 39 + 12.5 * Math.log10(Math.max(1, p.kva / 100)) + (B - 1.6) * 28 + grade.noise + (dry ? 4 : 0);
 
   /* p.limitNLL/limitLL are always the single source of truth here, not
@@ -1473,7 +1514,7 @@ function designTransformer(p) {
     wPerKg, wJoint, noLoad, loadLoss, totalLoss, i0pct, i2rLV: g.i2rLV, i2rHV: g.i2rHV, rLV: g.rLV, rHV: g.rHV,
     pctX: g.pctX, pctR: g.pctR, pctZ: g.pctZ, regFull, oilRise, windRise, grad, hotspot, hotspotAvg, lifeFactor,
     riseLimit, wRiseLimit, eff100: effAt(1), eff75: effAt(0.75), eff50: effAt(0.5), maxEffLoad,
-    iscLV: iLV * iscMult, iscHV: iHV * iscMult, iscMult, noise, sch, compliance, compliant,
+    iscLV: iLineLV * iscMult, iscHV: iscHVline, iscMult, zSys, zTx, noise, sch, compliance, compliant,
     fanCount, pumpCount,
     dualForced, dualLoadLoss, dualTotalLoss, dualOilRise, dualWindRise, dualCompliance, dualCompliant,
     Kw, aWin, Hw0, util: shape === "circ" ? (STEP_UTIL[p.steps] || 0.94) : ct.aspect, sf: grade.sf,
@@ -2657,7 +2698,9 @@ function calcSheet(d, bom) {
     row("Reactance component", "%X", "%X = X I\u2082\u209A\u2095 / V\u2082\u209A\u2095 \u00D7 100", `= ${n(d.X, 5)} \u00D7 ${n(d.iLV, 1)} / ${n(d.lvPh, 1)} \u00D7 100`, `${n(d.pctX)} %`, REFS.S, "reactance, current, voltage"),
     row("Impedance", "%Z", "%Z = \u221A(%R\u00B2 + %X\u00B2)", `= \u221A(${n(d.pctR)}\u00B2 + ${n(d.pctX)}\u00B2)`, `${n(d.pctZ)} %`, REFS.IS2026 + ` \u00B7 tolerance \u00B1${n(p.zTol, 1)}%`, "%R, %X"),
     row("Regulation", "\u03B5\u1D63", "\u03B5\u1D63 = %R cos\u03C6 + %X sin\u03C6", `= ${n(d.pctR)}\u00D7${n(p.pf)} + ${n(d.pctX)}\u00D7${n(Math.sqrt(Math.max(0, 1 - p.pf * p.pf)))}`, `${n(d.regFull)} %`, REFS.S, "%R, %X, power factor"),
-    row("Symmetrical fault current", "Iₛᴄ", "Iₛᴄ = Iᵣₐₜₑᵈ × 100/%Z", `= ${n(d.iLV, 1)} × 100/${n(d.pctZ)}`, `${n(d.iscLV, 0)} A LV, ${n(d.iscHV, 0)} A HV`, REFS.IEC1 + " · short-circuit withstand", "impedance, rated current"),
+    row("System impedance", "Zₛ", "Zₛ = Uₘ² / Sᶠ", `= ${p.umHV}² / ${n(p.systemFaultMVA, 0)}`, `${n(d.zSys, 4)} Ω`, "IS 2026 Part V · clause 4.1", "system fault level, highest voltage"),
+    row("Transformer impedance", "Zₜ", "Zₜ = (%Z/100) V² / S", `= (${n(d.pctZ)}/100) × ${n(p.hv / 1000, 1)}² / ${n(p.kva / 1000, 3)}`, `${n(d.zTx, 3)} Ω`, "IS 2026 Part V · clause 4.1", "impedance, rated voltage and rating"),
+    row("Symmetrical fault current", "Iₛᴄ", "Iₛᴄ = V / (√3 (Zₛ + Zₜ))", `= ${n(p.hv, 0)} / (1.732 × (${n(d.zSys, 3)} + ${n(d.zTx, 3)}))`, `${n(d.iscHV, 0)} A HV, ${n(d.iscLV, 0)} A LV (line)`, "IS 2026 Part V · clause 4.1", "system fault level, impedance, rated current"),
   ]);
 
   const thermal = d.dry
@@ -3546,7 +3589,7 @@ function documentRegister(core, d, bom, project) {
   const r = (n, title, status, where, missing) => ({ no: n, doc: N(n), title, status, where, missing });
   return [
     r(1, "Design Input Sheet", "done", "Project panel and enquiry inputs"),
-    r(2, "Complete Engineering Calculation Report", "part", "Calculations tab, 68 steps with formula, substitution and reference",
+    r(2, "Complete Engineering Calculation Report", "part", "Calculations tab, 84 steps with formula, substitution and reference",
       "Centre of gravity, transport weight, mechanical stress on the clamping structure and detailed short-circuit force calculation are not modelled"),
     r(3, "Executive Design Summary", "done", "Report page 1"),
     r(4, "Customer Approval Drawing, GA", "part", "Drawing 9, outer general arrangement",

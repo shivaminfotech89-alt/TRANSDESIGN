@@ -5229,3 +5229,94 @@ above 11 kV remains untested, as section 1 said.
 
 **Nothing changed.** No bound added, no parameter moved, `ENGINE_VERSION`
 unmoved.
+## 68. Short circuit to IS 2026:2011 Part V clause 4.1 -- system fault level added, and an HV/LV basis mismatch found while doing it
+
+The 315 sheet carries a full short-circuit calculation, the first reference
+to do so. It is reproduced exactly, all four figures, and it exposed a
+second defect that had nothing to do with the source impedance.
+
+**Their method, confirmed unambiguously.**
+
+```
+Zs = Um^2 / Sfault           = 12^2 / 500        = 0.288  ohm
+Zt = (%Z/100) x V^2 / S      = 0.0475 x 11^2/0.315 = 18.246 ohm
+Isc(HV) = V / (sqrt(3)(Zs + Zt)) = 11000/(1.732 x 18.534) = 0.343 kA
+Isc(LV) = Isc(HV) x V(HV)/V(LV)  = 0.343 x 11000/433      = 8.70 kA
+```
+
+**The mixed voltage basis is real and is not ours to tidy.** `Zs` is built
+on Um (12 kV) because a system fault level is quoted at the system's own
+highest voltage; `Zt` and both currents are on the transformer's rated
+11 kV. Using one voltage throughout reproduces neither figure -- Um in
+`Zt` gives 21.714 against a stated 18.246, and Um in the current gives
+0.374 kA against a stated 0.343. Only the mixed basis lands on all four,
+and it lands exactly. That is enough to adopt the method as written rather
+than as it might be tidied.
+
+**`systemFaultMVA`, default 500.** A property of the network the machine
+goes into, not of the machine, so it is an input with no defensible
+derivation from the rating. 500 MVA is the sheet's own figure and a common
+11 kV feeder assumption. **Setting it to 0 means an infinite bus and
+reproduces the previous impedance-only figure exactly** -- verified:
+`iscMult` comes back as 21.0526 against 100/%Z = 21.0526, to the last
+digit. Including a 500 MVA source lowers the fault current by **1.55 %** at
+this rating. Small here, and it grows as the transformer's own impedance
+falls relative to the source's -- which is to say on larger units and
+weaker systems, exactly where a withstand margin matters most.
+
+**The defect found on the way: HV and LV fault currents were quoted on
+different bases.** `iscHV` was `iHV * 100/%Z` where `iHV` is a **phase**
+current on a delta HV, while `iscLV` was `iLV * 100/%Z` where `iLV` is a
+phase current on a star LV and therefore also the line current. The two
+were then printed side by side in `calcSheet` as though they were the same
+kind of quantity. At the 315 that put the HV figure at 198 A where the
+sheet says 343 A -- the ratio being exactly sqrt(3), which is the signature
+of the error, not a coincidence. Both are now line currents, which is how a
+sheet quotes them and how switchgear is rated. This was a live, user-facing
+wrong number on every delta-HV design in the platform, and it was
+independent of the source-impedance question that prompted the work.
+
+`calcSheet` now shows the derivation as three rows -- system impedance,
+transformer impedance, then the current -- cited to IS 2026 Part V clause
+4.1 rather than the generic IEC withstand reference it carried before, so
+a reader can check it against the same clause the sheet does.
+
+**Enforced, not just recorded.** `reference-designs.test.mjs` asserts all
+four figures against the sheet at 0.5 % tolerance.
+
+**Version.** `ENGINE_VERSION` **1.32.0**, its own bump, committed
+separately from section 66's 1.31.0. Both changed formulas, and invariant 4
+asks for a bump per formula change, not per batch -- a quotation issued at
+1.31.0 has to reprice at 1.31.0, which it cannot if 1.31.0 later means two
+different fault-current models. No priced output moves here: fault current
+does not enter the BOM, so the golden-numbers table is untouched by this
+section and CLAUDE.md's table still reads as it did at 1.31.0.
+
+## 69. `documentRegister` review for this batch (CLAUDE.md invariant 7)
+
+Checked every row against what sections 61-68 actually built, not just the
+rows the work obviously touched.
+
+**One row was wrong, and had been for some time.** Row 2, the Complete
+Engineering Calculation Report, described the Calculations tab as
+"68 steps". It is 84 -- 82 before section 68 added two. The count had
+drifted well before this batch and nothing near it had been edited, which
+is precisely the failure mode invariant 7 describes. Corrected to 84.
+
+**Rows checked and left alone, with the reason:**
+- Row 2's `missing` list ("centre of gravity, transport weight, mechanical
+  stress on the clamping structure and detailed short-circuit force
+  calculation are not modelled") stays true. Section 68 added fault
+  *current* to IS 2026 Part V; it did not add the electromagnetic *force*
+  that current produces, which is a different calculation and still absent.
+  The wording already says "force", so it is accurate as it stands -- worth
+  stating explicitly, because "we now do short circuit" is exactly the
+  half-truth that would have made this entry silently false.
+- Row 21, Type Test Report, "need": unchanged. Computing a fault current
+  does not produce a test certificate.
+- No row claimed the platform could not model round conductor, corner
+  radius or system fault level, so nothing became falsely pessimistic
+  either. Sections 66 and 68 add engine capability that no register entry
+  was describing as missing.
+
+Statuses after this batch: 6 done, 14 part, 8 need, 28 rows.

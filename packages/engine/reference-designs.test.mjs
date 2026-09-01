@@ -224,6 +224,14 @@ within("no-load loss W", Math.round(r315.design.noLoad), 470, 6);
 within("HV OD mm", +r315.design.hvOD.toFixed(1), 385, 3);
 // CALIBRATION.md section 66: the sheet winds 2.92 dia super enamel, round.
 exact("HV conductor shape", r315.design.hvCondShape, "round");
+// CALIBRATION.md section 68: the sheet carries a full short-circuit
+// calculation to IS 2026:2011 Part V clause 4.1 -- system fault level
+// 500 MVA, Um 12 kV. All four of its figures, reproduced exactly.
+console.log("\n315 kVA short circuit, IS 2026:2011 Part V clause 4.1");
+within("system impedance Zs ohm", +r315.design.zSys.toFixed(4), 0.288, 0.5);
+within("transformer impedance Zt ohm", +r315.design.zTx.toFixed(3), 18.246, 0.5);
+within("fault current HV kA", +(r315.design.iscHV / 1000).toFixed(4), 0.343, 0.5);
+within("fault current LV kA", +(r315.design.iscLV / 1000).toFixed(3), 8.70, 0.5);
 
 console.log("\n500 kVA, 11/0.433 kV, Dyn11, oil, copper -- Mehir Transformers sheet");
 const core500 = { ...E.ESSENTIALS, kva: 500, application: "distribution", vector: "Dyn11", condPref: "copper" };
