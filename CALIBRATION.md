@@ -1,10 +1,48 @@
 # Engine calibration against real working designs
 
-Two production design sheets from Mehir Transformers, prepared by a working
-designer, were compared against the engine. Given the designer's volts per turn
-and clearances, the engine reproduces both transformers to within a few per
-cent, so the geometry and turns model is sound. What needs correcting is what
-the engine *suggests* when left to choose.
+Four production design sheets from Mehir Transformers, prepared by working
+designers, are compared against the engine. Given the designer's volts per
+turn and clearances, the engine reproduces their geometry and turns to within
+a few per cent, so that part of the model is sound. What needs correcting is
+what the engine *suggests* when left to choose -- and the largest single
+example of that is immediately below.
+
+## The strongest single finding in this file: the oil current density is 1.72x too high
+
+Kept here, at the top, rather than inside a section, because it is the
+best-evidenced number in the document and the one most likely to be needed
+by someone who reads no further.
+
+| | `densitySuggest` | sheet | ratio |
+|---|---|---|---|
+| 1250 kVA, oil | 2.50 A/mm2 | ~1.44 | **1.74** |
+| 315 kVA, oil | 2.60 A/mm2 | 1.52 | **1.71** |
+| 630 kVA, dry | 2.80 A/mm2 | 2.84 | **0.99** |
+
+**Two independent oil designs, four times apart in rating, at the same
+ratio; the one dry design at 1.00.** Nothing else in this file rests on two
+matching points that far apart. A flat ratio across a 4x span is an
+intercept error, not a slope error, and the dry figure landing at 1.00 says
+the medium correction is right and the oil baseline specifically is wrong.
+
+The 1250's own implied ~1.44 was recorded in section 11 long before the 315
+sheet existed, which means the two points were never fitted to each other.
+
+**What correcting it does**, measured: the 315's load loss goes from +70.2%
+against its own calculated 2220 W to **-5.0%**; the 1250's copper mass from
+-43.4% against its 982 kg to **+6.1%**; and the LV conductor arrangement on
+the 500 and 1250 comes out exactly right for the first time. It closes the
+LV area gap open since section 11 -- which was never an area-model defect at
+all, the area model being exact to 0.2% when fed real densities (section 72).
+
+**It is not committed.** Correcting it enlarges the HV conductor, and the HV
+radial build is computed from a fixed 2.1:1 conductor shape with no
+measurement behind it (section 11's own open question), so the 1250's HV OD,
+tank length and real cutting chart all degrade. Blocked on one datum: HV
+conductor dimensions for the 1250 or 630 kVA. See DATA-REQUEST item 0 and
+sections 72 and 74.
+
+---
 
 Reference designs:
 - **1250 kVA, 11/0.433 kV, Dyn11, OLTC, oil, copper.** 1400 W no-load,
@@ -14,6 +52,16 @@ Reference designs:
 - **630 kVA, 11/0.433 kV, dry type, copper.** 1300 W no-load, 6200 W load loss.
   Et 15.63, 16 LV turns, 704 HV turns, core 245 mm, hilo 25 mm, LV radial build
   20 mm, copper 292 kg, LV axial 410 mm.
+- **315 kVA, 11/0.433 kV, Dyn11, oil, copper, Level 1, UGVCL tender.** 470 W
+  no-load, 3100 W load loss, 4.75 % declared and 4.20 % measured impedance.
+  Et 9.615, 26 LV turns, 1144 HV turns in 4 coils/phase, core 197 mm,
+  16 steps, window 365 x 198, core 660 kg/set. The first reference with a
+  full short-circuit calculation and a full lamination drawing set. See
+  section 61.
+- **500 kVA, 11/0.433 kV, Dyn11, oil, copper.** 545 W no-load, 3472/3622/3755 W
+  load loss at taps 1/5/8. Et 10.416, flux 1.3947 T, 24 LV turns, HV round
+  enamelled wire 9 SWG, core 942.3 kg, 17 steps, tank 1310 x 525 x 1205
+  inside, 650 L oil, 3345 kg total. See section 61.
 
 ---
 
@@ -649,6 +697,14 @@ area gap through the shared window-height solve), each recording the new
 baseline against section 11 below, not treated as a defect of its own.
 
 ## 11. Open questions: HV conductor shape, and design margin vs densitySuggest accuracy
+
+**The `densitySuggest` half of this is RESOLVED in section 72.** The
+question below -- whether the margin is rating-dependent or
+`densitySuggest` is simply wrong -- is answered by a third reference with
+its density stated outright: the oil baseline is about 1.72x too high,
+flat across 315 and 1250 kVA, and this section's own 1250 kVA figure
+(~1.44 against a 2.5 suggestion) was already that same ratio. The HV
+conductor shape question below is still open.
 
 Two things investigated while chasing the 1250 kVA copper gap that are not
 settled, and should not be settled by fitting a constant to two points.
@@ -4521,3 +4577,1290 @@ and neither the names nor the geometry they describe are changed here.
 `"stepLap"`, the default for every non-amorphous design) -- every number
 in CLAUDE.md's own golden-numbers table for the default case moved, and
 that table is updated in the same commit.
+
+## 61. Two more complete Mehir references -- 315 kVA (UGVCL tender) and 500 kVA -- and what they immediately show is wrong
+
+Two complete design sheets, both 11/0.433 kV Dyn11 copper, oil. Unlike the
+1250 and 630 kVA sheets these arrive with the full supporting calculation:
+the 315 carries a short-circuit calculation to IS 2026:2011 Part V clause
+4.1, a heat-dissipation calculation with its own fin count, and a fully
+dimensioned lamination drawing set for all three plate shapes. That is
+enough to check things this file has so far only been able to fit.
+
+**As given, not derived.**
+
+315 kVA, Level 1:
+- Core 197 dia, window height 365, leg centre-to-centre 395, 16 steps,
+  gross 294.1 cm2, stacking factor 0.97, net 285.28 cm2, flux 1.5182 T,
+  grade 23HP80, 660 kg/set.
+- LV 26 turns, 1 coil/phase, 3.28 x 10.78 x 8 DPC, 275.67 mm2 after a 1 mm
+  corner radius, 1.52 A/mm2, ID 205, OD 267, axial 345.
+- HV 1144 turns, 4 coils/phase, 2.92 dia super enamel, 6.69 mm2,
+  1.43 A/mm2, ID 289, OD 385, axial 73 each.
+- No-load 470 W, load 1025 W at half load and 3100 W at full. Impedance
+  4.75 % declared, 4.20 % measured.
+- Tank outside 1255 x 495 x 1010, 20 fins of 800 x 300 provided.
+- Frame 1175 at 150 x 75, core bolt 255 M16, tie rod 575 M16, lifting rod
+  285 M16, foot plate 410 at 75 x 12.
+- Short circuit: Zs 0.288, Zt 18.246, I(HV) 0.343 kA, I(LV) 8.70 kA,
+  system fault level 500 MVA, Us 12 kV.
+
+500 kVA:
+- Flux 1.3947 T, Et 10.416, no-load 545 W, core 942.3 kg, grade 23HP75,
+  17 steps.
+- LV 24 turns, 12 parallel conductors 3 axial by 4 radial, bare 3.0 x 11.0,
+  DPC 3.35 x 11.35, ID 223, OD 285, radial 31.
+- HV round enamelled wire 3.657 dia (9 SWG), 3.745 over enamel, 2 normal
+  plus 2 tapping coils per phase, 290 and 291 turns per coil, ID 309,
+  OD 404, radial 47.5.
+- Load loss 3472 / 3622 / 3755 W and impedance 4.65 / 4.65 / 4.54 % at taps
+  1, 5 and 8.
+- Tank inside 1310 x 525 x 1205, oil 650 L, total mass 3345 kg.
+
+**Two internal checks pass before the engine is involved at all**, which is
+what makes these usable as references rather than as a list of numbers.
+The 315's own stated flux follows from its own stated Et and net area:
+9.615 / (4.44 x 50 x 0.028528) = 1.5182 T, exactly as printed. And its own
+turns ratio closes: LV star phase voltage 433/sqrt(3) = 250 V over 26 turns
+gives Et 9.6154, and 11000 / 9.6154 = 1144.0 HV turns, exactly the printed
+figure. The sheet is self-consistent.
+
+**What the engine reproduces, given the sheet's own Et, flux and step
+count, with `autoFit` off.**
+
+| Quantity | 315 sheet | engine | |
+|---|---|---|---|
+| LV turns | 26 | 26 | exact |
+| HV turns | 1144 | 1144 | exact |
+| Core diameter mm | 197 | 197.2 | +0.1% |
+| Window width mm | 198 | 199.7 | +0.9% |
+| Core mass kg/set | 660 | 672.5 | +1.9% |
+| No-load W | 470 | 487 | +3.6% (grade m0h -- see below) |
+| HV OD mm | 385 | 380.9 | -1.1% |
+| LV OD mm | 267 | 273.0 | +2.2% |
+
+That is a good reproduction of the core and the turns model, consistent
+with what the 1250 and 630 kVA sheets already showed. **The no-load row
+carries a condition**: 487 W is at core grade `m0h`, which is what the
+0.23 mm Hi-B grade on the sheet (23HP80) actually corresponds to. This is
+a Level 1 job, and `gradeSuggest("level1")` returns `m4` (0.27 mm), at
+which the same design gives **582 W, +23.8 %**. Section 64 works out why
+that mapping is wrong. What follows is not conditional on any of that.
+
+| Quantity | 315 sheet | engine | |
+|---|---|---|---|
+| Window height mm | 365 | 438.7 | **+20.2%** |
+| Window aspect Hw/Ww | 1.84 | 2.20 | see section 66 |
+| Load loss W | 3100 | 3774 | **+21.7%** |
+| LV conductor area mm2 | 275.67 | 161.54 | **-41.4%** |
+| HV conductor area mm2 | 6.69 | 3.471 | **-48.1%** |
+| LV current density A/mm2 | 1.52 | 2.60 | **+71%** |
+| HV current density A/mm2 | 1.43 | 2.75 | **+92%** |
+| HV construction | 4 coils/phase | single layer | see section 62 |
+| Tank length mm | 1255 | 1323 | +5.4% |
+| Tank height mm | 1010 | 1048 | +3.8% |
+
+The 500 kVA, given its own Et and flux: LV turns 24 exact, HV 1056 at the
+normal tap, LV ID 223 against 220.9 (-0.9%), HV OD 404 against 412.4
+(+2.1%), no-load 545 W against 535 (-1.8%) -- and core mass 942.3 kg
+against 867.2 (**-8.0%**), the opposite sign to the 315's own +1.9%.
+
+**Finding 1: current density does not depend on the efficiency level, and
+should.** `densitySuggest(kva, cond, dry, isHV)` takes the rating, the
+conductor material, the medium and which winding -- not `effLevel`. Running
+the 315 at `level1` and at `level2` returns the same 2.60 / 2.75 A/mm2 both
+times, confirmed directly. But this sheet is a Level 1 job and runs
+1.52 / 1.43 A/mm2, roughly 0.58 and 0.52 of our suggestion. That is not a
+small fitting error, it is a missing dependency: the whole point of a
+Level 1 design is that it buys a lower load loss with more copper, and the
+only lever that does that is current density. CLAUDE.md already documents
+the cascade "change the efficiency level and core grade, flux density and
+current density follow" -- the first two do follow (`gradeSuggest` and
+`fluxSuggest` both take `effLevel`), the third does not, despite being
+documented as if it did. This is very likely the same root cause as the
+LV-area gap standing open on the 1250 and 630 kVA references since
+section 11, which no amount of re-fitting the packing ever closed; those
+are both low-loss designs too. Not fixed here -- fixing it moves every
+load loss, every copper mass and every price in the platform, and it
+deserves its own section and its own `ENGINE_VERSION` bump rather than
+being folded into a reference-intake commit.
+
+**RESOLVED in section 70.** **Finding 2: `STEP_UTIL` stops at 15 steps and both new references are
+past it.** `STEP_UTIL` holds odd counts 3 to 15 only, `put("steps", ...)`
+offers exactly those as the UI options, and `const util = STEP_UTIL[p.steps]
+|| 0.94` catches everything else. The 315 is a 16-step core and the 500 is
+a 17-step core, so neither is selectable in the product at all, and asking
+the engine for 16 steps silently returns a utilisation of 0.94 -- *worse*
+than the 0.963 it holds for 15 steps, when 16 steps must in reality fill
+the circle better than 15. The 315's own sheet gives the true figure
+directly: gross 294.1 cm2 against the 197 mm circle's 304.81 cm2 is a
+utilisation of **0.9649** at 16 steps. The fallback is therefore not merely
+unfitted, it is the wrong side of the table it falls off. One real point is
+not a curve, so `STEP_UTIL` is not extended here on this alone (the same
+rule section 1 set for the clearance slope), but the fallback being
+non-monotonic is a defect regardless of what the true 16-step figure is.
+
+**Finding 3: the 315's stacking factor confirms the grade table.** Sheet
+0.97 exactly, `CORE_GRADES.m4.sf` and `.m0h.sf` both 0.97. Nothing to
+change; recorded because it is the first independent confirmation of an
+`sf` value in this file.
+
+Items raised by these two sheets are worked in sections 62 to 68, in the
+order the design office raised them.
+
+## 62. Effective winding height: the engine applies the Rogowski factor in the wrong direction, and the impedance solve has been hiding it
+
+**SUPERSEDED IN PART by section 74. The conclusion below -- that the sign is
+wrong and should be flipped -- did not survive being tested with the current
+density corrected.** Flipping it degrades four independent geometric
+agreements (the 1250 kVA's own window aspect, the 630 kVA's measured 4x2 LV
+arrangement, the 1250's arrangement, the 1000 kVA default's impedance), and
+the +11.9% below is measured against the 315's TESTED 4.20%, not against its
+DECLARED 4.75%. Against the declared figure -- which is what a design
+calculation targets and what this engine solves for -- the current form
+lands within 1%. The 4.20% on test is the machine's own deviation from its
+design, which is what the tender flagged in the first place. Read the
+mechanism below as correct and the recommendation as withdrawn.
+
+
+The 315 kVA measured 4.20 % against 4.75 % declared. IS 2026 allows
++/-10 %, so the acceptance band is 4.275 to 5.225 and the machine is
+outside it. The design office traced the cause to the effective winding
+height and asked whether the engine makes the same error.
+
+**It does, and the designer's own arithmetic reproduces exactly.** Checked
+independently: 0.95 x LV axial 345 = 327.75 mm, full window 365 mm, ratio
+1.1137; 4.733 / 1.1137 = 4.250, their stated figure. A further 3.9 % build
+tightening gives X 4.084, and with R% = 3100/315000 = 0.984,
+sqrt(4.084^2 + 0.984^2) = 4.201 against 4.20 measured. Every step closes.
+
+**The engine's own formula, evaluated at the sheet's own dimensions** (LV
+205/267, HV 289/385, hilo 11 mm, 26 LV turns, iLV 420 A):
+
+| effective height | hEff | X % | Z % | vs measured 4.20 |
+|---|---|---|---|---|
+| `min(hLV,hHV) x 0.95` (engine now) | 327.8 | 4.597 | 4.701 | **+11.9 %** |
+| full window height | 365.0 | 4.128 | 4.244 | +1.0 % |
+| `min(hLV,hHV) / 0.95` | 363.2 | 4.149 | 4.264 | +1.5 % |
+
+**Why this has never shown up as a wrong impedance.** `autoWindow` bisects
+the window height until calculated %Z equals the declared value, so the
+engine reports 4.750 % on this design -- the declared figure, exactly --
+no matter what `hEff` is. The error is not in the impedance the engine
+prints, it is in the geometry it invents to print it: solving with the
+current `hEff` lands on a **438.7 mm window against the sheet's 365 mm,
++20.2 %**. With `hEff` = the window, the same solve lands on 348.2 mm,
+-4.6 %. A 20 % error in window height propagates into core mass, tank
+height, oil volume and price, silently, while the one number a user would
+check reads correct. This is the same class of fault as section 40's
+silent invalidation: a solved output agreeing with its target says nothing
+about whether the model underneath it is right.
+
+**Finding: this is a sign error, not primarily a construction effect.**
+The conventional statement of the Rogowski correction is that end fringing
+makes the *effective* height **greater** than the physical winding height,
+so the ideal reactance is multiplied by K_R < 1 -- equivalently
+`hEff = h / K_R`. The engine does `hEff = h * 0.95`, which makes the
+effective height *smaller* and X *larger*. The two differ by 1/0.95^2 =
+1.1080, i.e. **+10.8 % on X** -- and the observed error at this geometry is
++11.9 % on Z. The sign error alone accounts for nearly all of it.
+`calcSheet` even prints the row as "Heff = h x Rogowski factor", so the
+formula and its own stated derivation agree with each other and both
+disagree with the textbook.
+
+**The designer's hypothesis and the sign fix are numerically
+indistinguishable on this design, and probably on any design.** LV axial /
+window here is 345/365 = 0.9452. So "the full window" and "h / 0.95" differ
+by 0.51 % of effective height -- and they will differ by about that much on
+*any* design whose end clearances take roughly 5 % of the window, which is
+most of them. One reference cannot separate these two hypotheses. What
+separates them is that one is a formula error demonstrable from theory
+alone, and the other is a construction-dependent physical claim that would
+need designs where the HV span and the LV height genuinely diverge.
+
+**So: should the effective height depend on HV construction?** Not on this
+evidence, and not first. A single-layer winding and four coils spanning
+the window really are different -- axial gaps break the uniform current
+sheet the classical formula assumes, and multi-coil windings do carry a
+different leakage pattern -- but that is a second-order correction on top
+of a first-order sign error, and fitting it now would fit it to a residual
+that the sign fix mostly removes. Fix the direction first, on theory, then
+re-measure the residual against designs that can actually distinguish the
+two. Do not introduce a construction-dependent `hEff` on one data point;
+that is the mistake section 1 declined to make on the clearance slope and
+section 53 declined to make on `MITRE_K`.
+
+**A related defect, found on the way.** `hvLayerMaxKva` is 500, so the
+engine selects a single continuous layer winding for the 315 -- but the
+real 315 is 4 coils/phase, and the real 500 is 4 coils/phase too. Both new
+references are multi-coil at ratings where the engine says single-layer.
+Whatever is decided about `hEff`, the construction selection itself is
+wrong at these ratings.
+
+**Blast radius, measured, not estimated.** Neither change is made here (the
+design office asked for a report before any change to the factor), but both
+variants were built and run against every reference. Window height falls on
+every one: default 1000 kVA 603.0 -> 573.0 (window) or 577.8 (h/0.95);
+1250 kVA 566.5 -> 481.7 or 531.5; 630 kVA 634.1 -> 499.6 or 619.1; 500 kVA
+620.2 -> 525.3 or 588.6. Ex-works on the default case moves 19,92,278 ->
+23,14,281 (window) or 20,97,139 (h/0.95). **Caveat on those prices: the Z
+solve did not converge cleanly under either variant on every case** (the
+default case lands at 4.891 % and 5.199 % rather than 5.000 %), because
+changing what `hEff` depends on changes the bisection's own relation --
+under `hEff = Hw` the solved variable appears on both sides. The window
+figures show the direction and rough size honestly; the ex-works figures
+should not be quoted until the solve is re-converged as part of the actual
+fix. That re-convergence is part of the work, not a detail after it.
+
+**Not changed here.** `ENGINE_VERSION` unmoved, no golden numbers touched.
+
+## 63. Cooling: our tank constant is about half theirs, but the error runs the *opposite* way to the one feared, and the 20 fins are not a safety margin
+
+The design office asked three things: whether our 300 W/m2 is wrong against
+their 500, what a cooling margin would cost, and to record the 880 W
+discrepancy on their own sheet. The answers are not the expected ones.
+
+**Their method, reproduced exactly.** Tank 1255 x 495 x 1010 gives
+2(L+W)H = 3.535 m2; at 500 W/m2 the tank carries 1767.5 W; with their
+stated 2690 W total the remainder is 922.5 W, and at 136.4 W per 800 x 300
+fin that is 6.76, rounded to the **7 fins** their sheet states. The method
+is confirmed, which makes their constants usable.
+
+**The two constants, side by side.**
+
+| | ours | theirs |
+|---|---|---|
+| tank | 300 W/m2 at 50 K = **6.00 W/m2K** | 500 W/m2 = **12.50 W/m2K at 40 K**, 10.00 at 50 K |
+| fin | 250 W/m2 at 50 K = 5.00 W/m2K | 136.4 W per 0.48 m2 fin = **284 W/m2** |
+
+Our fin figure is close to theirs (250 against 284, -12 %). Our tank figure
+is roughly **half** theirs. And the two halves are suspiciously exact: the
+standard decomposition of tank-wall dissipation is about 6 W/m2K by
+radiation plus about 6.5 W/m2K by convection, 12.5 W/m2K together. Our
+300/50 is 6.00 exactly; their 500/40 is 12.50 exactly. That is consistent
+with `tankDiss` having been set to the radiation term alone and the
+convection term never added. Consistent with, not proof of -- the rise
+basis of their 500 W/m2 is not stated on the sheet, and at 50 K it would
+read 10.0 W/m2K instead. **Ask the manufacturer which rise their 500 W/m2
+is quoted at**; the answer decides whether our figure is half or six
+tenths of theirs, and it is the single cheapest question on this list.
+
+**The direction matters, and it is not the direction the request assumed.**
+A *low* dissipation constant does not make our tanks optimistic. It makes
+the engine believe each square metre carries less heat than it really
+does, so it demands **more** cooling surface, not less. Like for like --
+their tank area, their guaranteed 3570 W, our coefficients, our 47.3 K
+target -- the engine asks for 23.1 fins where their own method asks 14 and
+the works fits 20. The engine is already the most conservative of the
+three. Adding a margin on top would compound a conservatism that is
+already there, and the resulting tank would be larger and dearer than what
+a real works actually builds.
+
+**The 20 fins are very close to what the physics requires, not a 3x
+margin.** Run our own dissipation law over their *actual* provided cooling
+-- their 3.535 m2 tank plus 20 fins, 9.60 m2 of fin surface -- at their own
+guaranteed 3570 W: top-oil rise **51.3 K**, against the 50 K limit. Invert
+it and ask how much fin our law needs on their tank at their loss to sit
+exactly at 50 K: **20.9 fins**. They fit 20.
+
+So the answer to "why 20 when you calculated 7" is most likely "because 20
+is roughly what it takes". Their 7 is low for two compounding reasons, both
+visible on their own sheet: it uses 2690 W rather than their own
+guaranteed 3570 W, and 500 W/m2 flat is generous for a tank wall compared
+with a rise-dependent law. Correct the loss alone and their method gives
+14; correct the constant as well and it gives about 20. The question is
+still worth putting to the manufacturer, but it should be put as "is your
+500 W/m2 at 40 K, and is the 2690 W a different loss basis" rather than as
+"why do you over-provide".
+
+**Cooling margin, priced.** A margin multiplier on `finAreaReq` was built
+and run (not committed, no default set, as instructed):
+
+| margin | 315 kVA | 500 kVA | 1000 kVA |
+|---|---|---|---|
+| 1.00 | 9,69,304 | 13,20,864 | 19,92,278 |
+| 1.25 | +0.53 % | +0.56 % | +0.43 % |
+| 1.50 | +1.06 % | +1.12 % | +0.85 % |
+| 2.00 | +2.12 % | +2.24 % | +1.71 % |
+| 3.00 | +4.24 % | +4.49 % | +3.42 % |
+
+Cooling is a **small price lever**: trebling the fin area costs between
+3.4 % and 4.5 % of ex-works. Fin steel is thin and cheap relative to core,
+copper and oil. This cuts both ways -- it means the platform's prices are
+not very exposed to getting the cooling constant wrong, and it means
+buying real thermal margin is cheap insurance. What it is not is a reason
+to leave `tankDiss` unresolved, because the same constant also sets the
+predicted rise that a heat run is judged against.
+
+**RESOLVED in section 71: the 880 W is not a discrepancy.** This section
+originally recorded it as an open question and warned "do not adopt 2690 W
+for anything". That warning was wrong, and the resolution came out of
+section 71's work rather than from any new data -- the sheet already
+contained it. Their full-load copper loss is **2220 W**, and every figure
+on the sheet follows:
+
+- 50 % load, stated 1025 W = no-load 470 + 0.25 x 2220 = **1025** exactly.
+- Heat dissipation, using 2690 W = no-load 470 + 2220 = **2690** exactly.
+- I2R computed from their own stated conductor areas and mean turns is
+  1814 W at 75 C and 1960 W at 100 C; x1.20 stray gives 2176 and 2352 W,
+  bracketing 2220 W at about an 85 C reference.
+
+So 2690 W is the design's own **calculated** total loss and 3100 W is the
+**guaranteed** load loss, which carries tender margin -- about 28 % of it.
+Two different quantities, both correct, never reconciled on the sheet
+because a designer reading it would not need them to be. Nothing on their
+sheet is wrong.
+
+This matters beyond tidying an open question, in two directions. It means
+their fin count should be judged against 2690 W, where their own 7 fins is
+arithmetically right and the "why 20" question is about margin policy, not
+error -- and separately it means **the real design's load-loss target is
+2220 W, not 3100**, which is what section 71 measures the engine's own load
+loss against.
+
+**Nothing changed.** No constant moved, no margin parameter added, no
+default set, `ENGINE_VERSION` unmoved.
+
+## 64. The flux floor is not an economic turning point, the fit runs *toward* it rather than toward the ceiling on both new references, and the real no-load gap is the grade table
+
+Three questions were put: what the 1.42 T floor is for, whether it is
+justified, and what happens to the three real designs if it goes. The
+measurements answer all three, and two of the answers invert the premise.
+
+**What it is for.** `bMin` bounds `fitToSchedule`'s downward search on flux
+(`packages/engine/index.js`, in `fitToSchedule`, `searchDesigns` and
+`resolveDiscreteNeighbourhood`, 1.42 T for every CRGO grade, 1.20 T for
+amorphous). Lower flux buys a lower no-load loss with a heavier core, so
+without a bound the fit would chase an unmeetable no-load limit down
+without end. The floor also drives an honest diagnostic: "Flux is already
+at the 1.42 T floor for this core grade -- no lower K closes this."
+
+**Is it justified? The behaviour yes, the value and its stated reason no.**
+CLAUDE.md justifies it as "below that the core gets heavier faster than the
+loss falls", which asserts an economic turning point at 1.42 T. There
+isn't one. Ex-works against flux, `autoFit` off, everything else held:
+
+| flux T | 315 kVA | 500 kVA | 1000 kVA default |
+|---|---|---|---|
+| 1.25 | 10,35,064 | 13,71,836 | 20,38,362 |
+| 1.35 | 9,84,073 | 13,45,324 | 19,43,165 |
+| 1.42 | 10,11,868 | 13,07,821 | 18,82,132 |
+| 1.55 | 9,59,205 | 12,42,511 | 17,88,100 |
+| 1.70 | 9,10,733 | 11,83,326 | 17,00,948 |
+
+Cost falls monotonically as flux rises, across the whole range, on all
+three. There is no minimum at 1.42 T and none anywhere in the interval --
+cost always prefers more flux, and what pulls flux back down is the loss
+limit, not the price. So 1.42 T is an arbitrary bound wearing an economic
+justification that the engine's own cost model does not support. The bound
+is still needed; the number and the sentence explaining it are not
+evidence-based. CLAUDE.md's wording should be corrected when the value is.
+
+**What happens to the references -- and the premise inverts here.** The
+request described the fit as driving "toward the ceiling". Measured with
+`autoFit` on, at four different floors:
+
+| | fitted flux | where it lands |
+|---|---|---|
+| 315 kVA, limits 470/3100 | 1.4200 | **hard against the floor** |
+| 500 kVA, limit 545 | 1.4215 | **hard against the floor** |
+| 1000 kVA default | 1.7800 | against the grade ceiling |
+
+The fit drives toward the ceiling only when the no-load limit is slack (the
+1000 default). On both new references the limit binds and the fit drives
+the other way, down onto the floor. And the real designs sit at **1.5182 T
+and 1.534 T -- above where our fit lands**, not below. So the floor is not
+what stops the engine reaching these designs; the fit's own downward drive
+is, and removing the floor moves the engine *further* from both, not
+closer.
+
+One correction of record: of the three real flux figures (1.3947, 1.5182,
+1.534) exactly **one** sits below the 1.42 T floor, not two. That one is
+the 500 kVA, and our fit lands at 1.4215 there -- just above both the floor
+and the real design.
+
+**The golden case is untouched by the floor.** At floors 1.42, 1.35, 1.30
+and 1.20 the default 1000 kVA fits to 1.7800 T every time, core 1105 kg,
+no-load 1084 W, ex-works 19,92,278 -- identical. Whatever is eventually
+decided about `bMin`, it does not move the golden-numbers table.
+
+**The real no-load gap is the grade table, not the flux.** At the 315's own
+flux, by grade:
+
+| grade | wRef | 315 no-load W (sheet 470) | 500 no-load W (sheet 545) |
+|---|---|---|---|
+| m5, 0.30 mm | 1.25 | 698 (+48 %) | -- |
+| m4, 0.27 mm | 1.05 | 582 (+24 %) | 639 (+17 %) |
+| **m0h HiB, 0.23 mm** | 0.88 | **487 (+3.7 %)** | **535 (-1.8 %)** |
+| zdkh, 0.23 mm | 0.78 | 432 (-8 %) | 474 (-13 %) |
+
+Both sheets name their steel: **23HP80** on the 315 and **23HP75** on the
+500. Both are 0.23 mm high-permeability grades, which is our `m0h`, and at
+`m0h` the engine reproduces both no-load figures to within 4 %. But
+`gradeSuggest("level1")` returns `m4`, 0.27 mm, and the 315 is a Level 1
+job -- so the engine equips a real Level 1 design with thicker, lossier
+steel than the works actually buys and then misses the no-load figure by
+24 %. The works appears to use 0.23 mm Hi-B as its normal stock regardless
+of the efficiency level, and to buy the level with flux and geometry
+instead. Tying `coreGrade` to `effLevel` encodes a purchasing decision the
+works does not make.
+
+**Recommendation. The `gradeSuggest` half of this is DONE in section 70;
+the floor is still untouched, as recommended.** Do not remove or lower the floor on
+this evidence -- it is not the binding constraint on any of these three
+designs, and the one design below it is below it by 0.025 T. Fix
+`gradeSuggest` first: it is a first-order error worth 24 % of no-load loss
+on a real reference, where the floor is worth nothing on two of the three.
+The same ordering item 1 takes: correct the first-order term, then measure
+what residual is actually left to fit. Both changes move prices and both
+need their own `ENGINE_VERSION` bump.
+
+**Nothing changed.** `bMin` unmoved, `gradeSuggest` unmoved,
+`ENGINE_VERSION` unmoved.
+
+## 65. Plate geometry from the dimensioned drawings: `MITRE_K` cannot be retired yet, and the reason is a 3 % disagreement the engine already has with itself
+
+The lamination drawings dimension all three Construction B shapes -- outer
+limb a trapezoid with 45 degree ends (P, Q), centre limb a hexagon with
+45 degrees at all four corners (P, Q, T, S), yoke a trapezoid whose V-notch
+is dimensioned as Q/2 and P/2, i.e. relative to the plate rather than as an
+absolute. The proposal was to derive the plate areas directly and, if they
+reproduce 660 kg and 942.3 kg, retire the three fitted `MITRE_K`
+coefficients. They do not, and the reason is worth more than the result.
+
+**Only one of the two charts is testable at all.** `coreConstructionB`
+needs the window height and the leg centre-to-centre distance. The 315
+sheet gives both (365 and 395). The 500 sheet gives neither -- no window
+height, no leg centres, no core diameter. Its 942.3 kg therefore cannot be
+reproduced from geometry by any model, correct or otherwise. **This is the
+first thing to ask for**: the 500's window height, leg centres and core
+diameter would turn a one-point check into a two-point one, which is the
+difference between fitting and confirming (section 1's rule, section 53's
+rule).
+
+**The derived coefficients.** Reading the shapes with Q as the step's own
+width: a trapezoid mitred 45 degrees at both ends has mean length equal to
+its outer edge less one width, so `outer` = 1.00 against `outerOuter`
+= Hw + 2w. The centre hexagon's chevron point is w/2 deep at each end
+(section 52/53's own established figure, and the same w/2 the yoke's own
+notch is dimensioned at, which is a real cross-check between two separate
+drawings), giving a mean of Hw + w/2 against `outerCentre` = Hw + w, so
+`centre` = 0.50. The yoke trapezoid's mean is 2cc, less the V-notch's own
+triangular cutout (depth w/2 across width w, area w^2/4, equivalent length
+w/4), giving `vNotch` = 1.25 against `outerVNotch` = 2cc + w.
+
+| | fitted (now) | derived | difference |
+|---|---|---|---|
+| `outer` | 1.27514 | 1.00 | +0.275 |
+| `centre` | 0.73751 | 0.50 | +0.238 |
+| `vNotch` | 1.44585 | 1.25 | +0.196 |
+
+The three fitted values sit above the three derived ones by +0.196 to
++0.275 w, averaging about +0.24 w -- **a roughly constant offset across
+three independently fitted coefficients**. That is a real pattern and it is
+what section 58 was chasing when it tested kerf and limb-yoke fit tolerance
+and could not close the centre residual. It is suggestive of one systematic
+per-plate length deduction rather than three unrelated shape errors. It is
+not proof of one, and it is not acted on here.
+
+**The test, at the 315's own geometry** (dCore 197, Hw 365, cc 395,
+16 steps, 0.23 mm, sheet 660 kg/set):
+
+| | yoke | outer | centre | total | vs 660 |
+|---|---|---|---|---|---|
+| fitted `MITRE_K` | 330.9 | 224.7 | 94.5 | 650.1 | **-1.5 %** |
+| derived | 346.0 | 245.9 | 103.7 | 695.6 | **+5.4 %** |
+
+On which reading the fitted values win and the derivation should be
+discarded. **Except the test is confounded, and correcting the confounder
+reverses the ranking.** `stepWidths(16, 197)` builds a ladder whose gross
+area is 302.72 cm2 where the sheet's own is 294.1 cm2 -- 2.9 % of steel
+that the plate model is then asked to account for and cannot. Scale both
+results by the sheet's own area and the fitted model gives 631.6 kg
+(**-4.3 %**) while the derived gives 675.8 kg (**+2.4 %**). Two defensible
+normalisations, opposite conclusions, on one chart.
+
+**The confounder is an inconsistency the engine already has with itself.**
+The core area -- and therefore the flux, and therefore every loss and every
+price -- comes from `STEP_UTIL`. The plate masses come from the
+`stepWidths` ladder. These are two representations of the same physical
+quantity and they do not agree:
+
+| steps | ladder utilisation | `STEP_UTIL` | disagreement |
+|---|---|---|---|
+| 9 | 0.9742 | 0.9480 | +2.8 % |
+| 13 | 0.9884 | 0.9600 | +3.0 % |
+| 15 | 0.9823 | 0.9630 | +2.0 % |
+| 16 | 0.9931 | (fallback 0.94) | +5.7 % |
+| 17 | 0.9834 | (fallback 0.94) | +4.6 % |
+
+The 315's own real 16-step ladder sits at 0.9649, **between** our two
+figures -- the area basis is 2.6 % pessimistic and the cutting ladder 2.9 %
+optimistic, on the same core. This is the same class of fault section 16
+already named ("two cutting documents in one tool must not send a shop two
+different steel weights"), one level further up: not two cutting documents
+disagreeing, but the cutting geometry disagreeing with the magnetic area
+the whole design is built on.
+
+**Conclusion: `MITRE_K` is not retired.** The difference between the fitted
+and derived models (about 7 % of core mass) is smaller than the confounder
+between the two step-area models (up to 5.7 %), the one testable chart
+cannot separate them, and the second chart is not testable at all. Retiring
+three fitted constants in favour of a derivation that is only better under
+one of two defensible normalisations would be trading a known fit for an
+unknown one. Fix the step-area inconsistency first, get the 500's missing
+geometry, then re-run this exact comparison -- at which point it should be
+decisive either way.
+
+**Also needed: the numeric dimensions.** The derived coefficients above
+come from the drawings' *shape* descriptions plus the assumption that Q is
+the step's own width. The actual dimensioned values of P, Q, T and S per
+step are not in hand, and they would replace this inference with
+arithmetic. That, plus the 500's window and leg centres, is the whole
+remaining input this item needs.
+
+**Nothing changed.** `MITRE_K` unmoved, `stepWidths` unmoved, `STEP_UTIL`
+unmoved, `ENGINE_VERSION` unmoved.
+
+## 66. Conductor modelling: corner radius on rectangular strip, and round enamelled wire as a real construction chosen by HV current
+
+Two things the engine did not model, both stated outright on the new
+sheets, both now implemented. `ENGINE_VERSION` 1.31.0.
+
+**Corner radius.** Rectangular magnet wire is supplied with radiused
+corners, so a strip's copper area is its nominal rectangle less
+(4 - pi)r^2 over the four corners. The 315 sheet states this explicitly:
+3.28 x 10.78 over 8 conductors is 282.87 mm2 of rectangle but **275.67 mm2
+of copper**. At exactly r = 1 mm the formula gives 276.00 mm2, 0.12 % from
+the sheet; back-solving the sheet's own figure gives r = 1.0237 mm. The
+model and the default are both confirmed.
+
+The correction runs the opposite way inside this engine to the way it reads
+on the sheet. A designer starts from the ordered rectangle and works down
+to copper; the engine starts from `aLVreq` -- the copper it needs -- and
+works out to a size. So the fix is not to shrink the copper (which would
+wrongly change resistance and mass) but to **inflate the envelope**:
+`stripEnv = stripArea + (4 - pi) r^2` per strand, and the coil finds room
+for the envelope. Before this, envelope and copper were the same number and
+every strip winding in the platform was built marginally too small.
+`cornerRadius` defaults to 1.0 mm, applies to rectangular strip in both
+windings, and applies to neither foil (a rolled sheet, no meaningful
+corner) nor round wire (no corners).
+
+**Round enamelled wire.** Both new sheets wind round HV: the 315 at 2.92
+dia super enamel, whose area works out at 6.697 mm2 against the sheet's
+own stated 6.69, and the 500 at 9 SWG, 3.657 dia, 10.504 mm2. The engine
+did have a round branch, but behind an undocumented, unreferenced
+`aHVreq > 6` cutoff buried in the geometry closure -- which put **both**
+real designs on strip. It is now a real parameter, `hvCondShape`
+(auto/round/strip) with `hvRoundMaxAmp`.
+
+**Why the threshold is a current and not a diameter.** A diameter limit is
+the better physical statement -- the constraint is that round magnet wire
+is drawn and enamelled only up to about 4 mm -- and it was implemented
+that way first. It failed, informatively. At a commercially honest 4.0 mm
+it flipped the 630 kVA dry reference to round and **broke that reference's
+own measured winding structure**: its sheet's 6 coils of 13 layers came out
+as 8 of 10, a hard assertion in `reference-designs.test.mjs`. The reason is
+the coupling to section 61: `aHVreq` is `iHV / deltaHV`, and `deltaHV` is
+about 1.9x what these works actually run, so the engine's computed
+conductor is roughly half the real one and a diameter rule reads a real
+strip winding as round. Current is an *input*, uncontaminated by that
+error, so the rule is keyed to it instead.
+
+The threshold is bracketed by two real designs rather than fitted to one:
+the 500 kVA winds round at **15.15 A**, and the 630 kVA needs strip at
+**19.09 A** for its own 6 x 13 structure to reproduce. 18 A sits between
+them. It also lands from an unrelated direction: a 4.0 mm round wire
+carries 17.97 A at the 1.43 A/mm2 these sheets actually run. Two
+independent arguments, the same figure. **Revisit once `deltaHV` is
+corrected** -- at that point the diameter form becomes viable and is the
+better statement of the physics.
+
+All five references now classify correctly: 315 round, 500 round, 630
+strip, 1000 strip, 1250 strip.
+
+**What moved, and what did not.** Setting `cornerRadius` to 0 reproduces
+every ENGINE_VERSION 1.30.0 golden **exactly** -- 630 kVA 15,74,782,
+1000 kVA 19,92,278, 1250 kVA 23,54,283 -- so the corner radius is the sole
+mover and the shape work moves nothing on its own. On the default case
+ex-works goes 19,92,278 -> 20,05,344 (+0.66 %), no-load 1084 -> 1088 W,
+core 1105 -> 1109 kg, tank length 1532 -> 1541 mm; load loss, impedance and
+efficiency are unmoved. 630 kVA moves +3.14 % and 1250 kVA -0.05 %, the
+630's own size being a discrete winding-configuration flip rather than the
+corner radius's direct cost, the same bracket sensitivity sections
+30/32/39/46/51/57/60 all record.
+
+**One real cost, recorded rather than smoothed over.** The 630 kVA's
+impedance deviation worsens from -0.18 % to +5.21 % -- the corner radius
+pushes that rating across a discrete boundary (7 coils of 14 layers become
+6 of 16). Swept across fifteen ratings the change leaves 11 unchanged,
+makes 315 and 630 worse and 1250 and 1600 better, so it is reshuffling
+rather than a systematic loss of accuracy, and 4.735 % against 4.5 %
+declared is still inside IS 2026's +/-10 %. The underlying cause is that
+the **window-height solve has no neighbourhood resolution of its own**, the
+way the loss fit gained one in sections 50-51. That is the real fix and it
+is not this section's.
+
+**A stale baseline found on the way.** `impedanceDev`'s recorded figures
+for 100 and 630 kVA were 2.25 % and -3.78 % while the engine was actually
+delivering -0.00 % and -0.18 %. Because that check only fails when a
+deviation *grows*, a slack baseline silently licenses a regression all the
+way back up to it -- 630's real degradation here was partly masked by it.
+Both corrected to what the engine does. Same class as invariant 7 and the
+golden-numbers table: a record whose only job is to be accurate, quietly
+not being.
+
+**Both new references are now enforced, not just documented.**
+`reference-designs.test.mjs` carries the 315 (LV turns 26 and HV turns 1144
+exact, core diameter, window width, core mass, no-load, HV OD, round shape)
+and the 500 (LV turns, HV OD, no-load, round shape), plus four honest
+`knownGap` entries: the 315's window height (+20.7 %, section 62), its load
+loss (+22.0 %, section 61), the 500's core mass (-7.9 %, section 65) and a
+new one -- core-to-LV clearance runs about 3 % generous on both (315
+212.9 against 205, 500 230.1 against 223). Section 1 fitted the LV-to-HV
+gap at 11 kV from the 1250/630 sheets and explicitly left the rest of the
+clearance curve unverified; these are the first two designs to test its
+core-side figure, and they agree with each other on the sign and size.
+
+Grade note: both references are pinned to `m0h` in the test. Their sheets
+name 23HP80 and 23HP75, both 0.23 mm Hi-B, which is `m0h` -- while
+`gradeSuggest("level1")` returns the 0.27 mm `m4`. That is section 64's
+open defect, pinned here so these references test geometry rather than
+re-testing it.
+
+## 67. Window aspect: there is no constraint left to bound, 1.84 is real, and the check that says section 62 must not be fixed on its own
+
+**There is no aspect limit any more.** The 2.8 ceiling in the request was
+`maxAspect` (sections 28/32), and section 44 removed it in favour of the
+two shop limits it was always a proxy for -- `coilHeightLimit` and
+`tankHeightLimit`. What survives is `put("aspect", ...)`, a **seed** for
+the window bisection, not a constraint. Confirmed directly: seeding the
+315 at 2.0 and at 3.8 both solve to 2.198. The solved window is free of it.
+
+**Can the engine reach a 1.84 design? Structurally yes, currently no.**
+Aspect is an output of the impedance solve, not an input, so nothing
+forbids 1.84. The engine lands at 2.20 on this design. Where it lands is
+governed by section 62's effective-height error, not by any aspect rule.
+
+**Should a lower bound be added? No, and this design is the reason.** The
+315 is a delivered, tendered machine at 1.84. Any lower bound above that
+excludes a transformer that exists. Note that `aspect`'s own slider range
+already starts at 2.0 -- above the real design -- which is harmless only
+because the seed does not bind. If that range is ever made binding, it
+would forbid this reference outright.
+
+**The finding that matters here is a check on section 62.** Aspect against
+the sheets, and what section 62's `hEff` change would do to it:
+
+| | engine now | with s62 change | sheet |
+|---|---|---|---|
+| 315 kVA | 2.20 | 1.59 | **1.84** |
+| 1250 kVA | **2.44** | 1.89 | **2.44** |
+| 630 kVA dry | **2.63** | 1.67 | **2.64** |
+
+The engine currently reproduces the 1250's and 630's own window shapes
+almost exactly, and the section 62 change would break both while
+overshooting the 315 past its target. Taken alone that looks like evidence
+against section 62. It is not, and the reason is measurable.
+
+**Two known errors are partly cancelling.** Section 62's measurement was
+taken at the 315's *own* sheet dimensions, where no solver behaviour can
+intervene: our formula gives 4.70 % against 4.20 % measured. That stands.
+But in any *solved* geometry a second error pulls the other way. At the
+315:
+
+| | ours | sheet | |
+|---|---|---|---|
+| hilo | 11.00 | 11 | **0.0 %** |
+| LV radial | 30.30 | 31 | -2.3 % |
+| HV radial | 42.92 | 48 | -10.6 % |
+| `dEff` | 0.03541 | 0.03733 | **-5.2 %** |
+
+X is proportional to `dEff` and inversely proportional to `hEff`. The
+`hEff` sign error pushes X **up 10.8 %**; the short radial build pushes it
+**down 5.2 %**; the net on a solved geometry is **+5.1 %**, about half the
+true formula error. On the 630, whose LV radial build is 35 % short
+(section 11's open gap), the cancellation is larger still -- which is
+exactly why its solved aspect looks right today.
+
+**So: do not fix `hEff` on its own.** Correcting the effective height while
+the radial build is still short removes the larger of two offsetting errors
+and leaves the smaller one exposed, which is what the 1.89 and 1.67 columns
+above are showing. The effective height (section 62), the current density
+(section 61) and the radial build it drives are one piece of work, and the
+references that currently agree do so by cancellation, not by being right.
+This is the same lesson section 39 recorded when a stale fit made a
+comparison look settled, and it is the reason section 62 stopped at a
+report.
+
+**One clean confirmation, worth recording on its own.** The 315's
+LV-to-HV gap comes out at **11.00 mm against the sheet's 11 mm**. Section 1
+fitted that intercept at 11 kV from the 1250 and 630 sheets and flagged
+that only 11 kV was confirmed. This is a third design, a third rating,
+same voltage class, landing exactly. The intercept is confirmed; the slope
+above 11 kV remains untested, as section 1 said.
+
+**Nothing changed.** No bound added, no parameter moved, `ENGINE_VERSION`
+unmoved.
+## 68. Short circuit to IS 2026:2011 Part V clause 4.1 -- system fault level added, and an HV/LV basis mismatch found while doing it
+
+The 315 sheet carries a full short-circuit calculation, the first reference
+to do so. It is reproduced exactly, all four figures, and it exposed a
+second defect that had nothing to do with the source impedance.
+
+**Their method, confirmed unambiguously.**
+
+```
+Zs = Um^2 / Sfault           = 12^2 / 500        = 0.288  ohm
+Zt = (%Z/100) x V^2 / S      = 0.0475 x 11^2/0.315 = 18.246 ohm
+Isc(HV) = V / (sqrt(3)(Zs + Zt)) = 11000/(1.732 x 18.534) = 0.343 kA
+Isc(LV) = Isc(HV) x V(HV)/V(LV)  = 0.343 x 11000/433      = 8.70 kA
+```
+
+**The mixed voltage basis is real and is not ours to tidy.** `Zs` is built
+on Um (12 kV) because a system fault level is quoted at the system's own
+highest voltage; `Zt` and both currents are on the transformer's rated
+11 kV. Using one voltage throughout reproduces neither figure -- Um in
+`Zt` gives 21.714 against a stated 18.246, and Um in the current gives
+0.374 kA against a stated 0.343. Only the mixed basis lands on all four,
+and it lands exactly. That is enough to adopt the method as written rather
+than as it might be tidied.
+
+**`systemFaultMVA`, default 500.** A property of the network the machine
+goes into, not of the machine, so it is an input with no defensible
+derivation from the rating. 500 MVA is the sheet's own figure and a common
+11 kV feeder assumption. **Setting it to 0 means an infinite bus and
+reproduces the previous impedance-only figure exactly** -- verified:
+`iscMult` comes back as 21.0526 against 100/%Z = 21.0526, to the last
+digit. Including a 500 MVA source lowers the fault current by **1.55 %** at
+this rating. Small here, and it grows as the transformer's own impedance
+falls relative to the source's -- which is to say on larger units and
+weaker systems, exactly where a withstand margin matters most.
+
+**The defect found on the way: HV and LV fault currents were quoted on
+different bases.** `iscHV` was `iHV * 100/%Z` where `iHV` is a **phase**
+current on a delta HV, while `iscLV` was `iLV * 100/%Z` where `iLV` is a
+phase current on a star LV and therefore also the line current. The two
+were then printed side by side in `calcSheet` as though they were the same
+kind of quantity. At the 315 that put the HV figure at 198 A where the
+sheet says 343 A -- the ratio being exactly sqrt(3), which is the signature
+of the error, not a coincidence. Both are now line currents, which is how a
+sheet quotes them and how switchgear is rated. This was a live, user-facing
+wrong number on every delta-HV design in the platform, and it was
+independent of the source-impedance question that prompted the work.
+
+`calcSheet` now shows the derivation as three rows -- system impedance,
+transformer impedance, then the current -- cited to IS 2026 Part V clause
+4.1 rather than the generic IEC withstand reference it carried before, so
+a reader can check it against the same clause the sheet does.
+
+**Enforced, not just recorded.** `reference-designs.test.mjs` asserts all
+four figures against the sheet at 0.5 % tolerance.
+
+**Version.** `ENGINE_VERSION` **1.32.0**, its own bump, committed
+separately from section 66's 1.31.0. Both changed formulas, and invariant 4
+asks for a bump per formula change, not per batch -- a quotation issued at
+1.31.0 has to reprice at 1.31.0, which it cannot if 1.31.0 later means two
+different fault-current models. No priced output moves here: fault current
+does not enter the BOM, so the golden-numbers table is untouched by this
+section and CLAUDE.md's table still reads as it did at 1.31.0.
+
+## 69. `documentRegister` review for this batch (CLAUDE.md invariant 7)
+
+Checked every row against what sections 61-68 actually built, not just the
+rows the work obviously touched.
+
+**One row was wrong, and had been for some time.** Row 2, the Complete
+Engineering Calculation Report, described the Calculations tab as
+"68 steps". It is 84 -- 82 before section 68 added two. The count had
+drifted well before this batch and nothing near it had been edited, which
+is precisely the failure mode invariant 7 describes. Corrected to 84.
+
+**Rows checked and left alone, with the reason:**
+- Row 2's `missing` list ("centre of gravity, transport weight, mechanical
+  stress on the clamping structure and detailed short-circuit force
+  calculation are not modelled") stays true. Section 68 added fault
+  *current* to IS 2026 Part V; it did not add the electromagnetic *force*
+  that current produces, which is a different calculation and still absent.
+  The wording already says "force", so it is accurate as it stands -- worth
+  stating explicitly, because "we now do short circuit" is exactly the
+  half-truth that would have made this entry silently false.
+- Row 21, Type Test Report, "need": unchanged. Computing a fault current
+  does not produce a test certificate.
+- No row claimed the platform could not model round conductor, corner
+  radius or system fault level, so nothing became falsely pessimistic
+  either. Sections 66 and 68 add engine capability that no register entry
+  was describing as missing.
+
+Statuses after this batch: 6 done, 14 part, 8 need, 28 rows.
+
+## 70. `gradeSuggest` tied Level 1 to the wrong steel, and `STEP_UTIL` fell off a cliff past 15 steps -- both fixed against real sheets
+
+Two defects section 61 and section 64 identified and left standing. Both
+are closed here. `ENGINE_VERSION` 1.33.0.
+
+**`gradeSuggest("level1")` returned `m4`.** At the sheets' own flux and
+step counts:
+
+| grade | | 315 (sheet 470 W) | 500 (sheet 545 W) |
+|---|---|---|---|
+| `m4` CRGO M4, 0.27 mm | wRef 1.05 | 586 W, **+24.7 %** | 640 W, **+17.4 %** |
+| **`m0h`** M0H HiB, 0.23 mm | wRef 0.88 | **491 W, +4.5 %** | **536 W, -1.6 %** |
+| `zdkh` laser-scribed, 0.23 mm | wRef 0.78 | 435 W, -7.3 % | 476 W, -12.7 % |
+
+Both sheets name their steel -- **23HP80** on the 315 and **23HP75** on the
+500, both 0.23 mm high-permeability -- and `m0h` reproduces both. So
+`level1` now returns `m0h`.
+
+The deeper point is that tying the *grade* to the efficiency level encoded
+a purchasing decision this works does not make. It stocks 0.23 mm Hi-B and
+buys the loss level with flux and geometry, which `fluxSuggest` already
+varies by level. `level2` keeps `m0h` and `level3` keeps `zdkh`, unchanged
+-- there is no Level 2 or Level 3 reference to move them against, and
+`level1` now sharing `level2`'s grade is the finding, not a collision.
+
+**Recorded because it is not visible in the table above: `m0h`'s wRef is
+doing some compensating.** By catalogue naming 23HP80 is 0.80 W/kg at
+1.7 T and 23HP75 is 0.75 -- at or below `zdkh`'s 0.78, not `m0h`'s 0.88.
+And `zdkh` under-predicts both sheets, by 7 % and 13 %. So the engine
+agrees with reality when fed 0.88 and disagrees when fed these grades' own
+catalogue figures, which means roughly 10 % of no-load is being carried by
+`wRef` that belongs somewhere else in the no-load model -- section 60's
+joint-mass split being the obvious suspect. `m0h` is adopted on the
+measured agreement, not on a claim that 0.88 is these grades' true specific
+loss. **Do not "correct" `wRef` to 0.80 in isolation**; it would make both
+references worse, which is the signature of removing one of two offsetting
+errors, exactly as section 67 found for the effective height.
+
+**`STEP_UTIL` stopped at 15 and everything past it fell onto a flat 0.94**
+-- *lower* than the 0.963 held at 15, so asking the engine for more steps
+made it believe the core filled its circle worse. Both new references are
+past the old end of the table (16 and 17 steps), so neither was selectable
+and both were told a 16- or 17-step core packs like a 5-step one.
+
+The 16-step entry is **measured, not fitted**: the 315 sheet's own gross
+294.1 cm2 against its 197 mm circle's 304.81 cm2 is **0.9649**.
+`stepUtil(n)` now interpolates between tabulated counts and **holds** the
+top value above the table. Holding is deliberate -- more steps cannot fill
+a circle worse, so a held value is never wrong-signed, only conservative,
+where a curve fitted past the last real measurement would be inventing the
+thing sections 1 and 53 both declined to invent from a single point. 17 is
+offered as a selectable count (the 500 is a 17-step core, and a real design
+the product cannot express is a real gap) but takes 16's figure until
+someone measures one.
+
+**What actually moved, all five references, before and after:**
+
+| | grade | no-load W | core kg | ex-works |
+|---|---|---|---|---|
+| 315 UGVCL Level 1 | m4 -> **m0h** | 595 -> **491** (+26.7 % -> **+4.5 %**) | 688 -> 678 | 9,82,077 -> 9,71,410 |
+| 500 | m0h (same) | 546 -> 536 (+0.2 % -> -1.6 %) | 884 -> 869 | 13,37,632 -> 13,22,639 |
+| 1250 OLTC | m0h (same) | 1371 -> 1371 | 1710 -> 1710 | **unchanged** |
+| 630 dry | m0h (same) | 1033 -> 1033 | 1290 -> 1290 | **unchanged** |
+| 1000 default | m0h (same) | 1088 -> 1088 | 1109 -> 1109 | **unchanged** |
+
+**The golden-numbers table does not move**, because the default case is
+Level 2 and was already on `m0h` at 15 steps. The version is still bumped:
+a formula changed, and invariant 4 is per formula change, not per moved
+price.
+
+**One honest regression, not smoothed over.** The 500's core mass goes
+from -6.2 % to **-7.8 %** against its sheet. The old 0.94 fallback
+understated utilisation, which inflated the computed core toward the
+sheet's 942.3 kg -- for the wrong reason. Removing a compensating error
+makes the residual visible, and that residual is section 65's open
+question: the `stepWidths` ladder and `STEP_UTIL` disagree by 2-3 % about
+the same core's area, and this sheet gives no core diameter to settle
+which is right. Getting a *worse* number by removing a wrong mechanism is
+the correct trade; the alternative is keeping a defect because it happened
+to point the right way on one design.
+
+**Both references now run at their own step counts** (16 and 17) in
+`reference-designs.test.mjs`, and neither is given a core grade any more --
+the test asserts `gradeSuggest` finds `m0h` on its own, which is the fix.
+
+## 71. The entangled fix, attempted and NOT landed: all three changes are blocked on the window solve having no discrete-neighbourhood resolution
+
+The effective height (section 62), the current density (section 61) and the
+LV radial build were to be corrected together, because section 67 showed
+they partly cancel. All three were implemented and measured against all
+five references. **None is committed.** Each is individually defensible and
+each makes at least one reference materially worse, for a reason that is
+now identified and is none of the three.
+
+**First, two things the work established that are worth more than the fix
+was going to be.**
+
+**Our loss model is right; only the density feeding it is wrong.** Fed the
+315's own stated current densities (1.52 / 1.43 A/mm2) the engine returns
+`aLVreq` 276.3 mm2 against the sheet's 275.67 (**+0.2 %**), `aHVreq` 6.68
+against 6.69 (**-0.1 %**), and a load loss of 2278 W against the sheet's
+own calculated 2220 W (**+2.6 %**). Section 61 read the conductor-area gap
+as evidence the area model was broken. It is not: it is exactly right, and
+every bit of the gap is the current density handed to it.
+
+**And the density gap is smaller than section 61 claimed, because `autoFit`
+already closes most of it.** `densitySuggest` returns 2.60 / 2.75, but on
+the normal path -- `autoFit` on, the sheet's own declared limits -- the
+engine fits down to **2.10 / 2.22** and meets both limits (463 W against
+470, 2947 W against 3100). The real design sits at 1.52 / 1.43 not because
+our fit is broken but because it targets its own **calculated** 2220 W
+rather than its **guaranteed** 3100 W: a 28 % margin, against the 7 %
+`marginTargetLL` leaves. That is a commercial policy, not physics, and the
+630 kVA reference's copper mass (280 kg against 292, -4 %) says the
+suggestion is roughly right where no tender margin is in play. **Section
+61's density finding is hereby narrowed**: `densitySuggest` not taking
+`effLevel` is real, but it is worth far less than the 41 %/48 % area gap
+that section implied, most of which is margin policy on one tender job.
+
+**The measured matrix, all five references, each change alone and
+together.** LV build in mm, copper in kg, arrangement as axial x radial.
+
+| | impedance % | aspect | LV build | copper | arrangement |
+|---|---|---|---|---|---|
+| **315** (sheet: build 31, aspect 1.84, 1ax x 8rad) | | | | | |
+| baseline | 4.75 | 2.20 | **30.3** | 204 | 1 x 5 |
+| Rogowski only | 4.62 | 2.08 | 30.3 | 204 | 1 x 5 |
+| strand aspect only | 4.75 | 2.16 | 17.4 | 191 | 1 x 5 |
+| both | **6.51** | 1.60 | 40.7 | 217 | 1 x 5, **2 layers** |
+| **630 dry** (sheet: build 20, Cu 292, 4ax x 2rad) | | | | | |
+| baseline | **4.50** | 2.63 | 13.0 | 280 | **4 x 2** |
+| Rogowski only | **5.07** | 2.25 | 32.0 | 303 | 4 x 2, **2 layers** |
+| strand aspect only | 4.50 | 2.62 | 14.8 | 283 | **2 x 4** |
+| both | 4.50 | 2.46 | 14.8 | 283 | **2 x 4** |
+| **1250** (sheet: Cu 982, 5ax x 6rad) | | | | | |
+| baseline | 4.93 | **2.44** | 30.7 | 555 | **4 x 5** |
+| Rogowski only | 5.00 | 2.21 | 30.7 | 558 | 4 x 5 |
+| strand aspect only | 5.28 | 2.31 | 33.2 | 564 | **2 x 9** |
+| both | 5.00 | 2.22 | 33.2 | 564 | 2 x 9 |
+| **500** (sheet: 3ax x 4rad) | | | | | |
+| baseline | 4.65 | 2.89 | 24.4 | 320 | **2 x 4** |
+| both | 4.49 | 2.75 | 25.9 | 322 | **1 x 7** |
+| **1000 default** | | | | | |
+| baseline | **5.00** | 2.57 | 31.2 | 618 | 4 x 5 |
+| Rogowski only | **4.82** | 2.44 | 31.8 | 644 | 4 x 5 |
+| both | 5.00 | 2.38 | 36.4 | 662 | 2 x 10 |
+
+**Why the strand aspect fails.** The physical observation is not in doubt:
+the 315 winds eight 3.28 x 10.78 flats -- 3.29:1 -- on their short edge,
+and the engine sizes strands square. But squareness is compensating for the
+density error. At our high density `aLVreq` is small, and a square stack of
+a small area gives 30.3 mm against the sheet's 31; make the strand flat at
+the same small area and the build collapses to 17.4. Correct only the
+strand and the 315 gets worse. And the arrangement moves the wrong way on
+three references at once: the 630's measured **4 x 2** becomes 2 x 4, the
+1250's **5 x 6** target goes from 4 x 5 to 2 x 9, the 500's **3 x 4** goes
+from 2 x 4 to 1 x 7. One aspect constant cannot serve them, which is the
+same objection sections 9-11 raised when they retired `lvStripAspect`.
+
+**Why the Rogowski fix fails, and this is the real finding.** It is correct
+-- at the 315's own dimensions it moves predicted impedance from 4.70 % to
+4.26 % against 4.20 % measured. But it shortens the window on every design,
+and a shorter window tips the LV over a discrete layer boundary. On the 630
+dry, `lvTurnLayers` goes 1 to 2, the build jumps **13.0 to 32.0 mm** in one
+step, and %Z lands at **5.07 against 4.50 declared -- +12.7 %, outside IS
+2026's own +/-10 %**. On the 1000 kVA default the solve misses its target
+entirely, 4.82 against 5.00.
+
+The window sweep shows why, and it is not a tuning problem:
+
+```
+630 dry, Rogowski applied, window swept:
+  Hw 438 -> Z 11.97, 1 layer      Hw 536 -> Z 6.63, 1 layer
+  Hw 554 -> Z  5.73, 1 layer      Hw 634 -> Z 5.07, 2 LAYERS
+```
+
+Z(Hw) is **discontinuous** at the layer boundary: the build more than
+doubles in one step, so reactance jumps, and the declared 4.50 % can fall
+in the gap between the two branches. `autoWindow` is a bisection, and a
+bisection on a discontinuous function does not converge to a target that
+lies in a jump -- it lands on whichever branch it was last on.
+
+**So the blocker is none of the three changes.** It is that the
+window-height solve has no discrete-neighbourhood resolution, where the
+loss fit gained one in sections 50-51 for exactly this class of fault.
+Section 66 already recorded this in passing, as the cause of the 630's
+impedance deviation moving under the corner radius, and said "that is the
+real fix and it is not this section's". It is now the thing standing
+between the platform and three separate corrections it is otherwise ready
+to make. The baseline agreements these references currently show -- the
+1250's 2.44 aspect, the 630's 4 x 2 arrangement, the 315's 30.3 mm build --
+are **compensations, not confirmations**, and every one of them breaks the
+moment a single error is removed in isolation.
+
+**Recommended order, not started here:**
+1. Give `autoWindow` a discrete-neighbourhood resolution: detect that the
+   solve is straddling a configuration jump, enumerate the nearby
+   compliant states, and choose deliberately -- the same shape as
+   `resolveDiscreteNeighbourhood`, and reusing its convention of reporting
+   the choice rather than hiding it.
+2. Then land the Rogowski sign fix, which is the best-evidenced of the
+   three and whose only failure mode above is the solver.
+3. Then density and strand aspect together, re-measured, since neither can
+   be judged while the other is wrong.
+
+**Nothing changed in the engine.** `ENGINE_VERSION` unmoved at 1.33.0, all
+three suites green, no golden number touched. Section 63's 880 W open
+question is closed by this work and corrected in place.
+
+## 72. The LV area gap is closed: the area model was never wrong, and the density error is systematic to oil, not tender margin
+
+The gap open since section 11 -- the engine's conductor areas and copper
+masses running short against every reference -- is resolved. It was never
+the area model.
+
+**The area model is exact.** Fed the 315 kVA sheet's own stated current
+densities (1.52 / 1.43 A/mm2), with nothing else changed:
+
+| | engine | sheet | |
+|---|---|---|---|
+| `aLVreq` | 276.3 mm2 | 275.67 | **+0.2 %** |
+| `aHVreq` | 6.68 mm2 | 6.69 | **-0.1 %** |
+| load loss | 2278 W | 2220 (calculated) | **+2.6 %** |
+
+Two conductor areas to a fifth of a per cent and the load loss to under
+three. Sections 8-11 spent a long time on the packing and the axial/radial
+split looking for a missing area; there was none. `aLVreq = iLV / dLV` was
+always right, and every apparent area gap was the density handed to it.
+This closes section 11's LV strand question and the `knownGap` entries that
+have carried it on the 1250 and 630 kVA references.
+
+**The density error is systematic, consistent, and specific to oil.**
+Three sheets now state or imply their own current density:
+
+| | `densitySuggest` | sheet | ratio |
+|---|---|---|---|
+| 1250 kVA oil | 2.50 | ~1.44 | **1.74** |
+| 315 kVA oil | 2.60 | 1.52 | **1.71** |
+| 630 kVA dry | 2.80 | 2.84 | **0.99** |
+
+Two oil designs, four times apart in rating, land at the same **1.72**.
+The one dry design lands at 1.00 -- so item 4's dry correction (x1.10,
+fitted to that sheet) is confirmed by a second look, and it is the **oil
+baseline that is about 1.72x too high**, not the medium correction and not
+the rating slope. That the ratio is flat across 315 and 1250 kVA is the
+useful part: it is an intercept error, the same shape as section 1's
+clearance finding, and it does not need a new rating-dependent term.
+
+**This supersedes "tender margin policy" as the explanation, and the
+correction is worth stating plainly because it was my own.** The reasoning
+that led there was: `autoFit` already pulls the 315 from 2.60 down to 2.10
+and meets both declared limits, so the further drop to 1.52 looked like a
+works choosing to build inside its guarantee. That is still true as far as
+it goes. But it cannot explain why the **1250 kVA**, a different job at a
+different rating, sits at the same ratio -- and section 11 had already
+recorded that reference's own implied ~1.44 A/mm2 against a 2.5
+suggestion, which is the same 1.74, from evidence that predates the 315
+sheet entirely. One design carrying margin is policy. Two designs at the
+same ratio, four times apart in rating, is a constant in the wrong place.
+
+Margin is probably still *part* of it -- a designer aiming under a
+guaranteed figure on the test floor is real, and section 11's own list of
+reasons still stands -- but it is not the main term and it is not what
+should be adjusted first. **Correct the oil baseline in `densitySuggest`;
+do not reach for `marginTargetLL`.**
+
+**What this gives the entangled work (section 71).** That section could not
+judge the strand aspect because the density feeding it was wrong, and could
+not judge the density because it had no target. There is now a target, from
+two independent references agreeing to within 2 %: oil copper at these
+ratings runs about **1.45-1.52 A/mm2**, roughly `densitySuggest / 1.72`.
+The strand aspect can finally be measured against a correct area rather
+than against one that was compensating for it.
+
+**Nothing changed in the engine here.** This section records a confirmed
+model and a quantified error; the fix belongs with the section 71 work,
+after the window solve can survive it.
+
+## 73. The window-height solve was a bisection on a dense staircase, reporting convergence it had not achieved
+
+`autoWindow` bisects the window height until calculated %Z equals the
+declared value. That is only valid if %Z(Hw) is continuous and monotone. It
+is neither, and the engine has been reporting "converged yes" while missing
+its own target by up to 5.75 %.
+
+**What the function actually looks like.** Sweeping the window at 100 kVA
+and printing the discrete signature at each step:
+
+```
+  Hw 302.5  Z  5.70   38|1|1|1|15|119|2
+  Hw 302.5  Z  6.44   40|1|1|1|16|119|2
+  Hw 302.5  Z 17.88   60|1|1|1|24|119|2
+  Hw 307.7  Z  4.86   20|1|1|1|15|122|2
+  Hw 309.0  Z  4.83   20|1|1|1|15|123|2
+```
+
+Not a smooth curve with a few jumps: a **dense staircase**. The LV foil's
+own turn-layer count steps every millimetre or so of window, and %Z swings
+between 4.8 % and 17.9 % inside a 5 mm span. A bisection over that
+converges on a step, not a root -- and the old code then set `solvedZ =
+true` regardless, because it had bracketed. `calcSheet` printed "converged
+yes" underneath. Measured at HEAD: 315 kVA 3.41 % off its declared value,
+630 kVA 5.21 %, 1250 kVA 5.75 %, all reported as converged. With section
+62's effective-height correction applied it reached **12.7 %, outside IS
+2026's own +/-10 %** -- which is what made this a correctness problem in
+its own right rather than a tuning question.
+
+**Two approaches were tried and rejected, both recorded because the second
+looked right.** A coarse global sweep grouped into contiguous "branches",
+refined within each: its verdict was **not stable against its own sweep
+resolution** -- 63/100/500 kVA reported an unsolvable straddle at 64 and
+128 samples and solved cleanly at 256, and 100 kVA flipped back at 512.
+That is precisely the sampling artefact section 51 warned about, and a
+solver whose answer depends on an arbitrary grid is not a solver. Assuming
+monotonicity within a branch fails for the same reason: on a dense
+staircase a "branch" is often one sample wide.
+
+**What works is a LOCAL search anchored on the bisection's own answer.**
+The bisection genuinely brackets, so it lands within one step of the
+target; it simply cannot see the step. So scan a +/-10 % neighbourhood of
+its answer finely enough to resolve individual steps, take the closest
+achievable %Z, refine once around that. Verified stable: identical results
+at 96, 192, 384 and 768 scan points. Deterministic, because the grid is
+defined relative to the bisection's answer rather than to an arbitrary
+global interval.
+
+**Severity is scaled to the miss, deliberately.** On a dense staircase "the
+declared value is not exactly achievable" is the normal case, not an
+emergency, and a solver that cries wolf on nine designs in fourteen would
+be ignored. So: an exact hit reports converged and says nothing; a miss
+inside the standard's own impedance tolerance reports the choice and what
+was reachable; a miss **outside** that tolerance sets `windowStraddle`,
+which the UI raises as "Declared Impedance Is Not Achievable" and which
+tells the user plainly that the design cannot be built as declared. That is
+the requirement -- say so rather than return a nearest miss -- without
+turning it into noise.
+
+**Result, across the rating range:**
+
+| kVA | HEAD %Z | dev | new %Z | dev | |
+|---|---|---|---|---|---|
+| 63 | 4.594 | 2.09 % | 4.410 | 1.99 % | better |
+| 100 | 4.500 | 0.00 % | 4.560 | 1.34 % | worse |
+| 315 | 4.347 | **3.41 %** | 4.525 | **0.56 %** | better |
+| 630 | 4.735 | **5.21 %** | 4.450 | **1.12 %** | better |
+| 1250 | 4.713 | **5.75 %** | 5.067 | **1.35 %** | better |
+| 1600 | 5.000 | 0.00 % | 4.882 | 2.35 % | worse |
+| 2000 | 4.879 | 2.42 % | 4.879 | 2.42 % | same |
+
+Worst deviation across fourteen ratings falls from **5.75 % to 2.42 %**;
+four better, two worse, eight unchanged. The two that get worse were exact
+by luck -- the old bisection happened to land on a step that sat on the
+target -- and are now honestly reported as near misses instead.
+
+**A real side effect, worth more than it looks.** The loss fit no longer
+cycles at 1000 kVA, at any flux from 1.60 to 1.78 T. Section 46's cycling
+diagnosis was partly the loss fit chasing a geometry that was itself
+jumping between window solutions; stabilise the window and the fit settles.
+The cycle-detection path still needs exercising, so `engine.test.mjs`'s
+fixture moves to 100 kVA, which still cycles at 1.55, 1.65 and 1.75 T
+(315 kVA does too). **Do not delete that check if 100 kVA also stops
+cycling** -- find another rating first, and if none cycles anywhere, say so
+there rather than quietly dropping the coverage.
+
+**Cost.** 2564 ms to 2717 ms per design, about 6 %. The 2.5 second baseline
+is pre-existing and untouched by this.
+
+`ENGINE_VERSION` 1.34.0. The default 1000 kVA case is unmoved, so the
+golden-numbers table stands; 630 kVA ex-works falls 16,24,153 to 15,88,168
+and 1250 kVA 23,53,174 to 23,01,914, both because a better-resolved window
+is a smaller one.
+
+**This unblocks section 71.** The Rogowski sign fix, the current density and
+the strand aspect were all blocked on this solve, and can now be attempted
+against a window solve that survives them.
+
+## 74. The entangled fix, resolved: density is right and blocked, Rogowski is wrong to change, strand aspect is unfittable
+
+With the window solve fixed (section 73) all three changes were implemented
+and measured against all five references. The outcome is different for each,
+and two of the three answers reverse what sections 61/62 expected.
+
+**Current density: quantified, validated, and blocked on a different
+defect.** The correction is `densitySuggest`'s oil baseline divided by 1.72
+(section 72), the dry multiplier restated from 1.10 to 1.92 -- it was 1.10
+only because the baseline beneath it was 1.72x high, and class F's 100 K
+against oil's 55 K was never a 10% effect -- and the `isHV` offset removed,
+because the two sheets stating both windings disagree about its sign
+(315 oil runs HV BELOW LV, 1.43 against 1.52; 630 dry runs HV above, 2.89
+against 2.79). With no offset all four measured densities land within 5.2%;
+with +0.15 the oil HV is 16% out. Removing a constant fits better than
+keeping it.
+
+What it buys, at the sheets' own inputs:
+
+| | before | after |
+|---|---|---|
+| 315 load loss vs its calculated 2220 W | 3779 W, **+70.2 %** | 2109 W, **-5.0 %** |
+| 1250 copper vs 982 kg | 555 kg, **-43.4 %** | 1042 kg, **+6.1 %** |
+| 630 dry copper vs 292 kg | 280 kg, -4.0 % | 284 kg, -2.7 % |
+| 500 LV arrangement vs 3ax x 4rad | 2 x 4 | **3 x 4, exact** |
+| 1250 LV arrangement vs 5ax x 6rad | 4 x 5 | **5 x 6, exact** |
+
+Two arrangements that had never matched now match exactly, and the two
+largest standing errors in this file close. **It is still not committed**,
+because it breaks four hard assertions checked against real measured
+documents: the 1250's HV OD (494 mm, goes from -1% to **+7.6 %**), its tank
+length (1660 mm, to **+6.9 %**), and its own real cutting chart (Plate B
++10 %, Plate C +11.5 %, total +6.6 % against the "1250 KVA CORE CHART" on
+file).
+
+**The cause is not the density.** Sweeping HV density at the 1250 with LV
+held corrected: HV OD is 508 mm (+2.8 %) at the OLD density and 531 mm
+(+7.5 %) at the new one, and no HV density in the range reaches 494 mm.
+Copper mass wants dHV near 1.60; HV OD wants it as high as possible; they
+cannot both be satisfied. That is section 11's own open question -- the
+fixed 2.1 HV conductor aspect ratio, "algebraically the same structural
+defect `lvStripAspect` turned out to be: independent of scale, no response
+to per-turn current" -- and section 11 recorded it as blocked on data,
+DATA-REQUEST item 5, because neither sheet states HV conductor dimensions.
+It still is. Correcting LV only was tried and is worse than doing nothing
+useful: the 315's load loss goes to +36.2 % and the 1250's copper to
+-24.0 %, so the HV half of the correction is the half that matters.
+
+**So the density fix waits on one piece of data**: HV conductor dimensions
+or strand count for the 1250 or 630 kVA reference. That single input turns
+a blocked correction into a landable one, and it is the highest-value
+outstanding request in this file.
+
+**Rogowski: the section 62 recommendation is withdrawn.** With the density
+corrected, flipping the sign degrades four independent geometric
+agreements at once -- the 1250's window aspect (2.42 against a sheet 2.44,
+becoming 2.21), the 630 dry's measured 4x2 LV arrangement (becoming 3x3),
+its aspect (2.62 against 2.64, becoming 2.45), and the 1000 kVA default's
+impedance (5.00 becoming 5.12). Four agreements against real documents do
+not all break by coincidence.
+
+The error in section 62's reasoning was the target, not the arithmetic. It
+measured our prediction against the 315's **tested** 4.20 %. A design
+calculation targets the **declared** value, 4.75 %, and that is what
+`autoWindow` solves for -- and against 4.75 % the current form lands within
+1 % at the sheet's own dimensions. The 4.20 % on test is the machine's
+deviation from its own design, which is exactly what the tender flagged.
+Reproducing a manufacturing deviation is not the engine's job. Section 62
+is corrected in place.
+
+**Strand aspect: no single constant fits.** The 315 winds a 3.29:1 flat and
+the model sizes strands square, which is real. But with density corrected:
+
+| | A = 1.0 (square) | A = 3.3 (the 315's flat) |
+|---|---|---|
+| 315 arrangement (sheet 1 x 8) | 2 x 4 | **1 x 8, exact** |
+| 500 arrangement (sheet 3 x 4) | **3 x 4, exact** | 2 x 6 |
+| 1250 arrangement (sheet 5 x 6) | **5 x 6, exact** | 3 x 10 |
+| 630 arrangement (sheet 4 x 2) | 3 x 3 | 2 x 4 |
+
+Each value reproduces some references exactly and breaks others. And the
+500's own sheet states a 3.67:1 conductor while its arrangement comes out
+right only at A = 1.0 -- so the strand SHAPE is real but the arrangement
+RULE is what cannot accommodate it. That is the same objection sections
+9-11 raised when they retired `lvStripAspect`, and it is not fixed by
+choosing a better constant. Not implemented; the shape correction has to
+arrive with a corrected axial/radial split, not before it.
+
+**Net position.** Nothing committed from this section. The window solve
+(section 73) is committed and stands on its own. Of the three changes: one
+is right and waits on a single datum, one is withdrawn on evidence, one
+needs a different fix first. `ENGINE_VERSION` unmoved at 1.34.0, all three
+suites green, no golden number touched.

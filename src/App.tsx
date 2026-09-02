@@ -647,6 +647,14 @@ export default function App() {
   // previewed.
   const activeFitBoundary = viewingRevision ? !!viewedResult!.fitBoundaryFound : budgetPreview ? false : !!result.fitBoundaryFound;
   const activeFitNote = viewingRevision ? viewedResult!.fitResolutionNote : budgetPreview ? undefined : result.fitResolutionNote;
+  // CALIBRATION.md section 73: the window-height solve's own discrete
+  // resolution, reported the same way the loss fit's is above. Two levels:
+  // windowNote whenever the neighbourhood search had to choose, and
+  // windowStraddle only when the closest achievable impedance falls outside
+  // the standard's own tolerance -- at which point the design cannot be
+  // built to its declared figure and the user has to change something.
+  const activeWindowNote = viewingRevision ? viewedResult!.design.windowNote : budgetPreview ? undefined : result.design.windowNote;
+  const activeWindowStraddle = viewingRevision ? !!viewedResult!.design.windowStraddle : budgetPreview ? false : !!result.design.windowStraddle;
 
   const handleAdoptBudget = () => {
     if (!budgetPreview || readOnlyLive) return;
@@ -825,6 +833,17 @@ export default function App() {
               Winding Configuration Resolved By Neighbourhood Search
             </div>
             <p className="text-[11px] text-ink2">{activeFitNote}</p>
+          </div>
+        )}
+
+        {activeWindowNote && (
+          <div className="bg-white border border-amber rounded-[2px] px-4 py-3 print:hidden">
+            <div className="text-[11px] font-display uppercase tracking-[0.14em] text-amber mb-1">
+              {activeWindowStraddle
+                ? "Declared Impedance Is Not Achievable"
+                : "Window Height Resolved By Neighbourhood Search"}
+            </div>
+            <p className="text-[11px] text-ink2">{activeWindowNote}</p>
           </div>
         )}
 

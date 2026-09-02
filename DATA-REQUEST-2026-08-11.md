@@ -1,14 +1,103 @@
 # Data needed to close the remaining engine gaps
 
-We've now calibrated the engine against the 630 kVA and 1250 kVA sheets
-(load loss schedule, material rates). Three gaps are left that only more
-real sheet data can close — none of them can be worked out from what we
-already have. All of it should already exist on sheets you've issued;
-nothing here needs a new calculation or a new test build.
+We've now calibrated the engine against four of your sheets — 315, 500, 630
+and 1250 kVA. The gaps below are the ones only more real sheet data can
+close; none can be worked out from what we already have. All of it should
+already exist on sheets you've issued; nothing here needs a new calculation
+or a new test build.
+
+**Item 0 is not like the others.** The rest would improve the engine. Item 0
+is holding back a correction that is already written and tested and cannot
+be committed without it. If only one thing on this list gets answered, that
+is the one.
 
 For every item below, please pull: **volts per turn, core diameter, number
 of core steps, LV turns, HV turns, conductor arrangement (axial x radial,
 and layers), and the hilo (LV-HV clearance).**
+
+## 0. BLOCKER: HV conductor dimensions, for the 1250 kVA or the 630 kVA
+
+**This is the one that matters. Everything else on this list improves the
+engine; this one is holding back a correction that is already written,
+already tested, and cannot be committed without it.**
+
+### What we need
+
+For **either** the 1250 kVA or the 630 kVA reference -- one is enough, both
+is better -- for the **HV winding**:
+
+1. **Bare conductor dimensions.** If rectangular, thickness x width in mm.
+   If round, the diameter.
+2. **Covered dimensions**, over the paper or enamel, the same way.
+3. **Round or rectangular** -- stated explicitly, not inferred from the
+   dimensions.
+4. **Number of parallel strands** making up one turn.
+5. **The arrangement of those strands, axial by radial** -- e.g. "2 axial
+   by 3 radial", the same form the LV data on both sheets already gives.
+
+We already have exactly this on two of your sheets:
+
+- **315 kVA** -- 2.92 mm diameter round super enamel, single conductor,
+  6.69 mm2.
+- **500 kVA** -- 9 SWG round enamelled, 3.657 mm bare and 3.745 over the
+  enamel, single conductor, 10.50 mm2.
+
+Both are round, both single-strand, and both sit at the small end of the
+range. That is what makes the gap specific rather than general: we know
+what the HV conductor looks like where it is a single round wire, and
+nothing at all about it where it becomes rectangular strip or splits into
+parallel strands -- which is exactly where the 2.1:1 shape assumption
+starts doing the damage. **One more design, at 630 or 1250, settles it** --
+a single point (or two at the same end of the range) cannot show how the
+arrangement responds to rating and current, and 315/500 against either 630
+or 1250 spans a wide enough range to answer that.
+
+### What it unblocks, plainly
+
+The engine's suggested **oil current density is 1.72 times too high**. This
+is not an estimate. Two independent designs, four times apart in rating,
+give the same ratio:
+
+| | engine suggests | your sheet | ratio |
+|---|---|---|---|
+| 1250 kVA, oil | 2.50 A/mm2 | about 1.44 | **1.74** |
+| 315 kVA, oil | 2.60 A/mm2 | 1.52 | **1.71** |
+| 630 kVA, dry | 2.80 A/mm2 | 2.84 | **0.99** |
+
+The dry design lands at 1.00, so the medium correction is right and it is
+the oil figure specifically that is wrong. Correcting it fixes, measured
+against your own sheets:
+
+- the **315 kVA load loss**, from **+70 %** against its own calculated
+  2220 W to **-5 %**;
+- the **1250 kVA copper mass**, from **-43 %** against its 982 kg to
+  **+6 %**;
+- the **LV conductor arrangement** on the 500 and 1250 kVA designs, which
+  come out **exactly right** for the first time (3 axial x 4 radial and
+  5 axial x 6 radial, matching both sheets).
+
+### Why we cannot commit it without the HV conductor data
+
+Correcting the density makes the HV conductor bigger, and the engine builds
+the HV winding's radial depth from a **fixed 2.1 : 1 conductor shape that
+has no real measurement behind it** -- it was a placeholder, and it is the
+same defect we already found and fixed on the LV side once your sheets gave
+us real LV conductor numbers. With a wrong HV shape, a bigger HV conductor
+comes out too deep, and the 1250 kVA's HV outside diameter goes from 1 %
+out to **7.6 %** out, its tank length to **6.9 %** out, and its own cutting
+chart totals to **6.6 %** out -- all three checked against documents you
+have already sent us.
+
+We tested whether the LV half alone could be corrected and left HV as it
+is. It is worse than doing nothing: the 315's load loss lands at +36 % and
+the 1250's copper at -24 %. The HV half is the half that carries the
+correction.
+
+So: a correction worth roughly 70 % of a load loss figure and 43 % of a
+copper mass is sitting finished and unusable, waiting on five numbers from
+one sheet.
+
+---
 
 ## 1. No-load and load loss at two or three more ratings
 
@@ -79,6 +168,11 @@ from the weight figure alone; it has to come from the sheet's own labelling
 or from whoever prepared it.
 
 ## 5. HV conductor dimensions and strand count, for the two sheets we already have
+
+**This is item 0 above, which now states what it blocks and why. The two
+supersets are the same request -- item 0 is the one to act on; the
+questions at the end of this item are additional detail on the same
+winding and are still open.**
 
 For both the 630 kVA and 1250 kVA references: HV conductor bare and covered
 dimensions, number of parallel strands, and their arrangement as axial by

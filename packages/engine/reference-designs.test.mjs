@@ -180,10 +180,10 @@ knownGap("Disc count", r1250.design.numGroups, 53, -7.55,
   "packing share one geometry, so a short LV area changes how many discs the window holds. Re-fitting hvDiscGap " +
   "now would fit against a target that moves again once the area question closes -- deferred on purpose.");
 knownGap("LV OD mm", +r1250.design.lvOD.toFixed(1), 374, -6.84,
-  "The LV conductor area itself is short (CALIBRATION.md open questions): the split shape is now confirmed " +
-  "correct (see the arrangement line below), but a correct shape built from a too-small area is still a " +
-  "too-small winding. This assertion passed before ENGINE_VERSION 1.9.0 only because two packing bugs were " +
-  "adding radial depth this design does not have.");
+  "CALIBRATION.md section 72: the area MODEL is exact -- fed the 315 sheet's own densities it returns " +
+  "aLVreq to +0.2% and load loss to +2.6%. What is short is the current density fed to it: densitySuggest's " +
+  "oil baseline runs about 1.72x high, flat across 315 and 1250 kVA. Not a packing or split defect, and no " +
+  "longer an open question -- it waits on the section 71 window-solve work before it can safely be corrected.");
 console.log(`  gap  LV conductor arrangement: got ${r1250.design.lvAxCount} axial x ${r1250.design.lvRadCount} radial x ${r1250.design.lvTurnLayers} layers `
   + `(${r1250.design.lvAxCount * r1250.design.lvRadCount} total), target 5 axial by 6 radial (30 total)`);
 console.log("         The split's SHAPE is now right -- more radial than axial, same direction as the sheet -- confirmed by");
@@ -192,9 +192,91 @@ console.log("         (CALIBRATION.md). The count is still short because aLVreq 
 
 console.log("\n630 kVA, 11/0.433 kV, dry type, copper -- Mehir Transformers sheet");
 knownGap("LV radial build mm", +((r630.design.lvOD - r630.design.lvID) / 2).toFixed(2), 20, -35.75,
-  "The same LV area gap the 1250 kVA reference has, previously masked here by the same two packing bugs " +
-  "(ENGINE_VERSION 1.8.0/1.9.0) that were adding radial depth neither real winding has. This design's own " +
-  "axial x radial split (4x2) still matches the sheet exactly -- only the resulting build depth does not.");
+  "CALIBRATION.md section 72. Note this is the DRY reference, and its own density suggestion is right " +
+  "(2.80 against the sheet's 2.84, ratio 0.99) -- so unlike the 1250 kVA gap this one is NOT the oil " +
+  "density error. Its axial x radial split (4x2) matches the sheet exactly; only the build depth does not, " +
+  "which points at the strand shape (section 71) rather than the area.");
+
+/* CALIBRATION.md section 61: the 315 kVA UGVCL and 500 kVA sheets. Both are
+   given their own Et, step count and flux, autoFit off, the same treatment
+   the 1250 and 630 kVA references get -- the point is whether the geometry
+   and turns model reproduces a known machine, not whether the loss fit
+   picks the same design. The 315 is Level 1 but is given grade m0h
+   explicitly: its sheet names 23HP80, a 0.23 mm Hi-B, which is m0h, while
+   gradeSuggest("level1") returns the 0.27 mm m4 (section 64 -- an open
+   defect, pinned here so this reference tests geometry rather than
+   re-testing that). */
+console.log("\n315 kVA, 11/0.433 kV, Dyn11, oil, copper, Level 1 -- Mehir/UGVCL sheet");
+const core315 = { ...E.ESSENTIALS, kva: 315, application: "distribution", vector: "Dyn11", effLevel: "level1", condPref: "copper" };
+const over315 = {
+  etK: 9.615 / Math.sqrt(315),   // sheet Et 9.615 (433/sqrt(3) over 26 turns)
+  steps: 16,                     // the sheet's own step count, representable since section 70
+  flux: 1.5182,                  // coreGrade deliberately NOT pinned: gradeSuggest("level1")
+                                 // must now return m0h on its own (section 70)
+  limitNLL: 470, limitLL: 3100, targetZ: 4.75,
+  autoFit: false,
+};
+const r315 = E.computeDesign(core315, over315, E.DEFAULT_RATES, []);
+exact("core grade auto-selected from Level 1", r315.params.coreGrade, "m0h");
+exact("LV turns", r315.design.nLV, 26);
+exact("HV turns", r315.design.nHV, 1144);
+within("core diameter mm", +r315.design.dCore.toFixed(1), 197, 1.5);
+within("window width mm", +r315.design.Ww.toFixed(1), 198, 2);
+within("core mass kg/set", +r315.design.wCore.toFixed(1), 660, 4);
+within("no-load loss W", Math.round(r315.design.noLoad), 470, 6);
+within("HV OD mm", +r315.design.hvOD.toFixed(1), 385, 3);
+// CALIBRATION.md section 66: the sheet winds 2.92 dia super enamel, round.
+exact("HV conductor shape", r315.design.hvCondShape, "round");
+// CALIBRATION.md section 68: the sheet carries a full short-circuit
+// calculation to IS 2026:2011 Part V clause 4.1 -- system fault level
+// 500 MVA, Um 12 kV. All four of its figures, reproduced exactly.
+console.log("\n315 kVA short circuit, IS 2026:2011 Part V clause 4.1");
+within("system impedance Zs ohm", +r315.design.zSys.toFixed(4), 0.288, 0.5);
+within("transformer impedance Zt ohm", +r315.design.zTx.toFixed(3), 18.246, 0.5);
+within("fault current HV kA", +(r315.design.iscHV / 1000).toFixed(4), 0.343, 0.5);
+within("fault current LV kA", +(r315.design.iscLV / 1000).toFixed(3), 8.70, 0.5);
+
+console.log("\n500 kVA, 11/0.433 kV, Dyn11, oil, copper -- Mehir Transformers sheet");
+const core500 = { ...E.ESSENTIALS, kva: 500, application: "distribution", vector: "Dyn11", condPref: "copper" };
+const over500 = {
+  etK: 10.416 / Math.sqrt(500),  // the sheet's own volts per turn
+  steps: 17,                     // the sheet's own step count (section 70)
+  flux: 1.3947,                  // sheet 23HP75, a 0.23 mm Hi-B -- gradeSuggest must find m0h
+  limitNLL: 545, targetZ: 4.65,
+  autoFit: false,
+};
+const r500 = E.computeDesign(core500, over500, E.DEFAULT_RATES, []);
+exact("core grade auto-selected", r500.params.coreGrade, "m0h");
+exact("LV turns", r500.design.nLV, 24);
+// Core-to-LV clearance runs slightly generous on both new references
+// (315: 212.9 against 205, +3.9%; 500: 230.1 against 223, +3.2%). Same
+// sign, similar size, so it is recorded as a gap rather than absorbed
+// into a wider tolerance -- clearancesFrom is fitted at 11 kV from the
+// 1250/630 sheets (section 1) and these are the first two designs at this
+// rating class to test its core-side figure.
+knownGap("500 LV ID mm", +r500.design.lvID.toFixed(1), 223, 3.2,
+  "Core-to-LV clearance is about 3% generous on both new references. Section 1 fitted the LV-to-HV gap "
+  + "from the 1250/630 sheets and explicitly left the rest of the clearance curve unverified.");
+within("HV OD mm", +r500.design.hvOD.toFixed(1), 404, 3);
+within("no-load loss W", Math.round(r500.design.noLoad), 545, 4);
+// The sheet winds 9 SWG (3.657 dia) round enamelled wire.
+exact("HV conductor shape", r500.design.hvCondShape, "round");
+
+console.log("\n315 kVA / 500 kVA known gaps");
+knownGap("315 window height mm", +r315.design.Hw.toFixed(1), 365, 20.7,
+  "CALIBRATION.md section 62: the effective winding height applies the Rogowski factor as h x 0.95 " +
+  "where the conventional form is h / 0.95, so leakage reactance is about 11% high and the window-height " +
+  "bisection compensates by solving a taller window. Reported %Z is still the declared value -- the error " +
+  "is in the geometry invented to reach it, not in the impedance printed.");
+knownGap("315 load loss W", Math.round(r315.design.loadLoss), 3100, 22.0,
+  "CALIBRATION.md section 61: densitySuggest does not depend on effLevel, so this Level 1 design is " +
+  "given 2.60/2.75 A/mm^2 where the sheet runs 1.52/1.43. Conductor areas come out 41% (LV) and 48% (HV) " +
+  "short, and the load loss follows. Same root cause as the 1250/630 kVA LV-area gap open since section 11.");
+knownGap("500 core mass kg", +r500.design.wCore.toFixed(1), 942.3, -8.0,
+  "CALIBRATION.md section 65: the stepWidths ladder and STEP_UTIL disagree by 2-3% about the same " +
+  "core's area, and this sheet gives no core diameter to settle which is right. The 17-step count " +
+  "itself is now representable (section 70), which moved this gap from -6.2% to -7.8%: the old 0.94 " +
+  "fallback understated utilisation, which inflated the core toward the sheet for the wrong reason.");
 
 console.log(failures
   ? `\n${failures} FAILURES -- a hard assertion broke, a regression.`

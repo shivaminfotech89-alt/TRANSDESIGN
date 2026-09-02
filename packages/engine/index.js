@@ -8,7 +8,7 @@
  * without bumping it, or old quotations stop reproducing.
  */
 
-export const ENGINE_VERSION = "1.30.0";
+export const ENGINE_VERSION = "1.34.0";
 
 const CONDUCTORS = {
   copper: { name: "Copper, EC grade", rho20: 0.017241, alpha: 0.00393, dens: 8890, dMax: 3.6, short: "Cu", proof: 1.0 },
@@ -49,7 +49,42 @@ const BUILD_FACTOR_MSC = {
   C: { staggered: 1.315, continuous: 1.525 },  // diamond: 1.28-1.35, 1.45-1.60
 };
 
-const STEP_UTIL = { 3: 0.851, 5: 0.908, 7: 0.934, 9: 0.948, 11: 0.955, 13: 0.960, 15: 0.963 };
+/* CALIBRATION.md section 70. The 16-step figure is MEASURED, not fitted:
+   the 315 kVA sheet's own gross area 294.1 cm2 against its 197 mm circle's
+   304.81 cm2 is 0.9649. Everything else here predates that sheet.
+
+   Before this, the table stopped at 15 and every count past it fell onto a
+   flat 0.94 -- lower than the 0.963 held at 15, so asking the engine for
+   MORE steps made it believe the core filled its circle WORSE. Both new
+   references are past the old end of the table (16 and 17 steps), so
+   neither was representable and both were being told a 16- or 17-step core
+   packs like a 5-step one. */
+const STEP_UTIL = { 3: 0.851, 5: 0.908, 7: 0.934, 9: 0.948, 11: 0.955, 13: 0.960, 15: 0.963, 16: 0.9649 };
+const STEP_KEYS = Object.keys(STEP_UTIL).map(Number).sort((a, b) => a - b);
+/* Selectable step counts. 17 is offered because the 500 kVA reference is a
+   17-step core and a real design the product cannot express is a real gap
+   -- but there is no 17-step measurement, so stepUtil holds it at 16's
+   figure rather than extrapolating one. */
+const STEP_OPTIONS = [...STEP_KEYS, 17];
+
+/* Interpolates between tabulated counts and HOLDS the top value above the
+   table. Holding is deliberate: more steps cannot fill a circle worse, so a
+   held value is never wrong-signed, only conservative -- where a fitted
+   curve past the last real measurement would be inventing the very thing
+   sections 1 and 53 both declined to invent from a single point. */
+function stepUtil(n) {
+  if (STEP_UTIL[n] != null) return STEP_UTIL[n];
+  if (n <= STEP_KEYS[0]) return STEP_UTIL[STEP_KEYS[0]];
+  const top = STEP_KEYS[STEP_KEYS.length - 1];
+  if (n >= top) return STEP_UTIL[top];
+  const hi = STEP_KEYS.find((k) => k > n);
+  const lo = STEP_KEYS[STEP_KEYS.indexOf(hi) - 1];
+  return STEP_UTIL[lo] + ((n - lo) / (hi - lo)) * (STEP_UTIL[hi] - STEP_UTIL[lo]);
+}
+
+/* Area a radiused corner removes from a rectangle, per unit r^2, over all
+   four corners: 4(r^2 - pi r^2/4) = (4 - pi) r^2. CALIBRATION.md section 66. */
+const CORNER_K = 4 - Math.PI;
 
 /* Highest voltage for equipment -> standard withstand levels (IS 2026 / IEC 60076-3) */
 const UM_LEVELS = {
@@ -225,7 +260,33 @@ function zSuggest(kva, um) {
   else if (um >= 36 && kva > 2500) z = Math.max(z, 8);
   return z;
 }
-const gradeSuggest = (lvl) => (lvl === "conventional" ? "m5" : lvl === "level1" ? "m4" : lvl === "level2" ? "m0h" : "zdkh");
+/* CALIBRATION.md section 70. level1 returned "m4" (CRGO M4, 0.27 mm) until
+   two real Level-class sheets showed the works buying 0.23 mm Hi-B instead:
+   the 315 kVA UGVCL job names 23HP80 and the 500 kVA names 23HP75. At the
+   sheets' own flux and step counts, no-load comes out:
+
+     m4   (0.27 mm, wRef 1.05)   315: 586 W vs 470 (+24.7%)   500: 640 vs 545 (+17.4%)
+     m0h  (0.23 mm, wRef 0.88)   315: 491 W vs 470 ( +4.5%)   500: 536 vs 545 ( -1.6%)
+     zdkh (0.23 mm, wRef 0.78)   315: 435 W vs 470 ( -7.3%)   500: 476 vs 545 (-12.7%)
+
+   So level1 -> m0h. Tying the GRADE to the efficiency level encoded a
+   purchasing decision this works does not make: it stocks 0.23 mm Hi-B and
+   buys the loss level with flux and geometry, which fluxSuggest already
+   varies by level. level2 keeps m0h and level3 keeps zdkh -- unchanged,
+   because there is no Level 2 or Level 3 reference to move them against,
+   and level1 sharing level2's grade is the point rather than a collision.
+
+   Recorded because it matters and is not visible from the numbers above:
+   m0h's own wRef 0.88 is doing some compensating. By catalogue naming
+   23HP80 is 0.80 W/kg at 1.7 T and 23HP75 is 0.75, which would sit at or
+   below zdkh's 0.78 -- and zdkh under-predicts both sheets by 7% and 13%.
+   The engine agrees with reality when fed 0.88 and disagrees when fed the
+   grades' own catalogue figures, which means roughly 10% of no-load is
+   being carried by wRef that belongs somewhere else in the no-load model
+   (section 60's joint-mass split is the obvious suspect). m0h is adopted
+   on the measured agreement, not on a claim that 0.88 is these grades'
+   true specific loss. Do not "correct" wRef to 0.80 in isolation. */
+const gradeSuggest = (lvl) => (lvl === "conventional" ? "m5" : lvl === "level2" || lvl === "level1" ? "m0h" : "zdkh");
 function fluxSuggest(gk, lvl, kva) {
   if (gk === "amor") return 1.35;
   const nudge = kva < 250 ? 0.08 : kva < 630 ? 0.04 : 0;
@@ -371,6 +432,16 @@ function deriveSpec(core, over = {}) {
   put("limitNLL", Math.round(sch.nll), [Math.round(sch.nll * 0.5), Math.round(sch.nll * 2), 5], null, `Estimated from the level formula for ${kva} kVA. Replace it with the figure in the enquiry.`);
   put("limitLL", Math.round(sch.ll), [Math.round(sch.ll * 0.5), Math.round(sch.ll * 2), 25], null, `Estimated for ${kva} kVA. Replace it with the figure in the enquiry.`);
   const z = put("targetZ", zSuggest(kva, umHV), [3, 14, 0.25], null, `Standard value for ${kva} kVA at ${umHV} kV. Going lower raises fault current; going higher worsens regulation.`);
+  /* CALIBRATION.md section 68: IS 2026:2011 Part V clause 4.1 puts the
+     SOURCE impedance in series with the transformer's own, so the fault
+     current a winding actually has to withstand is lower than the
+     impedance-only figure. 500 MVA is the figure the 315 kVA UGVCL sheet
+     states and a common assumption for an 11 kV distribution feeder; it is
+     a property of the network the machine is going into, not of the
+     machine, so it is an input with no defensible derivation from the
+     rating. Setting it to 0 means an infinite bus and reproduces the old
+     impedance-only figure exactly. */
+  put("systemFaultMVA", 500, [0, 5000, 25], null, "Three-phase symmetrical fault level of the system the transformer is connected to. IS 2026 Part V puts this in series with the transformer's own impedance. 0 means an infinite bus (transformer impedance alone).");
   put("zTol", z >= 10 ? 7.5 : std.zTol, [5, 10, 0.5], null, `${std.name} allows \u00B1${z >= 10 ? 7.5 : std.zTol}% on the declared impedance.`);
 
   /* --- core --- */
@@ -413,7 +484,7 @@ function deriveSpec(core, over = {}) {
   const etTrialSug = etkEff * Math.sqrt(kva);
   const aNetEst = etTrialSug / (4.44 * (core.freq || 50) * fluxSug);
   const dCoreEst = Math.sqrt((4 * aNetEst) / (Math.PI * 0.94 * CORE_GRADES[gk].sf)) * 1000;
-  put("steps", stepsSuggest(dCoreEst), null, Object.keys(STEP_UTIL).map((k) => [+k, k + " steps"]), "More steps fill the coil circle better and save steel, but cost more to cut and stack.");
+  put("steps", stepsSuggest(dCoreEst), null, STEP_OPTIONS.map((k) => [k, k + " steps"]), "More steps fill the coil circle better and save steel, but cost more to cut and stack.");
   put("stepIncrement", 10, [5, 25, 5], null, "Lamination is slit to standard widths, not cut to a continuous optimum. Step widths round down to the nearest multiple of this -- rounding up can put the widest step past the core diameter itself.");
   /* CALIBRATION.md section 35/54: Construction A (limb / half-yoke /
      full-yoke) is the established, better-evidenced pattern -- confirmed
@@ -591,6 +662,35 @@ function deriveSpec(core, over = {}) {
     [["layer", "Single continuous layer"], ["crossover", "Crossover coils"], ["disc", "Disc wound"]],
     `${kva} kVA${tt === "oltc" ? " with an on-load tap changer" : ""} normally uses ${hvConstructionSug} construction.`);
   put("hvCrossoverTurnsPerLayer", 10, [4, 20, 1], null, "Turns per axial layer within one crossover coil, kept small so each coil stays easy to wind and handle. Fitted from the 630 kVA dry reference.");
+  /* CALIBRATION.md section 66: HV conductor SHAPE, previously an implicit
+     "aHVreq > 6 mm^2" cutoff buried in the geometry closure with no
+     parameter, no note and no reference behind the 6. Both new references
+     wind round enamelled wire well above it -- the 315 at 2.92 dia
+     (6.697 mm^2, its sheet states 6.69) and the 500 at 9 SWG 3.657 dia
+     (10.504 mm^2) -- so the old cutoff put both real designs on strip.
+     Keyed to HV CURRENT, not to the conductor area this engine computes.
+     That is deliberate. Area here is iHV/deltaHV, and section 61 found
+     deltaHV is roughly 1.9x what these works actually run, so our computed
+     conductor is about half the real one and a diameter rule reads a real
+     strip winding as round. Current is an input, not a fitted quantity, so
+     it is uncontaminated by that error. Tried the diameter form first: at a
+     commercially honest 4 mm it flipped the 630 kVA dry reference to round
+     and broke its own measured winding structure (6 coils of 13 layers
+     became 8 of 10), which is exactly the misclassification the density
+     error predicts.
+
+     The threshold is bracketed by two real designs, not fitted to one:
+     the 500 kVA winds ROUND at 15.15 A (9 SWG, 3.657 dia) and the 630 kVA
+     dry needs STRIP at 19.09 A for its own 6 x 13 structure to come out.
+     18 A sits between them, and lands independently: a 4.0 mm round wire
+     -- about the largest drawn and enamelled -- carries 17.97 A at the
+     1.43 A/mm^2 these sheets actually run. Two unrelated arguments, same
+     figure. Revisit once deltaHV is corrected, at which point a diameter
+     rule becomes viable and is the better physical statement. */
+  put("hvCondShape", "auto", null,
+    [["auto", "Auto, by HV current"], ["round", "Round enamelled wire"], ["strip", "Rectangular strip"]],
+    "Round enamelled wire up to the current limit, rectangular strip above it. Both new references are round.");
+  put("hvRoundMaxAmp", 18, [5, 60, 0.5], null, "Highest HV line current the works will wind in round enamelled wire before moving to rectangular strip. Bracketed by the 500 kVA reference (15.2 A, round) and the 630 kVA (19.1 A, strip).");
   /* 20 mm reproduces the 630 kVA dry reference's 6 coils of 13 layers of 10
      turns almost exactly (6/13/10 against a target of 6/13/10). Confirmed
      dry-type only -- an oil-immersed crossover winding would plausibly need
@@ -653,6 +753,20 @@ function deriveSpec(core, over = {}) {
   put("lvFoilMaxKva", 300, [50, 1000, 50], null, "Below this rating, LV is a single conductor -- full-height foil, or a thin strip if several turns share an axial pass. Above it, LV splits into parallel conductors.");
   put("lvStripMaxMM2", 40, [10, 150, 5], null, "Practical area for one LV strip conductor before it splits into more than one, arranged axial x radial.");
   put("lvStripGap", 2, [0.5, 6, 0.5], null, "Gap between LV strip conductors placed side by side axially within one turn.");
+  /* CALIBRATION.md section 66: rectangular magnet wire is supplied with
+     radiused corners, so a strip's copper area is its nominal envelope
+     less (4 - pi) r^2, not the full rectangle. The 315 kVA sheet states
+     this explicitly -- 3.28 x 10.78 over 8 conductors is 282.87 mm^2 of
+     rectangle but 275.67 mm^2 of copper, which back-solves to r = 1.024 mm
+     and reproduces to 0.12% at exactly 1 mm. The engine sizes the copper
+     first (aLVreq/aHVreq are copper, and stay copper for resistance and
+     mass), so the correction runs the other way here: the ENVELOPE the
+     winding physically occupies is inflated by (4 - pi) r^2 per strand.
+     Before this, envelope and copper were the same number and every strip
+     winding was built marginally too small. Applies to rectangular strip
+     only -- foil is a rolled sheet with no meaningful corner radius, and a
+     round conductor has no corners at all. */
+  put("cornerRadius", 1.0, [0, 2.5, 0.05], null, "Corner radius on rectangular strip conductor. Copper area is the nominal rectangle less (4 - pi)r^2 per strand. 1 mm is the 315 kVA reference's own figure.");
 
   /* --- construction constants --- */
   put("lvIns", 0.30, [0.10, 1.20, 0.05], null, "Interturn insulation on the LV foil or strip.");
@@ -835,7 +949,7 @@ function designTransformer(p) {
   let dCore, coreW, coreD;
   const shape = ct.shape;
   if (shape === "circ") {
-    const util = STEP_UTIL[p.steps] || 0.94;
+    const util = stepUtil(p.steps);
     dCore = Math.sqrt((4 * aNet) / (Math.PI * util * grade.sf)) * 1000;
     coreD = dCore; coreW = dCore;
   } else {
@@ -902,8 +1016,12 @@ function designTransformer(p) {
       lvRadCount = Math.max(1, Math.ceil(n / lvAxCount));
       n = lvAxCount * lvRadCount;
       const stripArea = aLVreq / n;
-      tLV = Math.sqrt(stripArea);
-      foilW = Math.sqrt(stripArea);
+      /* section 66: aLVreq is COPPER. The strip's own envelope is larger by
+         the four radiused corners, and it is the envelope the coil has to
+         find room for. */
+      const stripEnv = stripArea + CORNER_K * p.cornerRadius * p.cornerRadius;
+      tLV = Math.sqrt(stripEnv);
+      foilW = Math.sqrt(stripEnv);
       const turnAxialWidth = lvAxCount * (foilW + p.lvStripGap);
       const perAxial = Math.max(1, Math.floor(hLV / turnAxialWidth));
       lvTurnLayers = Math.ceil(nLV / perAxial);
@@ -957,20 +1075,29 @@ function designTransformer(p) {
        length this radial build feeds) load loss all previously sized
        themselves against a single conductor's footprint regardless of how
        many actually run in parallel. */
-    let axHV, rdHV, hvAxCount, hvRdCount;
+    /* section 66: strip envelope carries the corner radius, round wire does
+       not. hvRound decides the shape of ONE strand -- a multi-strand split
+       is always strip, since the reason to split is that no single round
+       wire is drawn that large. */
+    const stripEnv = (a) => a + CORNER_K * p.cornerRadius * p.cornerRadius;
+    let axHV, rdHV, hvAxCount, hvRdCount, hvRound = false;
     if (aHVreq > HV_STRAND_MAX_MM2) {
       const hvAspect = 2.1;
       let n = Math.ceil(aHVreq / HV_STRAND_MAX_MM2);
       hvRdCount = Math.max(1, Math.round(Math.sqrt(n / hvAspect)));
       hvAxCount = Math.ceil(n / hvRdCount);
       n = hvAxCount * hvRdCount;
-      const strandArea = aHVreq / n;
-      rdHV = Math.sqrt(strandArea / hvAspect);
+      const strandEnv = stripEnv(aHVreq / n);
+      rdHV = Math.sqrt(strandEnv / hvAspect);
       axHV = hvAspect * rdHV;
     } else {
       hvAxCount = 1; hvRdCount = 1;
-      if (aHVreq > 6) { rdHV = Math.sqrt(aHVreq / 2.1); axHV = 2.1 * rdHV; }
-      else { const dia = Math.sqrt((4 * aHVreq) / Math.PI); axHV = dia; rdHV = dia; }
+      const dia = Math.sqrt((4 * aHVreq) / Math.PI);
+      hvRound = p.hvCondShape === "round" ? true
+              : p.hvCondShape === "strip" ? false
+              : iHV <= p.hvRoundMaxAmp;
+      if (hvRound) { axHV = dia; rdHV = dia; }
+      else { const e = stripEnv(aHVreq); rdHV = Math.sqrt(e / 2.1); axHV = 2.1 * rdHV; }
     }
     /* CALIBRATION.md section 41: every parallel strand gets its own full
        covering allowance, the same convention LV's own multi-strand split
@@ -1026,7 +1153,7 @@ function designTransformer(p) {
     const pctR = (loadLoss / (p.kva * 1000)) * 100;
     return {
       Hw, hLV, hHV, foilW, tLV, lvRadial, axHV, rdHV, turnsPerLayer, layers, hvRadial,
-      lvTurnLayers, hvDucts, dEff, hEff, X, lmtMean, tLVin, tLVout, tHVin, tHVout,
+      lvTurnLayers, hvDucts, dEff, hEff, X, lmtMean, tLVin, tLVout, tHVin, tHVout, hvRound,
       lvID, lvOD, hvID, hvOD, cc, Ww, lmtLV, lmtHV, rLV, rHV, i2rLV, i2rHV, loadLoss,
       pctX, pctR, pctZ: Math.sqrt(pctX * pctX + pctR * pctR),
       voltsPerLayer: et * turnsPerLayer,
@@ -1042,18 +1169,38 @@ function designTransformer(p) {
   const Hw0 = Math.max(200, Math.sqrt(aWin / p.aspect) * p.aspect * 1000);
 
   /* solve the window height for the declared impedance: taller window, lower reactance */
-  let g = build(Hw0), solvedZ = false;
+  let g = build(Hw0), solvedZ = false, windowNote = null, windowStraddle = false, windowResolved = false;
   if (p.autoWindow !== false && p.targetZ > 0) {
-    let lo = 0.35 * Hw0, hi = 6 * Hw0;
+    const lo0 = 0.35 * Hw0, hi0 = 6 * Hw0;
+    let lo = lo0, hi = hi0;
+    let bisected = null;
     if (build(hi).pctZ <= p.targetZ && build(lo).pctZ >= p.targetZ) {
       for (let i = 0; i < 44; i++) {
         const mid = (lo + hi) / 2;
         if (build(mid).pctZ > p.targetZ) lo = mid; else hi = mid;
       }
-      g = build((lo + hi) / 2);
+      bisected = build((lo + hi) / 2);
+    }
+    /* CALIBRATION.md section 73. Two ways the plain bisection fails, and
+       both need the same answer:
+         - it brackets and converges onto a JUMP rather than a root, then
+           reports success while missing the declared value;
+         - it does not bracket at all, because %Z(Hw) is not monotone, and
+           the old code silently returned an interval endpoint.
+       Only a bisection that actually landed on the declared value is taken
+       as solved. Everything else goes to the neighbourhood search, which
+       sweeps the whole interval, refines within each continuous branch, and
+       says which it chose -- or that none reaches the target. */
+    if (bisected && Math.abs(bisected.pctZ - p.targetZ) <= WINDOW_Z_TOL) {
+      g = bisected;
       solvedZ = true;
     } else {
-      g = build(build(lo).pctZ < p.targetZ ? lo : hi);
+      const res = resolveWindowNeighbourhood(build, (bisected ? bisected.Hw : Hw0), lo0, hi0, p.targetZ, Math.min(p.zTol, std.zTol));
+      g = res.g || bisected || build(build(lo0).pctZ < p.targetZ ? lo0 : hi0);
+      solvedZ = res.solved;
+      windowStraddle = res.straddle;
+      windowNote = res.note;
+      windowResolved = true;
     }
   }
   const Hw = g.Hw;
@@ -1331,7 +1478,38 @@ function designTransformer(p) {
   const out = p.kva * 1000 * p.pf;
   const effAt = (k) => ((k * out) / (k * out + noLoad + loadLoss * k * k)) * 100;
   const maxEffLoad = Math.sqrt(noLoad / Math.max(1, loadLoss));
-  const iscMult = 100 / g.pctZ;
+  /* CALIBRATION.md section 68: fault current to IS 2026:2011 Part V clause
+     4.1, checked against the 315 kVA sheet's own four figures exactly.
+
+       Zs = Um^2 / Sfault          system impedance, at the HIGHEST voltage
+       Zt = (%Z/100) x V^2 / S     transformer impedance, at the RATED voltage
+       Isc(HV) = V / (sqrt(3) (Zs + Zt))
+       Isc(LV) = Isc(HV) x V(HV)/V(LV)
+
+     The mixed voltage basis is not a slip and is not ours to tidy: Zs is
+     built on Um (12 kV here) because a system fault level is quoted at the
+     system's own highest voltage, while Zt and the current are on the
+     transformer's rated 11 kV. Using one voltage throughout reproduces
+     neither of the sheet's figures -- Um for Zt gives 21.714 against a
+     stated 18.246, and Um in the current gives 0.374 kA against a stated
+     0.343 kA. Both hit exactly on the mixed basis.
+
+     iscMult is kept as the ratio actually applied, so anything downstream
+     reading it still sees the true multiplier rather than 100/%Z. With
+     systemFaultMVA at 0 this reduces to exactly 100/%Z, the previous
+     behaviour.
+
+     Both fault currents are LINE currents, which is how a sheet quotes them
+     and how switchgear is rated. That is a change of basis on the HV side:
+     iscHV used to be iHV (a PHASE current on a delta HV) times 100/%Z,
+     while iscLV was iLV (phase = line on a star LV) times the same factor,
+     so the two were quoted on different bases and printed side by side in
+     calcSheet as though they were not. At the 315 that made the HV figure
+     198 A where the sheet says 343 A -- the ratio being exactly sqrt(3). */
+  const zSys = p.systemFaultMVA > 0 ? (p.umHV * p.umHV) / p.systemFaultMVA : 0;
+  const zTx = (g.pctZ / 100) * ((p.hv / 1000) * (p.hv / 1000)) / (p.kva / 1000);
+  const iscHVline = p.hv / (Math.sqrt(3) * (zSys + zTx));
+  const iscMult = iscHVline / Math.max(1e-9, iLineHV);
   const noise = 39 + 12.5 * Math.log10(Math.max(1, p.kva / 100)) + (B - 1.6) * 28 + grade.noise + (dry ? 4 : 0);
 
   /* p.limitNLL/limitLL are always the single source of truth here, not
@@ -1401,6 +1579,7 @@ function designTransformer(p) {
 
   return {
     p, grade, ct, std, fluid, dryT, cls, dry, B, cLV, cHV, dLV, dHV, clr, refT, shape, solvedZ,
+    windowNote, windowStraddle, windowResolved,
     hvConn, lvConn, hvPh, lvPh, hvDesign, lvDesign, iLineHV, iLineLV, iHV, iLV,
     et, nLV, nHV, nHVmax, ratioErr, tapSteps, turnsPerStep,
     aNet: aNet * 1e4, aGross: aGross * 1e4, dCore, coreW, coreD, Hw, Ww: g.Ww, cc: g.cc,
@@ -1413,10 +1592,10 @@ function designTransformer(p) {
     wPerKg, wJoint, noLoad, loadLoss, totalLoss, i0pct, i2rLV: g.i2rLV, i2rHV: g.i2rHV, rLV: g.rLV, rHV: g.rHV,
     pctX: g.pctX, pctR: g.pctR, pctZ: g.pctZ, regFull, oilRise, windRise, grad, hotspot, hotspotAvg, lifeFactor,
     riseLimit, wRiseLimit, eff100: effAt(1), eff75: effAt(0.75), eff50: effAt(0.5), maxEffLoad,
-    iscLV: iLV * iscMult, iscHV: iHV * iscMult, iscMult, noise, sch, compliance, compliant,
+    iscLV: iLineLV * iscMult, iscHV: iscHVline, iscMult, zSys, zTx, noise, sch, compliance, compliant,
     fanCount, pumpCount,
     dualForced, dualLoadLoss, dualTotalLoss, dualOilRise, dualWindRise, dualCompliance, dualCompliant,
-    Kw, aWin, Hw0, util: shape === "circ" ? (STEP_UTIL[p.steps] || 0.94) : ct.aspect, sf: grade.sf,
+    Kw, aWin, Hw0, util: shape === "circ" ? stepUtil(p.steps) : ct.aspect, sf: grade.sf,
     kTank, kFin, tankDissip, riseTarget, forcedMul, vaPerKg,
     rhoLV: rho(cLV), rhoHV: rho(cHV), dEff: g.dEff, hEff: g.hEff, X: g.X, lmtMean: g.lmtMean,
     lvTurnLayers: g.lvTurnLayers, hvDucts: g.hvDucts, i2r: g.i2rLV + g.i2rHV,
@@ -1424,7 +1603,116 @@ function designTransformer(p) {
     lvAxCount: g.lvAxCount, lvRadCount: g.lvRadCount,
     hvAxCount: g.hvAxCount, hvRdCount: g.hvRdCount,
     lvConstruction: p.kva < p.lvFoilMaxKva ? "foil" : "strip",
+    hvCondShape: g.hvRound ? "round" : "strip",
   };
+}
+
+/* ============================================================
+   CALIBRATION.md section 73: window-height solve, discrete resolution.
+
+   autoWindow bisects the window height until calculated %Z equals the
+   declared value. That assumes %Z(Hw) is continuous and monotone. It is
+   neither: the LV turn-layer count, the HV group and layer counts and the
+   duct counts are all integers derived from the window, and when one of
+   them steps the radial build jumps, so %Z jumps with it. Measured on the
+   630 kVA dry reference, with the section 62 effective-height correction
+   applied (which is what exposed this):
+
+     Hw 554 -> Z 5.73, 1 LV layer      Hw 634 -> Z 5.07, 2 LV LAYERS
+
+   The build more than doubles across that step. A bisection run over a
+   discontinuity converges on the JUMP, not on a root -- it returns
+   whichever branch it was last on and reports success. The engine was
+   landing at 5.07% against 4.50% declared, +12.7%, outside IS 2026's own
+   +/-10%, while calcSheet printed "converged yes".
+
+   Same class of fault as sections 46/50/51 in the loss fit, resolved the
+   same way: sweep the interval, group samples by discrete signature, refine
+   WITHIN each branch (where %Z really is continuous), and choose between
+   branches deliberately rather than accepting wherever a bisection stopped.
+   And when no branch can reach the declared value, the straddle is
+   REPORTED -- the honest answer to "what window height gives 4.50%" is
+   sometimes that none does, and a nearest miss presented as a solution is
+   worse than saying so. */
+const WINDOW_SIG_FIELDS = ["lvTurnLayers", "lvAxCount", "lvRadCount", "numGroups", "layers", "turnsPerLayer", "hvDucts"];
+const windowSignature = (g) => WINDOW_SIG_FIELDS.map((f) => g[f]).join("|");
+const describeWindowSig = (a, b) => {
+  const x = a.split("|"), y = b.split("|");
+  return WINDOW_SIG_FIELDS.map((f, i) => (x[i] !== y[i] ? `${f} ${x[i]} vs ${y[i]}` : null)).filter(Boolean).join(", ");
+};
+const WINDOW_Z_TOL = 0.01;   // absolute % of impedance: 4.50 against 4.51
+const WINDOW_SCAN_SPAN = 0.10;   // +/-10% of the bisection's own window
+const WINDOW_SCAN_N = 96;
+
+function resolveWindowNeighbourhood(build, seedHw, lo, hi, target, tolPct) {
+  /* %Z(Hw) is a DENSE staircase, not a smooth curve with a few jumps. At
+     100 kVA the LV foil's own turn-layer count steps every millimetre or so
+     of window and %Z swings between 4.8% and 17.9% across a 5 mm span. That
+     rules out two tempting approaches: a coarse global sweep grouped into
+     "branches" (checked directly -- its verdict flipped with the sweep
+     resolution, 63/100/500 kVA reporting a straddle at 64 and 128 samples
+     and solving cleanly at 256, which is the sampling artefact section 51
+     warned about), and any method assuming monotonicity.
+
+     What is stable is a LOCAL search around the bisection's own answer. The
+     bisection lands within one step of the target by construction, because
+     it genuinely brackets; it just cannot see the step. So scan a
+     neighbourhood of it finely enough to resolve individual steps, take the
+     closest achievable %Z, and refine once around that. Deterministic --
+     the grid is defined relative to the bisection's answer, not to an
+     arbitrary global interval -- and verified stable against the scan
+     resolution below. */
+  const at = (h) => { const g = build(h); return { h, g, err: Math.abs(g.pctZ - target) }; };
+  const scan = (centre, span, n) => {
+    let best = null;
+    for (let i = 0; i <= n; i++) {
+      const h = centre * (1 - span) + ((centre * 2 * span) * i) / n;
+      if (h <= 0) continue;
+      const c = at(h);
+      if (!Number.isFinite(c.g.pctZ)) continue;
+      if (!best || c.err < best.err || (c.err === best.err && c.h < best.h)) best = c;
+    }
+    return best;
+  };
+
+  const centre = Math.min(hi, Math.max(lo, seedHw));
+  let best = scan(centre, WINDOW_SCAN_SPAN, WINDOW_SCAN_N);
+  if (best) {
+    const finer = scan(best.h, (2 * WINDOW_SCAN_SPAN) / WINDOW_SCAN_N, WINDOW_SCAN_N);
+    if (finer && finer.err < best.err) best = finer;
+  }
+  if (!best) return { g: null, solved: false, straddle: false, note: null };
+
+  if (best.err <= WINDOW_Z_TOL) {
+    return {
+      g: best.g, solved: true, straddle: false,
+      note: `The window-height solve crosses a winding configuration boundary at the declared impedance, so it was resolved by a neighbourhood search rather than by bisection alone. A ${Math.round(best.g.Hw)} mm window holds ${target.toFixed(2)}% exactly. This choice does not depend on where the solve started.`,
+    };
+  }
+
+  /* The declared value is not exactly achievable. Say so -- but scale the
+     alarm to the size of the miss, because on a dense staircase "not
+     exactly achievable" is the normal case, not an emergency. A miss inside
+     the standard's own impedance tolerance is a fact worth stating, not a
+     failure; a miss outside it is a design that cannot be built as declared
+     and is flagged as a straddle so the UI raises it. */
+  let above = null, below = null;
+  for (let i = 0; i <= WINDOW_SCAN_N; i++) {
+    const h = best.h * (1 - WINDOW_SCAN_SPAN) + ((best.h * 2 * WINDOW_SCAN_SPAN) * i) / WINDOW_SCAN_N;
+    if (h <= 0) continue;
+    const g = build(h);
+    if (!Number.isFinite(g.pctZ)) continue;
+    if (g.pctZ >= target && (!above || g.pctZ < above.pctZ)) above = g;
+    if (g.pctZ <= target && (!below || g.pctZ > below.pctZ)) below = g;
+  }
+  const step = above && below ? describeWindowSig(windowSignature(below), windowSignature(above)) : "";
+  const devPct = (Math.abs(best.g.pctZ - target) / target) * 100;
+  const breach = devPct > (tolPct || 10);
+  const reach = above && below
+    ? `The closest reachable values are ${below.pctZ.toFixed(2)}% and ${above.pctZ.toFixed(2)}%`
+    : `The closest reachable value is ${best.g.pctZ.toFixed(2)}%`;
+  const note = `No window height gives the declared ${target.toFixed(2)}% impedance exactly: the winding configuration steps across it${step ? ` (${step})` : ""} and %Z steps with it. ${reach}; ${best.g.pctZ.toFixed(2)}% is used, at a ${Math.round(best.g.Hw)} mm window -- ${devPct.toFixed(1)}% from declared, ${breach ? `OUTSIDE the ${tolPct}% tolerance. This design cannot be built to its declared impedance: change the declared value, or a parameter that moves the winding.` : `within the ${tolPct}% tolerance. Reported rather than presented as a converged solve.`}`;
+  return { g: best.g, solved: false, straddle: breach, note };
 }
 
 /* ============================================================
@@ -2531,7 +2819,7 @@ function calcSheet(d, bom) {
     row("Final window height", "H\u1D65\u1D65", p.autoWindow !== false
       ? "bisection on H\u1D65\u1D65 until the calculated %Z equals the declared value"
       : "H\u1D65\u1D65 = H\u1D65\u1D65\u2080 (impedance not enforced)",
-      p.autoWindow !== false ? `target %Z = ${n(p.targetZ)} \u2192 converged ${d.solvedZ ? "yes" : "hit a bound"}` : "n/a",
+      p.autoWindow !== false ? `target %Z = ${n(p.targetZ)} → ${d.windowStraddle ? "no window height reaches it, see the note" : d.solvedZ ? (d.windowResolved ? "resolved by neighbourhood search" : "converged") : "hit a bound"}` : "n/a",
       `${n(d.Hw, 0)} mm`, REFS.K + " \u00B7 leakage reactance control", "declared impedance, coil builds"),
     row("Window width, built", "W\u1D65\u1D65", "W\u1D65\u1D65 = C \u2212 d", `= ${n(d.cc, 0)} \u2212 ${n(d.dCore, 0)}`, `${n(d.Ww, 0)} mm`, REFS.S, "coil radial builds, clearances"),
     row("Limb centre distance", "C", "C = D\u2081\u2092 + phase clearance", `= ${n(d.hvOD, 0)} + ${n(p.phaseClr, 0)}`, `${n(d.cc, 0)} mm`, REFS.IEC3, "HV outer diameter, clearance"),
@@ -2596,7 +2884,9 @@ function calcSheet(d, bom) {
     row("Reactance component", "%X", "%X = X I\u2082\u209A\u2095 / V\u2082\u209A\u2095 \u00D7 100", `= ${n(d.X, 5)} \u00D7 ${n(d.iLV, 1)} / ${n(d.lvPh, 1)} \u00D7 100`, `${n(d.pctX)} %`, REFS.S, "reactance, current, voltage"),
     row("Impedance", "%Z", "%Z = \u221A(%R\u00B2 + %X\u00B2)", `= \u221A(${n(d.pctR)}\u00B2 + ${n(d.pctX)}\u00B2)`, `${n(d.pctZ)} %`, REFS.IS2026 + ` \u00B7 tolerance \u00B1${n(p.zTol, 1)}%`, "%R, %X"),
     row("Regulation", "\u03B5\u1D63", "\u03B5\u1D63 = %R cos\u03C6 + %X sin\u03C6", `= ${n(d.pctR)}\u00D7${n(p.pf)} + ${n(d.pctX)}\u00D7${n(Math.sqrt(Math.max(0, 1 - p.pf * p.pf)))}`, `${n(d.regFull)} %`, REFS.S, "%R, %X, power factor"),
-    row("Symmetrical fault current", "I\u209B\u1D04", "I\u209B\u1D04 = I\u1D63\u2090\u209C\u2091\u1D48 \u00D7 100/%Z", `= ${n(d.iLV, 1)} \u00D7 100/${n(d.pctZ)}`, `${n(d.iscLV, 0)} A LV, ${n(d.iscHV, 0)} A HV`, REFS.IEC1 + " \u00B7 short-circuit withstand", "impedance, rated current"),
+    row("System impedance", "Zₛ", "Zₛ = Uₘ² / Sᶠ", `= ${p.umHV}² / ${n(p.systemFaultMVA, 0)}`, `${n(d.zSys, 4)} Ω`, "IS 2026 Part V · clause 4.1", "system fault level, highest voltage"),
+    row("Transformer impedance", "Zₜ", "Zₜ = (%Z/100) V² / S", `= (${n(d.pctZ)}/100) × ${n(p.hv / 1000, 1)}² / ${n(p.kva / 1000, 3)}`, `${n(d.zTx, 3)} Ω`, "IS 2026 Part V · clause 4.1", "impedance, rated voltage and rating"),
+    row("Symmetrical fault current", "Iₛᴄ", "Iₛᴄ = V / (√3 (Zₛ + Zₜ))", `= ${n(p.hv, 0)} / (1.732 × (${n(d.zSys, 3)} + ${n(d.zTx, 3)}))`, `${n(d.iscHV, 0)} A HV, ${n(d.iscLV, 0)} A LV (line)`, "IS 2026 Part V · clause 4.1", "system fault level, impedance, rated current"),
   ]);
 
   const thermal = d.dry
@@ -3485,7 +3775,7 @@ function documentRegister(core, d, bom, project) {
   const r = (n, title, status, where, missing) => ({ no: n, doc: N(n), title, status, where, missing });
   return [
     r(1, "Design Input Sheet", "done", "Project panel and enquiry inputs"),
-    r(2, "Complete Engineering Calculation Report", "part", "Calculations tab, 68 steps with formula, substitution and reference",
+    r(2, "Complete Engineering Calculation Report", "part", "Calculations tab, 84 steps with formula, substitution and reference",
       "Centre of gravity, transport weight, mechanical stress on the clamping structure and detailed short-circuit force calculation are not modelled"),
     r(3, "Executive Design Summary", "done", "Report page 1"),
     r(4, "Customer Approval Drawing, GA", "part", "Drawing 9, outer general arrangement",
@@ -3598,7 +3888,7 @@ function routineTestSchedule(d) {
    ------------------------------------------------------------------ */
 
 export {
-  CONDUCTORS, CORE_GRADES, CORE_TYPES, STEP_UTIL, UM_LEVELS, FLUIDS, DRY_TYPES,
+  CONDUCTORS, CORE_GRADES, CORE_TYPES, STEP_UTIL, stepUtil, UM_LEVELS, FLUIDS, DRY_TYPES,
   INS_CLASS, STANDARDS, APPS, EFF_LEVELS, ESSENTIALS, DEFAULT_RATES, UM_STEPS,
   lossSchedule, clearancesFrom, umFor, zSuggest, gradeSuggest, fluxSuggest,
   stepsSuggest, densitySuggest, aspectSuggest,
