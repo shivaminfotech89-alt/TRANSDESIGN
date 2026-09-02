@@ -4672,6 +4672,19 @@ order the design office raised them.
 
 ## 62. Effective winding height: the engine applies the Rogowski factor in the wrong direction, and the impedance solve has been hiding it
 
+**SUPERSEDED IN PART by section 74. The conclusion below -- that the sign is
+wrong and should be flipped -- did not survive being tested with the current
+density corrected.** Flipping it degrades four independent geometric
+agreements (the 1250 kVA's own window aspect, the 630 kVA's measured 4x2 LV
+arrangement, the 1250's arrangement, the 1000 kVA default's impedance), and
+the +11.9% below is measured against the 315's TESTED 4.20%, not against its
+DECLARED 4.75%. Against the declared figure -- which is what a design
+calculation targets and what this engine solves for -- the current form
+lands within 1%. The 4.20% on test is the machine's own deviation from its
+design, which is what the tender flagged in the first place. Read the
+mechanism below as correct and the recommendation as withdrawn.
+
+
 The 315 kVA measured 4.20 % against 4.75 % declared. IS 2026 allows
 +/-10 %, so the acceptance band is 4.275 to 5.225 and the machine is
 outside it. The design office traced the cause to the effective winding
@@ -5719,3 +5732,97 @@ is a smaller one.
 **This unblocks section 71.** The Rogowski sign fix, the current density and
 the strand aspect were all blocked on this solve, and can now be attempted
 against a window solve that survives them.
+
+## 74. The entangled fix, resolved: density is right and blocked, Rogowski is wrong to change, strand aspect is unfittable
+
+With the window solve fixed (section 73) all three changes were implemented
+and measured against all five references. The outcome is different for each,
+and two of the three answers reverse what sections 61/62 expected.
+
+**Current density: quantified, validated, and blocked on a different
+defect.** The correction is `densitySuggest`'s oil baseline divided by 1.72
+(section 72), the dry multiplier restated from 1.10 to 1.92 -- it was 1.10
+only because the baseline beneath it was 1.72x high, and class F's 100 K
+against oil's 55 K was never a 10% effect -- and the `isHV` offset removed,
+because the two sheets stating both windings disagree about its sign
+(315 oil runs HV BELOW LV, 1.43 against 1.52; 630 dry runs HV above, 2.89
+against 2.79). With no offset all four measured densities land within 5.2%;
+with +0.15 the oil HV is 16% out. Removing a constant fits better than
+keeping it.
+
+What it buys, at the sheets' own inputs:
+
+| | before | after |
+|---|---|---|
+| 315 load loss vs its calculated 2220 W | 3779 W, **+70.2 %** | 2109 W, **-5.0 %** |
+| 1250 copper vs 982 kg | 555 kg, **-43.4 %** | 1042 kg, **+6.1 %** |
+| 630 dry copper vs 292 kg | 280 kg, -4.0 % | 284 kg, -2.7 % |
+| 500 LV arrangement vs 3ax x 4rad | 2 x 4 | **3 x 4, exact** |
+| 1250 LV arrangement vs 5ax x 6rad | 4 x 5 | **5 x 6, exact** |
+
+Two arrangements that had never matched now match exactly, and the two
+largest standing errors in this file close. **It is still not committed**,
+because it breaks four hard assertions checked against real measured
+documents: the 1250's HV OD (494 mm, goes from -1% to **+7.6 %**), its tank
+length (1660 mm, to **+6.9 %**), and its own real cutting chart (Plate B
++10 %, Plate C +11.5 %, total +6.6 % against the "1250 KVA CORE CHART" on
+file).
+
+**The cause is not the density.** Sweeping HV density at the 1250 with LV
+held corrected: HV OD is 508 mm (+2.8 %) at the OLD density and 531 mm
+(+7.5 %) at the new one, and no HV density in the range reaches 494 mm.
+Copper mass wants dHV near 1.60; HV OD wants it as high as possible; they
+cannot both be satisfied. That is section 11's own open question -- the
+fixed 2.1 HV conductor aspect ratio, "algebraically the same structural
+defect `lvStripAspect` turned out to be: independent of scale, no response
+to per-turn current" -- and section 11 recorded it as blocked on data,
+DATA-REQUEST item 5, because neither sheet states HV conductor dimensions.
+It still is. Correcting LV only was tried and is worse than doing nothing
+useful: the 315's load loss goes to +36.2 % and the 1250's copper to
+-24.0 %, so the HV half of the correction is the half that matters.
+
+**So the density fix waits on one piece of data**: HV conductor dimensions
+or strand count for the 1250 or 630 kVA reference. That single input turns
+a blocked correction into a landable one, and it is the highest-value
+outstanding request in this file.
+
+**Rogowski: the section 62 recommendation is withdrawn.** With the density
+corrected, flipping the sign degrades four independent geometric
+agreements at once -- the 1250's window aspect (2.42 against a sheet 2.44,
+becoming 2.21), the 630 dry's measured 4x2 LV arrangement (becoming 3x3),
+its aspect (2.62 against 2.64, becoming 2.45), and the 1000 kVA default's
+impedance (5.00 becoming 5.12). Four agreements against real documents do
+not all break by coincidence.
+
+The error in section 62's reasoning was the target, not the arithmetic. It
+measured our prediction against the 315's **tested** 4.20 %. A design
+calculation targets the **declared** value, 4.75 %, and that is what
+`autoWindow` solves for -- and against 4.75 % the current form lands within
+1 % at the sheet's own dimensions. The 4.20 % on test is the machine's
+deviation from its own design, which is exactly what the tender flagged.
+Reproducing a manufacturing deviation is not the engine's job. Section 62
+is corrected in place.
+
+**Strand aspect: no single constant fits.** The 315 winds a 3.29:1 flat and
+the model sizes strands square, which is real. But with density corrected:
+
+| | A = 1.0 (square) | A = 3.3 (the 315's flat) |
+|---|---|---|
+| 315 arrangement (sheet 1 x 8) | 2 x 4 | **1 x 8, exact** |
+| 500 arrangement (sheet 3 x 4) | **3 x 4, exact** | 2 x 6 |
+| 1250 arrangement (sheet 5 x 6) | **5 x 6, exact** | 3 x 10 |
+| 630 arrangement (sheet 4 x 2) | 3 x 3 | 2 x 4 |
+
+Each value reproduces some references exactly and breaks others. And the
+500's own sheet states a 3.67:1 conductor while its arrangement comes out
+right only at A = 1.0 -- so the strand SHAPE is real but the arrangement
+RULE is what cannot accommodate it. That is the same objection sections
+9-11 raised when they retired `lvStripAspect`, and it is not fixed by
+choosing a better constant. Not implemented; the shape correction has to
+arrive with a corrected axial/radial split, not before it.
+
+**Net position.** Nothing committed from this section. The window solve
+(section 73) is committed and stands on its own. Of the three changes: one
+is right and waits on a single datum, one is withdrawn on evidence, one
+needs a different fix first. `ENGINE_VERSION` unmoved at 1.34.0, all three
+suites green, no golden number touched.
