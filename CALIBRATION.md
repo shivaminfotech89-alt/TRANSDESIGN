@@ -6185,3 +6185,90 @@ avoiding saturation at +12.5 % variation applies to any transformer, so the cap
 is not wrong for dry -- but it is currently applied on a different scope rule
 from the losses in the same standard, and that should be settled rather than
 left.
+
+## 78. Which constraint actually binds, disclosed -- and the level-separation boundary does not exist
+
+The upward search was considered and **not built**, on the design office's
+instruction and on the measurement: walking the loss region's boundary away
+from the corner produces no cheaper compliant design at any rating tested.
+At 1000 kVA the only alternative that stays inside the region costs **+3.5 %**
+(22,13,951 against 21,39,036); at 2500 kVA the alternatives are **+12 to
++13 %** and fin area balloons from 98 to 133 m2; at 315 kVA every alternative
+breaches. A search that found those would be finding worse, dearer designs.
+
+**Three figures in the brief did not survive measurement, and are recorded
+here because the disclosure text would otherwise have carried them.**
+
+*"The design sits 25 to 30 per cent inside its loss limits."* It does not.
+Measured across three ratings and three levels, every design sits at **95 to
+100 %** of both published conditions:
+
+| kVA | level | 50 % used/limit | 100 % used/limit | oil rise | winding rise |
+|---|---|---|---|---|---|
+| 315 | L1 | 1069/1100 (97 %) | 3244/3275 (99 %) | **40.0/40** | 34.4/45 |
+| 315 | L2 | 1018/1025 (99 %) | 3089/3100 (100 %) | **40.0/40** | 38.3/45 |
+| 1000 | L2 | 2668/2790 (96 %) | 7574/7700 (98 %) | **40.0/40** | 41.4/45 |
+| 2500 | L2 | 5896/6150 (96 %) | 18246/18500 (99 %) | 36.9/40 | **45.0/45** |
+
+The margin is 0.4 % to 4.4 %, not 25 to 30 %. The disclosure therefore
+**computes and prints the real margin** rather than asserting a figure -- if
+it had asserted 25 to 30 % it would have been wrong on every design in the
+table.
+
+*"The levels separate somewhere between 1250 and 2500 kVA."* They do not.
+Level 1 to Level 3 spread, conductor forced to copper so the aluminium switch
+does not contaminate it:
+
+| kVA | 100 | 160 | 250 | 400 | 630 | 1000 | 1250 | 1600 | 2000 | 2500 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| spread | 11.4 % | **40.9 %** | 10.3 % | 22.7 % | 14.7 % | 10.6 % | 19.9 % | 17.0 % | 9.7 % | **8.0 %** |
+
+There is no boundary and no trend. The levels separate at **every** rating by
+8 to 41 %, the variation is discrete-jump noise of the kind this file records
+throughout, and if anything the spread is **smallest at 2500 kVA**, the
+opposite of the expected direction. There is no commercially useful crossover
+to record because there is not one.
+
+*"At 1000 kVA loosening losses costs 0.6 %, at 315 kVA 2.7 %."* Measured
++3.5 % at 1000; at 315 no alternative point on the boundary is even
+compliant. The conclusion the brief drew from those figures -- that the
+current behaviour is correct and the search should not be built -- is
+unchanged and is confirmed by the larger numbers.
+
+**What was built instead: disclosure, computed rather than asserted.**
+`binding`, `constraintNote`, `lossUtil` and `lossIsBinding` on the design, and
+a new leading section on the calculation sheet. Every constraint carrying a
+ceiling is put on one utilisation scale (val/limit) and the largest wins.
+Impedance is excluded deliberately: its constraint is a two-sided tolerance
+band, not a ceiling, so a ratio against target does not mean the same thing.
+
+The note names the binding constraint and its utilisation, prints both loss
+totals against both limits with the margin, and says whether the efficiency
+level is the active constraint. At 1000 kVA it reads:
+
+> Binding constraint: top-oil rise, at 100.0 % of its limit (40 against 40).
+> Total losses are 2668 W at 50 % load against a 2790 W limit (4.4 % inside)
+> and 7574 W at 100 % against 7700 W (1.6 % inside). The loss schedule is NOT
+> the active constraint here: top-oil rise binds first, and the cooling
+> surface it forces brings the losses under the schedule without the schedule
+> pulling them there.
+
+**The finding the brief was reaching for, stated correctly.** Thermal binds
+everywhere, in one mode or the other -- **top-oil rise pinned at 40.0/40 K at
+315 and 1000 kVA, winding rise pinned at 45.0/45 K at 2500** -- and it is
+IS 1180's own rise limits that do it (section 77). So the efficiency level is
+genuinely not the active constraint at these ratings. But the consequence is
+*not* that the levels converge in price: they still differ by 8 to 41 %,
+because a different level still changes the design the thermal limit is then
+applied to. Both things are true at once, and the disclosure says both.
+
+**A second disclosure, and the larger of the two in money.** Below 630 kVA
+the AUTO conductor choice depends on the efficiency level -- aluminium at
+Level 1 and conventional, copper at Level 2 and above. At 315 kVA that is
+Level 1 aluminium at 7,33,587 against Level 2 copper at 13,05,250, a **44 %
+gap of which only about 11 % is the loss limits**. A user comparing levels
+sees a 44 % price drop and reads it as an efficiency decision, when most of it
+is silently a change of winding metal, with different short-circuit strength
+and different terminations. Now disclosed on the design sheet, with the
+suggestion to pin the conductor explicitly when comparing levels on losses
+alone.

@@ -1812,6 +1812,62 @@ function designTransformer(p) {
   // is50/is100 are null when no published row applies; a null is not a failure.
   const compliant = Object.values(compliance).every((x) => x == null || x.ok);
 
+  /* CALIBRATION.md section 78: which constraint is ACTUALLY binding, and how
+     much room is left against the loss schedule.
+
+     This exists because a user comparing efficiency levels can see prices
+     that barely move and reasonably conclude the selector does nothing. The
+     honest answer is usually that something else is binding first -- most
+     often the IS 1180 top-oil rise, which forces enough cooling surface that
+     the losses land under the schedule without the schedule having to pull
+     them there. Asserting that in prose would be a claim; this computes it
+     from the design and shows the margins so a reader can check it.
+
+     Utilisation is val/lim for every constraint that has a limit, so they are
+     comparable on one scale. Impedance is excluded: its constraint is a
+     two-sided tolerance band, not a ceiling, so a ratio against the target
+     does not mean the same thing as the others. */
+  const utilOf = [
+    compliance.is50 && { key: "losses at 50% load", val: compliance.is50.val, lim: compliance.is50.lim, advisory: !!compliance.is50.advisory },
+    compliance.is100 && { key: "losses at 100% load", val: compliance.is100.val, lim: compliance.is100.lim, advisory: !!compliance.is100.advisory },
+    { key: dry ? "enclosure rise" : "top-oil rise", val: compliance.rise.val, lim: compliance.rise.lim },
+    { key: "winding rise", val: compliance.wRise.val, lim: compliance.wRise.lim },
+    { key: "coil height", val: compliance.coilHeight.val, lim: compliance.coilHeight.lim },
+    { key: "tank height", val: compliance.tankHeight.val, lim: compliance.tankHeight.lim },
+  ].filter(Boolean).map((c) => ({ ...c, util: c.lim > 0 ? c.val / c.lim : 0 }));
+  const binding = utilOf.reduce((a2, b2) => (b2.util > a2.util ? b2 : a2), utilOf[0]);
+  const lossUtil = utilOf.filter((c) => c.key.startsWith("losses")).reduce((m, c) => Math.max(m, c.util), 0);
+  const lossIsBinding = binding.key.startsWith("losses");
+  const pc1 = (x) => `${(x * 100).toFixed(1)}%`;
+  /* CALIBRATION.md section 78: below 630 kVA the AUTO conductor choice
+     depends on the efficiency level -- aluminium at Level 1 and conventional,
+     copper at Level 2 and above (deriveSpec's condSug). So changing the level
+     there silently changes the winding metal, which moves price far more than
+     the loss figures do and changes short-circuit strength and terminations
+     with it. Measured at 315 kVA: Level 1 aluminium 7,33,587 against Level 2
+     copper 13,05,250, a 44% gap of which only about 11% is the loss limits.
+     Disclosed rather than left for a reader to discover from the price. */
+  const condAutoLevelDependent = p.condPref === "auto" && p.kva < 630;
+  const condNote = condAutoLevelDependent
+    ? `Conductor was auto-selected as ${cLV.name} for ${p.kva} kVA at ${EFF_LEVELS[p.effLevel] ? EFF_LEVELS[p.effLevel].name : p.effLevel}. Below 630 kVA this choice depends on the efficiency level -- Level 1 and conventional take aluminium, Level 2 and above take copper -- so changing the level here also changes the winding metal, and with it the short-circuit strength, the terminations and most of the price difference between levels. Set the conductor explicitly to compare levels on losses alone.`
+    : null;
+
+  const constraintNote = (() => {
+    if (!compliance.is50) return null;
+    const m50 = 100 * (1 - compliance.is50.val / compliance.is50.lim);
+    const m100 = 100 * (1 - compliance.is100.val / compliance.is100.lim);
+    const head = `Binding constraint: ${binding.key}, at ${pc1(binding.util)} of its limit `
+      + `(${Math.round(binding.val)} against ${Math.round(binding.lim)}).`;
+    const losses = ` Total losses are ${Math.round(compliance.is50.val)} W at 50% load against a `
+      + `${Math.round(compliance.is50.lim)} W limit (${m50.toFixed(1)}% inside) and `
+      + `${Math.round(compliance.is100.val)} W at 100% against ${Math.round(compliance.is100.lim)} W `
+      + `(${m100.toFixed(1)}% inside).`;
+    const verdict = lossIsBinding
+      ? ` The loss schedule IS the active constraint here, so the efficiency level directly sets this design's size and price.`
+      : ` The loss schedule is NOT the active constraint here: ${binding.key} binds first, and the cooling surface it forces brings the losses under the schedule without the schedule pulling them there. Changing the efficiency level will move this design's price less than the level's own loss figures suggest.`;
+    return head + losses + verdict;
+  })();
+
   /* Second rating's own compliance, reported alongside the primary's for
      the nameplate and GTP -- a real dual-rated unit is guaranteed at both
      points, not just the one the active part happens to be sized to.
@@ -1846,7 +1902,7 @@ function designTransformer(p) {
     pctX: g.pctX, pctR: g.pctR, pctZ: g.pctZ, regFull, oilRise, windRise, grad, hotspot, hotspotAvg, lifeFactor,
     riseLimit, wRiseLimit, eff100: effAt(1), eff75: effAt(0.75), eff50: effAt(0.5), maxEffLoad,
     iscLV: iLineLV * iscMult, iscHV: iscHVline, iscMult, zSys, zTx, noise, sch, compliance, compliant,
-    isSch, schFit, isScale,
+    isSch, schFit, isScale, binding, constraintNote, lossUtil, lossIsBinding, condNote, condAutoLevelDependent,
     /* CLAUDE.md invariant 5: an unlisted rating has no published limit, so
        the dependent output is pending and names what is missing, rather
        than being extrapolated from neighbouring rows. */
@@ -3055,8 +3111,16 @@ function calcSheet(d, bom) {
 
   const star = (c) => (c === "y" || c === "Y");
 
+  if (d.constraintNote || d.condNote) {
+    sec("0. Which constraint is binding", "IS 1180 (Part 1) : 2014", [
+      ...(d.constraintNote ? [row("Binding constraint", "n/a", `${d.binding.key} at ${(d.binding.util * 100).toFixed(1)}% of limit`, d.constraintNote, `${Math.round(d.binding.val)} / ${Math.round(d.binding.lim)}`, "IS 1180 (Part 1) : 2014", "losses, rise limits, shop limits")] : []),
+      ...(d.compliance.is50 ? [row("Total losses at 50% load", "P₅₀", "no-load + 0.25 x load loss", `= ${Math.round(d.noLoad)} + 0.25 x ${Math.round(d.loadLoss)}`, `${Math.round(d.compliance.is50.val)} W of ${Math.round(d.compliance.is50.lim)} W (${(100 * (1 - d.compliance.is50.val / d.compliance.is50.lim)).toFixed(1)}% inside)`, "IS 1180 (Part 1) : 2014", "losses")] : []),
+      ...(d.compliance.is100 ? [row("Total losses at 100% load", "P₁₀₀", "no-load + load loss", `= ${Math.round(d.noLoad)} + ${Math.round(d.loadLoss)}`, `${Math.round(d.compliance.is100.val)} W of ${Math.round(d.compliance.is100.lim)} W (${(100 * (1 - d.compliance.is100.val / d.compliance.is100.lim)).toFixed(1)}% inside)`, "IS 1180 (Part 1) : 2014", "losses")] : []),
+      ...(d.condNote ? [row("Conductor choice depends on level", "n/a", "auto-selection below 630 kVA", d.condNote, d.cLV.name, "deriveSpec", "rating, efficiency level")] : []),
+    ]);
+  }
   if (d.isLossNote) {
-    sec("0. Loss limits, basis of", "IS 1180 (Part 1) : 2014", [
+    sec("0b. Loss limits, basis of", "IS 1180 (Part 1) : 2014", [
       row("Loss limit basis", "n/a", d.isLossBasis === "agreed" ? "interpolated, subject to agreement" : "not published", d.isLossNote, d.isLossBasis, "IS 1180 (Part 1) : 2014", "rating"),
     ]);
   }
