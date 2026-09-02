@@ -8,7 +8,7 @@
  * without bumping it, or old quotations stop reproducing.
  */
 
-export const ENGINE_VERSION = "1.35.0";
+export const ENGINE_VERSION = "1.36.0";
 
 const CONDUCTORS = {
   copper: { name: "Copper, EC grade", rho20: 0.017241, alpha: 0.00393, dens: 8890, dMax: 3.6, short: "Cu", proof: 1.0 },
@@ -209,6 +209,111 @@ const EFF_LEVELS = {
    set by a single ratio. 4.6 -> 4.75 (geometric mean of the coefficient
    implied by each of the three points at the existing exponent) is a flat
    +3.3% at every rating, not a reshaping. */
+/* ---------------- IS 1180 (Part 1) : 2014, published loss tables ----------
+   Transcribed from the standard, Table 3 (16 to 200 kVA) and Table 6 (250 to
+   2500 kVA, up to 11 kV), three-phase oil-immersed distribution.
+
+   The standard does NOT give separate no-load and load-loss limits. It gives
+   maximum TOTAL losses -- no-load plus load loss at 75 C -- at 50% and at
+   100% of rated load, per efficiency level. Two numbers, not two limits, and
+   the pair is what a design has to satisfy:
+
+     noLoad + 0.25 x loadLoss  <=  the 50% figure
+     noLoad +        loadLoss  <=  the 100% figure
+
+   (0.25 because load loss goes with the square of current.) That is a
+   FEASIBLE REGION, not a box: a design may carry more core loss if it carries
+   less copper loss, which the standard permits and which the engine's own
+   separate nll/ll limits forbade. The 50% condition is the one that usually
+   binds, and it is the one the old fitted formula never checked.
+
+   Each row is [z, [L1 50, L1 100], [L2 50, L2 100], [L3 50, L3 100]] in W.
+   The z column is Table 6's own recommended impedance. */
+const IS1180 = {
+  /* THREE PHASE. Table 3 (16-200 kVA), impedance 4.50 throughout, and
+     Table 6 (250-2500 kVA, up to 11 kV). */
+  three: {
+    16:   [4.50, [150, 480],   [135, 440],   [120, 400]],
+    25:   [4.50, [210, 695],   [190, 635],   [175, 595]],
+    63:   [4.50, [380, 1250],  [340, 1140],  [300, 1050]],
+    100:  [4.50, [520, 1800],  [475, 1650],  [435, 1500]],
+    160:  [4.50, [770, 2200],  [670, 1950],  [570, 1700]],
+    200:  [4.50, [890, 2700],  [780, 2300],  [670, 2100]],
+    250:  [4.50, [1050, 3150], [980, 2930],  [920, 2700]],
+    315:  [4.50, [1100, 3275], [1025, 3100], [955, 2750]],
+    400:  [4.50, [1300, 3875], [1225, 3450], [1150, 3330]],
+    500:  [4.50, [1600, 4750], [1510, 4300], [1430, 4100]],
+    630:  [4.50, [2000, 5855], [1860, 5300], [1745, 4850]],
+    /* 800 kVA is ABSENT from the 2014 PDF print and comes from a secondary
+       published copy. Flagged, not quietly merged: every other row in this
+       table is round to 5 W and this one is not (2459, 7300, 2287, 6402,
+       2147, 5837), which is what a later amendment recomputed from a
+       formula tends to look like. Treat it as the least certain row here
+       and confirm it against a dated copy of the amendment before relying
+       on it for a tender. */
+    800:  [5.00, [2459, 7300], [2287, 6402], [2147, 5837]],
+    1000: [5.00, [3000, 9000], [2790, 7700], [2620, 7000]],
+    1250: [5.00, [3600, 10750],[3300, 9200], [3220, 8400]],
+    1600: [6.25, [4500, 13500],[4200, 11800],[3970, 11300]],
+    2000: [6.25, [5400, 17000],[5050, 15000],[4790, 14100]],
+    2500: [6.25, [6500, 20000],[6150, 18500],[5900, 17500]],
+  },
+  /* SINGLE PHASE, Table 9, up to 25 kVA, 11 kV class. Transcribed and held
+     but NOT reachable: this engine is three-phase only -- every vector group
+     it offers is three-phase and the copper-loss term is a hard 3 x I^2R --
+     so no design can currently select these. Recorded now rather than when
+     single phase is built, because transcribing a standard is the part worth
+     doing while the printed copy is to hand.
+
+     Impedance is 4.00 throughout EXCEPT the 5 kVA row, where the 2014 PDF
+     gives 2.5 % and a secondary copy gives 4.0 %. The PDF figure is used, as
+     the primary source; the discrepancy is recorded here rather than
+     silently resolved, and 2.5 % against 4.0 % is a large enough difference
+     on fault current that it should be confirmed before a 5 kVA single-phase
+     design is ever issued. */
+  single: {
+    5:  [2.50, [40, 115],  [35, 95],   [30, 75]],
+    10: [4.00, [70, 190],  [60, 170],  [55, 150]],
+    16: [4.00, [95, 265],  [82, 224],  [63, 190]],
+    25: [4.00, [125, 340], [110, 300], [95, 260]],
+  },
+};
+const IS1180_KVA = Object.keys(IS1180.three).map(Number).sort((a, b) => a - b);
+
+/* Exact lookup only. IS 1180 lists discrete ratings and says losses for
+   anything else are subject to agreement between user and supplier, so a
+   rating between two rows has no published limit to interpolate toward --
+   interpolating would invent one. Returns null, and the caller reports
+   `pending` naming the rating (CLAUDE.md invariant 5). Oil-immersed only:
+   this part of the standard does not cover dry type. */
+function is1180Schedule(kva, level, dry, phase = "three") {
+  if (dry) return null;
+  const row = (IS1180[phase] || IS1180.three)[kva];
+  if (!row) return null;
+  const idx = level === "level1" ? 1 : level === "level3" ? 3 : 2;
+  const [p50, p100] = row[idx];
+  return { p50, p100, z: row[0], level: idx === 1 ? "level1" : idx === 3 ? "level3" : "level2" };
+}
+
+/* The unique (no-load, load) pair sitting exactly on BOTH published limits,
+   solved from the two conditions rather than chosen:
+     nll + 0.25 ll = p50 and nll + ll = p100  =>  ll = (p100 - p50)/0.75.
+   Used only to give limitNLL/limitLL a default consistent with the standard
+   -- the binding check is the pair itself (compliance.is50/is100), not these.
+   A real design sits inside the region, not on its corner: the Mehir 315
+   sheet runs 470 W no-load against this corner's 333 W and is fully
+   compliant, because its load loss is correspondingly lower. */
+function is1180Corner(sch) {
+  const ll = (sch.p100 - sch.p50) / 0.75;
+  return { nll: sch.p100 - ll, ll };
+}
+
+/* The pre-2014 fitted formula. Retained ONLY as the fallback for what the
+   published tables do not cover: dry type, and ratings not listed. Checked
+   against the real table it is wrong in both directions -- at Level 2 it is
+   11.5% loose at 315 kVA and 12.5% at 400 on the 50% figure (the one it
+   never checked), and 17% to 31% tight at 16-100 kVA and 14-17% tight at
+   2000-2500 on the 100% figure. Do not extend it; get the rating's own row. */
 function lossSchedule(kva, level, dry) {
   const m = (EFF_LEVELS[level] || EFF_LEVELS.level2).mul;
   const kn = dry ? 1.45 : 1, kl = dry ? 1.20 : 1;
@@ -442,9 +547,23 @@ function deriveSpec(core, over = {}) {
   put("ambientAvg", indian ? 32 : 20, [10, 45, 1], null, "Yearly weighted ambient. Only used for the insulation-ageing figure.");
 
   /* --- losses and impedance --- */
-  const sch = lossSchedule(kva, core.effLevel === "custom" ? "level2" : core.effLevel, dry);
-  put("limitNLL", Math.round(sch.nll), [Math.round(sch.nll * 0.5), Math.round(sch.nll * 2), 5], null, `Estimated from the level formula for ${kva} kVA. Replace it with the figure in the enquiry.`);
-  put("limitLL", Math.round(sch.ll), [Math.round(sch.ll * 0.5), Math.round(sch.ll * 2), 25], null, `Estimated for ${kva} kVA. Replace it with the figure in the enquiry.`);
+  /* CALIBRATION.md section 76. When the standard is IS and the rating has a
+     published row, limitNLL/limitLL default to the corner of the published
+     region rather than to the old fitted formula -- the unique pair sitting
+     on both the 50% and 100% total-loss limits. They remain editable and
+     remain what a declared enquiry figure overrides; what actually binds for
+     IS compliance is the pair of total-loss conditions (compliance.is50 /
+     is100), not these two numbers separately. */
+  const lvlKey = core.effLevel === "custom" ? "level2" : core.effLevel;
+  const pubSch = core.standard === "IS" ? is1180Schedule(kva, lvlKey, dry) : null;
+  const sch = pubSch ? is1180Corner(pubSch) : lossSchedule(kva, lvlKey, dry);
+  const schNote = pubSch
+    ? `IS 1180 (Part 1) : 2014 gives maximum TOTAL losses for ${kva} kVA ${EFF_LEVELS[lvlKey].name}: ${pubSch.p50} W at 50% load and ${pubSch.p100} W at 100%. This split is the corner of that region; any split inside it is equally compliant. Replace with the figure in the enquiry.`
+    : core.standard === "IS" && !dry
+      ? `IS 1180 does not list ${kva} kVA -- the standard makes losses at unlisted ratings subject to agreement between user and supplier. This is the engine's own estimate, NOT a published limit.`
+      : `Estimated from the level formula for ${kva} kVA. Replace it with the figure in the enquiry.`;
+  put("limitNLL", Math.round(sch.nll), [Math.round(sch.nll * 0.5), Math.round(sch.nll * 2), 5], null, schNote);
+  put("limitLL", Math.round(sch.ll), [Math.round(sch.ll * 0.5), Math.round(sch.ll * 2), 25], null, schNote);
   const z = put("targetZ", zSuggest(kva, umHV), [3, 14, 0.25], null, `Standard value for ${kva} kVA at ${umHV} kV. Going lower raises fault current; going higher worsens regulation.`);
   /* CALIBRATION.md section 68: IS 2026:2011 Part V clause 4.1 puts the
      SOURCE impedance in series with the transformer's own, so the fault
@@ -1552,10 +1671,46 @@ function designTransformer(p) {
      section 22, recorded as a known gap, not silently absent). Do not
      read dualCompliance as covering this: it only carries the thermal and
      loss checks the fin-area solve actually produces. */
+  /* CALIBRATION.md section 76: IS 1180 (Part 1) : 2014 does not give separate
+     no-load and load-loss limits. It gives maximum TOTAL losses at 50% and
+     100% of rated load, and a design satisfies BOTH or neither:
+        noLoad + 0.25 x loadLoss  <=  50% figure
+        noLoad +        loadLoss  <=  100% figure
+     That is a feasible region, so a design may carry more core loss if it
+     carries correspondingly less copper loss. The engine's own nll/ll pair
+     forbade that trade; these two conditions permit it, as the standard does.
+     Null when the standard is not IS, when the rating has no published row
+     (the standard makes those subject to agreement -- reported pending, never
+     extrapolated), or for dry type, which this part does not cover. */
+  const isSch = p.standard === "IS" ? is1180Schedule(p.kva, p.effLevel === "custom" ? "level2" : p.effLevel, dry) : null;
+  const is50 = noLoad + 0.25 * loadLoss;
+  const is100 = noLoad + loadLoss;
+
+  /* What the loss FIT targets, and why it is NOT the region's edge.
+
+     Scaling this design's own losses to the boundary was tried and is a
+     self-referential target: schFit.nll = noLoad * s makes the fit's own
+     goal move with the value it is chasing, so marginTargetNLL keeps asking
+     for 10% below wherever the design currently is. It never converges --
+     flux runs to the floor and the default case came out at 1389 kg of core,
+     17% dearer, and NON-COMPLIANT. Measured, not reasoned about.
+
+     So the fit targets the corner: a fixed, stable point that satisfies both
+     conditions by construction. That is a conservative default split, not a
+     restriction -- compliance below is the two published conditions, so any
+     split inside the region passes, and a designer or the budget search may
+     move off the corner freely and still be called compliant. What the
+     engine no longer does is FORBID the trade; what it does not yet do is
+     seek out the cheapest point in the region on its own. That belongs to
+     the cost search, and is not this section's work. */
+  const isScale = isSch ? Math.min(isSch.p50 / Math.max(1e-9, is50), isSch.p100 / Math.max(1e-9, is100)) : null;
+  const schFit = sch;
   const compliance = {
     nll: { val: noLoad, lim: sch.nll, ok: noLoad <= sch.nll },
     ll: { val: loadLoss, lim: sch.ll, ok: loadLoss <= sch.ll },
     total: { val: totalLoss, lim: sch.nll + sch.ll, ok: totalLoss <= sch.nll + sch.ll },
+    is50: isSch ? { val: is50, lim: isSch.p50, ok: is50 <= isSch.p50 } : null,
+    is100: isSch ? { val: is100, lim: isSch.p100, ok: is100 <= isSch.p100 } : null,
     z: { val: g.pctZ, lim: p.targetZ, ok: Math.abs(g.pctZ - p.targetZ) / p.targetZ <= Math.min(p.zTol, std.zTol) / 100 },
     rise: { val: dry ? windRise : oilRise, lim: riseLimit, ok: (dry ? windRise : oilRise) <= riseLimit + 0.5 },
     wRise: { val: windRise, lim: wRiseLimit, ok: windRise <= wRiseLimit + 0.5 },
@@ -1571,7 +1726,8 @@ function designTransformer(p) {
     coilHeight: { val: Math.max(g.hLV, g.hHV), lim: p.coilHeightLimit, ok: Math.max(g.hLV, g.hHV) <= p.coilHeightLimit },
     tankHeight: { val: tankH, lim: p.tankHeightLimit, ok: tankH <= p.tankHeightLimit },
   };
-  const compliant = Object.values(compliance).every((x) => x.ok);
+  // is50/is100 are null when no published row applies; a null is not a failure.
+  const compliant = Object.values(compliance).every((x) => x == null || x.ok);
 
   /* Second rating's own compliance, reported alongside the primary's for
      the nameplate and GTP -- a real dual-rated unit is guaranteed at both
@@ -1607,6 +1763,13 @@ function designTransformer(p) {
     pctX: g.pctX, pctR: g.pctR, pctZ: g.pctZ, regFull, oilRise, windRise, grad, hotspot, hotspotAvg, lifeFactor,
     riseLimit, wRiseLimit, eff100: effAt(1), eff75: effAt(0.75), eff50: effAt(0.5), maxEffLoad,
     iscLV: iLineLV * iscMult, iscHV: iscHVline, iscMult, zSys, zTx, noise, sch, compliance, compliant,
+    isSch, schFit, isScale,
+    /* CLAUDE.md invariant 5: an unlisted rating has no published limit, so
+       the dependent output is pending and names what is missing, rather
+       than being extrapolated from neighbouring rows. */
+    isLossPending: p.standard === "IS" && !dry && !isSch
+      ? `IS 1180 (Part 1) : 2014 does not list ${p.kva} kVA. The standard makes losses at unlisted ratings subject to agreement between user and supplier, so there is no published limit to check against. The figures shown are the engine's own estimate, not a standard limit.`
+      : null,
     fanCount, pumpCount,
     dualForced, dualLoadLoss, dualTotalLoss, dualOilRise, dualWindRise, dualCompliance, dualCompliant,
     Kw, aWin, Hw0, util: shape === "circ" ? stepUtil(p.steps) : ct.aspect, sf: grade.sf,
@@ -4105,9 +4268,9 @@ function resolveDiscreteNeighbourhood(S, seedFlux, seedDLV, seedDHV, rates, lock
   const consider = (flux, dLV, dHV) => {
     const t = designTransformer({ ...S, flux, deltaLV: dLV, deltaHV: dHV });
     const sig = discreteGeometrySignature(t);
-    const target = S.marginTargetLL * t.sch.ll;
+    const target = S.marginTargetLL * t.schFit.ll;
     const dist = Math.abs(t.loadLoss - target);
-    const compliant = t.loadLoss <= t.sch.ll && t.noLoad <= t.sch.nll;
+    const compliant = t.loadLoss <= t.schFit.ll && t.noLoad <= t.schFit.nll;
     const prev = found.get(sig);
     if (!prev || dist < prev.dist) found.set(sig, { flux, dLV, dHV, t, sig, dist, compliant });
   };
@@ -4157,7 +4320,7 @@ function resolveDiscreteNeighbourhood(S, seedFlux, seedDLV, seedDHV, rates, lock
     const evalAt = (m) => designTransformer({
       ...S, flux: entry.flux, deltaLV: clLV(entry.dLV * m), deltaHV: clHV(entry.dHV * m),
     });
-    const okAt = (t) => discreteGeometrySignature(t) === entry.sig && t.loadLoss <= t.sch.ll;
+    const okAt = (t) => discreteGeometrySignature(t) === entry.sig && t.loadLoss <= t.schFit.ll;
     let inM = 1, inT = entry.t;
     if (!okAt(inT)) {
       // The discovered sample is already over the schedule -- walk inward
@@ -4169,7 +4332,7 @@ function resolveDiscreteNeighbourhood(S, seedFlux, seedDLV, seedDHV, rates, lock
         const t = evalAt(cand);
         if (discreteGeometrySignature(t) !== entry.sig) break; // signature itself this thin -- give up, keep what we have
         inM = cand; inT = t; step *= 1.4;
-        if (t.loadLoss <= t.sch.ll) break;
+        if (t.loadLoss <= t.schFit.ll) break;
       }
     }
     let outM = null;
@@ -4192,7 +4355,7 @@ function resolveDiscreteNeighbourhood(S, seedFlux, seedDLV, seedDHV, rates, lock
 
   const entries = [...found.values()].map((e) => {
     const refinedT = refineWithinSignature(e);
-    const compliant = refinedT.loadLoss <= refinedT.sch.ll && refinedT.noLoad <= refinedT.sch.nll;
+    const compliant = refinedT.loadLoss <= refinedT.schFit.ll && refinedT.noLoad <= refinedT.schFit.nll;
     // designTransformer's own output names these B/dLV/dHV, not the
     // flux/deltaLV/deltaHV it takes as input -- refinedT is its output.
     return { ...e, t: refinedT, flux: refinedT.B, dLV: refinedT.dLV, dHV: refinedT.dHV, compliant };
@@ -4215,17 +4378,17 @@ function resolveDiscreteNeighbourhood(S, seedFlux, seedDLV, seedDHV, rates, lock
   let flux = winner.flux, dLV = winner.dLV, dHV = winner.dHV;
   const roundedT = designTransformer({ ...S, flux: r2(flux), deltaLV: r2(dLV), deltaHV: r2(dHV) });
   const roundedOk = discreteGeometrySignature(roundedT) === winner.sig
-    && (!winner.compliant || (roundedT.loadLoss <= roundedT.sch.ll && roundedT.noLoad <= roundedT.sch.nll));
+    && (!winner.compliant || (roundedT.loadLoss <= roundedT.schFit.ll && roundedT.noLoad <= roundedT.schFit.nll));
   if (roundedOk) { flux = r2(flux); dLV = r2(dLV); dHV = r2(dHV); }
 
   const seedExFactory = buildBOM(seedT, rates).exFactory;
-  const seedCompliant = seedT.loadLoss <= seedT.sch.ll && seedT.noLoad <= seedT.sch.nll;
-  const marginPct = (100 * (winner.t.sch.ll - winner.t.loadLoss)) / winner.t.sch.ll;
+  const seedCompliant = seedT.loadLoss <= seedT.schFit.ll && seedT.noLoad <= seedT.schFit.nll;
+  const marginPct = (100 * (winner.t.schFit.ll - winner.t.loadLoss)) / winner.t.schFit.ll;
   let note;
   if (entries.length > 1) {
     if (!compliantEntries.length) {
       note = `A neighbourhood search found ${entries.length} distinct nearby winding configurations; none meets the `
-        + `${Math.round(winner.t.sch.ll)} W load-loss / ${Math.round(winner.t.sch.nll)} W no-load schedule here. `
+        + `${Math.round(winner.t.schFit.ll)} W load-loss / ${Math.round(winner.t.schFit.nll)} W no-load schedule here. `
         + `Returning the closest approach, ${inr(winner.exFactory)} ex-works.`;
     } else if (winner.sig !== seedSig) {
       note = `The fit's own iteration settled on a different, more expensive configuration `
@@ -4305,11 +4468,11 @@ export function fitToSchedule(S, over = {}, maxIters = FIT_MAX_ITERS, tol = FIT_
     }
 
     if (!lockF && t.noLoad > 0) {
-      const fluxTarget = cl(flux * Math.pow(Math.pow((S.marginTargetNLL * t.sch.nll) / t.noLoad, 1 / 0.9), 0.55), bMin, bMax);
+      const fluxTarget = cl(flux * Math.pow(Math.pow((S.marginTargetNLL * t.schFit.nll) / t.noLoad, 1 / 0.9), 0.55), bMin, bMax);
       flux += FIT_RELAX * (fluxTarget - flux);
     }
     if (!lockD && t.loadLoss > 0) {
-      const k = Math.pow((S.marginTargetLL * t.sch.ll) / t.loadLoss, 0.6);
+      const k = Math.pow((S.marginTargetLL * t.schFit.ll) / t.loadLoss, 0.6);
       const dLVTarget = cl(dLV * k, 0.7, CONDUCTORS[S.condLV].dMax);
       const dHVTarget = cl(dHV * k, 0.7, CONDUCTORS[S.condHV].dMax);
       dLV += FIT_RELAX * (dLVTarget - dLV);
@@ -4377,8 +4540,8 @@ export function fitToSchedule(S, over = {}, maxIters = FIT_MAX_ITERS, tol = FIT_
         at: atCeiling ? "ceiling" : "floor",
         value: Math.round(finalFlux * 100) / 100,
         noLoad: Math.round(finalT.noLoad),
-        limit: Math.round(finalT.sch.nll),
-        compliant: finalT.noLoad <= finalT.sch.nll,
+        limit: Math.round(finalT.schFit.nll),
+        compliant: finalT.noLoad <= finalT.schFit.nll,
       };
     }
   }

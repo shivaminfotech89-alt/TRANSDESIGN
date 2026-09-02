@@ -5973,3 +5973,115 @@ back where it was.
 `autoFit` refits density against the loss limits anyway and the suggestion
 only sets where that fit starts -- which is also why this correction matters
 most exactly where the fit has least to bite on.
+
+## 76. The loss schedule is the published IS 1180 table, not a fitted formula -- and the engine was issuing non-compliant designs at 315 and 500 kVA
+
+`lossSchedule` invented both a no-load and a load-loss limit from two scaling
+formulas. IS 1180 (Part 1) : 2014 gives neither. It gives maximum **total**
+losses -- no-load plus load loss at 75 C -- at 50 % and 100 % of rated load,
+per efficiency level, and a design satisfies both conditions or neither:
+
+```
+  noLoad + 0.25 x loadLoss  <=  the 50% figure
+  noLoad +        loadLoss  <=  the 100% figure
+```
+
+That is a feasible **region**, not a box. A design may carry more core loss
+if it carries correspondingly less copper loss. The engine's own separate
+nll/ll pair forbade that trade, and never checked the 50 % condition at all.
+
+**How wrong the formula was, Level 2, against the real table:**
+
+| kVA | formula at 50 % | published | | formula at 100 % | published | |
+|---|---|---|---|---|---|---|
+| 16 | 111 | 135 | -17.7 % | 312 | 440 | **-29.1 %** |
+| 25 | 158 | 190 | -17.1 % | 440 | 635 | **-30.7 %** |
+| 63 | 325 | 340 | -4.5 % | 898 | 1140 | **-21.2 %** |
+| 100 | 466 | 475 | -1.9 % | 1283 | 1650 | **-22.3 %** |
+| 315 | 1143 | 1025 | **+11.5 %** | 3111 | 3100 | +0.3 % |
+| 400 | 1378 | 1225 | **+12.5 %** | 3741 | 3450 | +8.4 % |
+| 500 | 1641 | 1510 | **+8.7 %** | 4444 | 4300 | +3.4 % |
+| 630 | 1967 | 1860 | **+5.7 %** | 5313 | 5300 | +0.2 % |
+| 2000 | 4860 | 5050 | -3.8 % | 12966 | 15000 | **-13.6 %** |
+| 2500 | 5788 | 6150 | -5.9 % | 15405 | 18500 | **-16.7 %** |
+
+Loose in the 315-630 band on the 50 % figure -- the one never checked -- and
+tight by 20-30 % at the small end and 14-17 % at the top.
+
+**The consequence, and it is the real finding here.** The engine was
+auto-producing designs that **breach IS 1180**, at both conditions:
+
+| | before | published limit | after |
+|---|---|---|---|
+| 315 kVA at 50 % | 1180 W **FAIL** | 1100 | 1092 ok |
+| 315 kVA at 100 % | 3579 W **FAIL** | 3275 | 3267 ok |
+| 500 kVA at 50 % | 1520 W **FAIL** | 1510 | 1446 ok |
+| 500 kVA at 100 % | 4323 W **FAIL** | 4300 | 4235 ok |
+| 1000 kVA default | ok | | ok |
+| 1250 kVA | ok | | ok |
+| 630 kVA dry | n/a -- Part 1 does not cover dry type | | n/a |
+
+Two of the five references were non-compliant as the engine designed them,
+and would have failed acceptance.
+
+**Unlisted ratings are pending, not extrapolated.** The standard makes losses
+at ratings it does not list subject to agreement between user and supplier,
+so there is no published figure to interpolate toward and interpolating would
+invent one. `is1180Schedule` returns null, `isLossPending` names the rating,
+and the limits fall back to the old formula explicitly labelled an estimate.
+Checked: 900 kVA reports pending; 800 kVA does not, because it has a row.
+
+**What the fit targets, and one thing that did not work.** Targeting the
+region's edge by scaling the design's own losses to it --
+`schFit.nll = noLoad * s` -- is self-referential: the goal moves with the
+value being chased, so the fit asks for 10 % below wherever it currently is,
+forever. Measured, not reasoned about: flux ran to the floor, the default
+case came out at 1389 kg of core, 17 % dearer, and **non-compliant**. The fit
+therefore targets the region's **corner** -- the unique pair sitting on both
+limits, solved rather than chosen, `ll = (p100 - p50)/0.75`. That is a
+conservative default split, not a restriction: compliance is the two
+conditions, so any split inside the region passes and a designer or the
+budget search may move off the corner freely. The engine no longer *forbids*
+the trade; it does not yet *seek out* the cheapest point in the region, which
+belongs to the cost search.
+
+**Data provenance, recorded because it is uneven.** Tables 3 and 6 are from
+the 2014 PDF. **800 kVA is absent from that print** and comes from a
+secondary published copy: every other row is round to 5 W and this one is not
+(2459 / 7300, 2287 / 6402, 2147 / 5837), which is what a later amendment
+recomputed from a formula looks like. It is flagged in the table itself as
+the least certain row. Table 9 (single phase, up to 25 kVA) is transcribed
+and held but **not reachable** -- this engine is three-phase only, every
+vector group it offers is three-phase and the copper-loss term is a hard
+`3 x I^2R` -- and its 5 kVA impedance is **2.5 % in the PDF against 4.0 % in
+the secondary copy**; the PDF figure is used as the primary source and the
+discrepancy recorded, since that difference matters on fault current.
+
+**An observation about the 315 reference, not an error to correct.** The
+Mehir 315 sheet is titled **Level 1**, but its stated 1025 W and 3100 W are
+**exactly the IS 1180 Level 2 row**. And read as total losses rather than as
+a no-load/load pair, the sheet resolves completely: its own design carries
+470 W no-load and 2220 W copper loss, so at 50 % it sits at
+470 + 0.25 x 2220 = **1025 W exactly on the Level 2 limit**, and at 100 % at
+2690 W against 3100 W. That also corrects sections 63 and 71, which read
+3100 W as a guaranteed load loss carrying tender margin. It is not: it is the
+Level 2 total-loss limit, and 2690 W -- the figure the sheet's own cooling
+calculation uses -- is the design's actual total loss. The designer designed
+precisely to the binding 50 % condition, which is exactly the condition this
+engine did not check.
+
+**Two fixtures retargeted, both recorded rather than weakened.** 2000 kVA no
+longer saturates flux at the grade ceiling, because the published limit there
+is *looser* than the formula's (15000 W against 12966); retargeted to
+1600 kVA, and ceiling saturation was confirmed still common across six
+ratings and four levels, so this is a retarget and not a coverage loss. And
+the seed-independence check's price-spread bound goes from 0.5 % to 0.75 %:
+630 kVA measures 0.52 % because the published schedule puts the fit nearer a
+bound there. The assertion that matters -- one discrete state across every
+starting point -- is untouched and still holds at every rating. If that bound
+ever needs raising again it is a real instability, not a schedule change.
+
+`ENGINE_VERSION` 1.36.0. Every golden figure moved: the default case is now
+fitted to the published 1000 kVA Level 2 row rather than to the formula's
+estimate. 630 kVA ex-works rises 7.3 % and 1250 kVA falls 2.7 %, both because
+their published limits differ from what the formula assumed.

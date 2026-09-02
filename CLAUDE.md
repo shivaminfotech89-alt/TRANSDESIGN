@@ -40,9 +40,14 @@ Break any of these and the product is wrong, not just untidy.
    `pending` and name the missing parameter. A plausible-looking fabricated
    value in a customer document is worse than a blank.
 
-6. **Loss limits are estimates until the user overrides them.** The IS 1180
-   level schedule in the engine is fitted from a scaling formula, not the
-   published table. Any UI that shows a limit must say so and offer the manual
+6. **Loss limits are published where IS 1180 lists the rating, and estimates
+   everywhere else.** The IS 1180 (Part 1) : 2014 tables are transcribed into
+   the engine (`IS1180`) and are exact for the ratings they list. Outside them
+   — an unlisted rating, dry type, or a non-IS standard — the figure is still
+   the old fitted formula and is an estimate; the standard makes losses at
+   unlisted ratings subject to agreement between user and supplier, so the
+   engine reports `isLossPending` naming the rating rather than extrapolating.
+   Any UI showing a limit must say which of the two it is and offer the manual
    entry.
 
 7. **`documentRegister` must be reviewed whenever a phase lands.** Its whole
@@ -103,15 +108,27 @@ Default case: 1000 kVA, 11 kV / 433 V, Dyn11, IS, Level 2, copper, ONAN, fin tan
 
 | Quantity | Value |
 |---|---|
-| Ex-works | ₹20,10,238 |
-| Delivered incl. GST | ₹23,72,081 |
-| Tank length | 1542 mm |
-| No-load loss | 1088 W |
-| Load loss | 6356 W |
-| Impedance | 5.00 % |
-| Efficiency | 99.26 % |
-| Core mass | 1109 kg |
+| Ex-works | ₹20,20,090 |
+| Delivered incl. GST | ₹23,83,706 |
+| Tank length | 1499 mm |
+| No-load loss | 998 W |
+| Load loss | 6547 W |
+| Impedance | 4.89 % |
+| Efficiency | 99.25 % |
+| Core mass | 1018 kg |
 | Stepped core utilisation | 3 steps 0.8510, 9 steps 0.9483, 13 steps 0.9642 |
+
+Current as of ENGINE_VERSION 1.36.0 (CALIBRATION.md section 76): the loss
+schedule is the published IS 1180 (Part 1) : 2014 tables, not a fitted
+formula. The standard gives maximum TOTAL losses at 50% and 100% of rated
+load, not separate no-load and load-loss limits, so compliance is two
+conditions on the pair and a design may trade core against copper. The old
+formula was 11.5% loose at 315 kVA and 12.5% at 400 on the 50% figure it
+never checked, and 17-31% tight at 16-100 kVA on the 100% figure. Every
+figure below moved because the default case is now fitted to the published
+1000 kVA Level 2 row (2790 W at 50%, 7700 W at 100%) rather than to the
+formula's own estimate. The engine was producing IS 1180 NON-COMPLIANT
+designs at 315 and 500 kVA before this; it no longer does.
 
 Current as of ENGINE_VERSION 1.35.0 (CALIBRATION.md section 75): the OIL
 current density baseline is corrected, divided by 1.72. It ran that much high

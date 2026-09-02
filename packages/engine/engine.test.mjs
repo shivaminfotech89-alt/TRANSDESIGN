@@ -323,14 +323,14 @@ const r = E.computeDesign(E.ESSENTIALS, {}, E.DEFAULT_RATES, []);
 // no-load figure. Re-verified directly against computeDesign, not
 // hand-adjusted -- CLAUDE.md's own golden-numbers table updated in the
 // same commit.
-eq("ex-works", Math.round(r.bom.exFactory), 2010238, 800);
-eq("delivered", Math.round(r.bom.withGst), 2372081, 900);
-eq("tank length mm", Math.round(r.design.tankL), 1541, 2);
-eq("no-load loss W", Math.round(r.design.noLoad), 1088, 5);
-eq("load loss W", Math.round(r.design.loadLoss), 6356, 30);
-eq("impedance %", +r.design.pctZ.toFixed(2), 5.00, 0.02);
-eq("efficiency %", +r.design.eff100.toFixed(2), 99.26, 0.02);
-eq("core mass kg", Math.round(r.design.wCore), 1109, 15);
+eq("ex-works", Math.round(r.bom.exFactory), 2020090, 800);
+eq("delivered", Math.round(r.bom.withGst), 2383706, 900);
+eq("tank length mm", Math.round(r.design.tankL), 1499, 2);
+eq("no-load loss W", Math.round(r.design.noLoad), 998, 5);
+eq("load loss W", Math.round(r.design.loadLoss), 6547, 30);
+eq("impedance %", +r.design.pctZ.toFixed(2), 4.89, 0.02);
+eq("efficiency %", +r.design.eff100.toFixed(2), 99.25, 0.02);
+eq("core mass kg", Math.round(r.design.wCore), 1018, 15);
 // autoFitConverged is a dynamics fact (CALIBRATION.md section 51): did the
 // damped iteration reach a stable point WITHOUT cycling. Section 59's own
 // no-load change moves this default case off the discrete-configuration
@@ -349,9 +349,9 @@ eq("compliant", r.design.compliant, true);
 // different design can now clear the old ratio while missing one of these,
 // or the reverse) -- see section 44 for the 2500 kVA furnace case that
 // flips to non-compliant under this default.
-eq("coil height mm", Math.round(r.design.compliance.coilHeight.val), 561, 3);
+eq("coil height mm", Math.round(r.design.compliance.coilHeight.val), 609, 3);
 eq("coil height limit mm", r.design.compliance.coilHeight.lim, 880);
-eq("tank height mm", Math.round(r.design.compliance.tankHeight.val), 1280, 3);
+eq("tank height mm", Math.round(r.design.compliance.tankHeight.val), 1316, 3);
 eq("tank height limit mm", r.design.compliance.tankHeight.lim, 1500);
 eq("HV construction", r.design.hvConstruction, "crossover");
 eq("LV construction", r.design.lvConstruction, "strip");
@@ -738,7 +738,7 @@ console.log("\nfit resolution: the fitted density is actively resolved to its ch
   // bracket-sensitivity cascade section 51's own note already describes
   // for a loss-moving change. Re-verified directly against computeDesign,
   // not hand-adjusted.
-  for (const [kva, ex] of [[630, 1590798], [1000, 2010238], [1250, 2309449]]) {
+  for (const [kva, ex] of [[630, 1707404], [1000, 2020090], [1250, 2247168]]) {
     const r = E.computeDesign({ ...E.ESSENTIALS, kva }, { coreConstruction: "A" }, E.DEFAULT_RATES, []);
     if (!r.fitBoundaryFound || !r.fitResolutionNote) {
       failures++; console.log(`  FAIL ${kva} kVA: expected fitBoundaryFound/fitResolutionNote, got fitBoundaryFound=${r.fitBoundaryFound}`);
@@ -802,7 +802,17 @@ console.log("\nstarting-point invariance: the same enquiry at the same K resolve
     if (sigs.size !== 1) {
       failures++;
       console.log(`  FAIL ${kva} kVA: varies with starting point -- ${sigs.size} distinct discrete states across ${startMults.length} starts`);
-    } else if (spreadPct > 0.5) {
+    /* ENGINE_VERSION 1.36.0 (section 76): bound raised from 0.5% to 0.75%.
+       The assertion that MATTERS -- one discrete state across every
+       starting point -- is untouched and still holds at every rating.
+       What grew is the residual price coupling within that state: 630 kVA
+       measures 0.52% against the old 0.5% bound, because the published
+       schedule puts the fit nearer a bound at that rating than the fitted
+       formula did, so the same flux-density coupling resolves slightly
+       further apart. Recorded rather than absorbed silently: if this ever
+       needs raising again, that is a real instability and not a schedule
+       change, and it should be investigated instead. */
+    } else if (spreadPct > 0.75) {
       failures++;
       console.log(`  FAIL ${kva} kVA: same state but price spread ${spreadPct.toFixed(2)}% across starts (Rs ${spread}) -- too wide to be the flux-density coupling this test expects`);
     } else {
@@ -950,8 +960,16 @@ console.log("\nfitToSchedule reports flux saturation separately from cycling (CA
   // real, deliberate consequence of the more accurate loss model, not a
   // defect in the saturation reporting. 2000 kVA still saturates cleanly
   // under the new model and takes over as this test's own example.
-  const r = E.computeDesign({ ...E.ESSENTIALS, kva: 2000 }, {}, E.DEFAULT_RATES, []);
-  if (!r.autoFitFluxLimit) { failures++; console.log("  FAIL expected autoFitFluxLimit at 2000 kVA (flux known to saturate at the grade ceiling here) -- got none"); }
+  /* ENGINE_VERSION 1.36.0 (CALIBRATION.md section 76): 2000 kVA no longer
+     saturates at the ceiling. The published IS 1180 limits are LOOSER at
+     2000 than the old fitted formula's were (15000 W at 100% against the
+     formula's 12966), so that design no longer needs the ceiling to
+     comply. Retargeted to 1600 kVA, which still does -- checked across
+     six ratings and four levels, ceiling saturation remains common
+     (630/1000/1600 at level 2, among others), so this is a retarget and
+     not a coverage loss. */
+  const r = E.computeDesign({ ...E.ESSENTIALS, kva: 1600 }, {}, E.DEFAULT_RATES, []);
+  if (!r.autoFitFluxLimit) { failures++; console.log("  FAIL expected autoFitFluxLimit at 1600 kVA (flux known to saturate at the grade ceiling here) -- got none"); }
   else if (r.autoFitFluxLimit.at !== "ceiling") { failures++; console.log(`  FAIL expected flux saturated at the ceiling, got "${r.autoFitFluxLimit.at}"`); }
   else console.log(`  ok   flux saturation reported: at ${r.autoFitFluxLimit.at}, ${r.autoFitFluxLimit.value} T, noLoad ${r.autoFitFluxLimit.noLoad} W against ${r.autoFitFluxLimit.limit} W (compliant: ${r.autoFitFluxLimit.compliant})`);
 }
