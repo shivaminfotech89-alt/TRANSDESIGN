@@ -8,7 +8,7 @@
  * without bumping it, or old quotations stop reproducing.
  */
 
-export const ENGINE_VERSION = "1.34.0";
+export const ENGINE_VERSION = "1.35.0";
 
 const CONDUCTORS = {
   copper: { name: "Copper, EC grade", rho20: 0.017241, alpha: 0.00393, dens: 8890, dMax: 3.6, short: "Cu", proof: 1.0 },
@@ -316,7 +316,21 @@ function densitySuggest(kva, cond, dry, isHV) {
      oil at the same rating, not a lower one. The 630 kVA sheet runs
      2.79/2.89 A/mm^2 (LV/HV) where the old factor suggested 2.10/2.25.
      1.10 is fitted from that sheet, the only dry one available. */
+  /* CALIBRATION.md sections 72/75: the OIL baseline ran 1.72x high against
+     two independent references four times apart in rating -- 1250 kVA at
+     ~1.44 A/mm^2 against a 2.50 suggestion, 315 kVA at 1.52 against 2.60,
+     ratios 1.74 and 1.71. A flat ratio across a 4x span is an intercept
+     error, not a slope one, so the whole expression is divided rather than
+     a rating term added (the shape of section 1's clearance fix).
+
+     The divisor sits INSIDE the oil branch on purpose. The dry reference
+     lands at 0.99 of its own suggestion, so dry is already right and must
+     not move; dividing the shared base instead would drag it from 2.80 to
+     1.63 and break the one dry design on file. "Correct oil, leave dry
+     alone" is therefore a branch, not a change to the 1.10 multiplier --
+     which is untouched and still means what its own note above says. */
   if (dry) b *= 1.10;
+  else b /= 1.72;
   if (isHV) b += 0.15;
   return Math.min(Math.round(b * 20) / 20, CONDUCTORS[cond].dMax);
 }

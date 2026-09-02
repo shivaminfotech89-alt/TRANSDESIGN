@@ -103,15 +103,28 @@ Default case: 1000 kVA, 11 kV / 433 V, Dyn11, IS, Level 2, copper, ONAN, fin tan
 
 | Quantity | Value |
 |---|---|
-| Ex-works | ₹20,05,344 |
-| Delivered incl. GST | ₹23,66,306 |
-| Tank length | 1541 mm |
+| Ex-works | ₹20,10,238 |
+| Delivered incl. GST | ₹23,72,081 |
+| Tank length | 1542 mm |
 | No-load loss | 1088 W |
 | Load loss | 6356 W |
 | Impedance | 5.00 % |
 | Efficiency | 99.26 % |
 | Core mass | 1109 kg |
 | Stepped core utilisation | 3 steps 0.8510, 9 steps 0.9483, 13 steps 0.9642 |
+
+Current as of ENGINE_VERSION 1.35.0 (CALIBRATION.md section 75): the OIL
+current density baseline is corrected, divided by 1.72. It ran that much high
+against two independent oil references four times apart in rating (1250 kVA
+at ~1.44 A/mm2 against a 2.50 suggestion, 315 kVA at 1.52 against 2.60) while
+the one dry reference sat at 0.99 of its own, so the divisor is applied
+inside the oil branch only and dry is untouched -- byte-identical, verified.
+The default case barely moves (ex-works +0.24%) because `autoFit` refits
+density against the loss limits anyway; the suggestion only sets where that
+fit starts. What moves is every design where the fit is off or the limits are
+slack, and the references: the 1250's copper mass goes from -43.4% to -0.2%
+against its 982 kg and the 315's load loss from +70.2% to -0.4% against its
+own calculated 2220 W.
 
 Current as of ENGINE_VERSION 1.31.0 (CALIBRATION.md section 66): rectangular
 strip conductor now carries a corner radius (`cornerRadius`, default 1 mm).
@@ -230,18 +243,17 @@ const { design, bom, params, spec } = computeDesign(core, over, rates, extras);
 - **Guaranteed vs measured losses.** The design is held to the guaranteed
   figure. The standard's tolerance (+15 % component, +10 % total under IS/IEC)
   applies to the measured value on test, not to the design target.
-- **Current density is per material, and the oil figure in `densitySuggest`
-  is known to be 1.72x too high.** Two real oil designs four times apart in
-  rating both run about 1.44-1.52 A/mm² where the engine suggests 2.50-2.60;
-  the one real dry design lands at 0.99 of its suggestion, so the medium
-  correction is right and the oil baseline specifically is wrong. Do not
-  quote the old "about 2.5 A/mm² at 1000 kVA" figure that stood here — it is
-  the wrong number and it is what this line used to say. The correction is
-  written and tested but blocked on HV conductor dimensions (CALIBRATION.md
-  header and sections 72/74, DATA-REQUEST item 0). Aluminium is about 0.78 of
-  copper. Any search over materials must anchor the density ladder on the
-  material being tried, not the one already in the design. Getting that wrong
-  made aluminium look infeasible.
+- **Current density is per material.** The oil baseline in `densitySuggest`
+  was 1.72x too high and is corrected (ENGINE_VERSION 1.35.0, CALIBRATION.md
+  section 75); oil copper now runs about 1.45-1.50 A/mm² at these ratings, not
+  the "about 2.5 A/mm² at 1000 kVA" this line used to claim. Dry is a separate
+  branch and was already right — do not apply the oil divisor to it. Aluminium
+  is about 0.78 of copper. Any search over materials must anchor the density
+  ladder on the material being tried, not the one already in the design.
+  Getting that wrong made aluminium look infeasible. The `isHV` +0.15 offset is
+  still additive and so is now a much larger fraction of the corrected oil
+  base — it makes oil HV read about 11-15% high against both sheets, which
+  both show HV at or below LV. Not yet changed; see section 75.
 - **Temperature rise binds twice.** The cooling surface must satisfy both the
   top-oil limit and the winding-rise limit; take whichever is lower.
 - **Ageing uses the yearly weighted ambient (32 °C in India), not the maximum

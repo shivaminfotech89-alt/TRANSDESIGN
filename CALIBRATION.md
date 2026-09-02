@@ -35,12 +35,16 @@ the 500 and 1250 comes out exactly right for the first time. It closes the
 LV area gap open since section 11 -- which was never an area-model defect at
 all, the area model being exact to 0.2% when fed real densities (section 72).
 
-**It is not committed.** Correcting it enlarges the HV conductor, and the HV
-radial build is computed from a fixed 2.1:1 conductor shape with no
-measurement behind it (section 11's own open question), so the 1250's HV OD,
-tank length and real cutting chart all degrade. Blocked on one datum: HV
-conductor dimensions for the 1250 or 630 kVA. See DATA-REQUEST item 0 and
-sections 72 and 74.
+**COMMITTED at ENGINE_VERSION 1.35.0 (section 75).** The divisor is applied
+inside the oil branch only, so the dry reference is byte-identical. The 1250's
+copper mass now lands at **-0.2%** against its 982 kg and the 315's load loss
+at **-0.4%** against its own calculated 2220 W. Correcting it does enlarge the
+HV conductor, and the HV radial build is computed from a fixed 2.1:1 conductor
+shape with no measurement behind it, so the 1250's HV OD, tank length and
+cutting chart degrade -- those are now recorded as known gaps naming that
+shape as the blocker rather than left as a reason not to fix a density error
+confirmed at two ratings. A known-wrong default is worse than a known-imperfect
+one. Blocked work: DATA-REQUEST item 0.
 
 ---
 
@@ -5864,3 +5868,108 @@ arrive with a corrected axial/radial split, not before it.
 is right and waits on a single datum, one is withdrawn on evidence, one
 needs a different fix first. `ENGINE_VERSION` unmoved at 1.34.0, all three
 suites green, no golden number touched.
+
+## 75. The oil current density baseline is corrected, and the HV conductor aspect is named as the blocker it now visibly is
+
+Sections 72 and 74 established the number and then declined to land it,
+because correcting it degrades HV-side geometry that agrees today. That
+reasoning is reversed here, on the design office's instruction and on the
+merits: **a default that is wrong on every oil design is worse than one
+that is imperfect on the HV build of some of them.** A value that has to be
+overridden on every enquiry is not a default.
+
+**The change.** `densitySuggest`'s oil baseline divided by 1.72. The divisor
+sits **inside the oil branch**, not on the shared expression: the dry
+reference lands at 0.99 of its own suggestion, so dry is already right and
+dividing the shared base would drag it from 2.80 to 1.63 and break the one
+dry design on file. The 1.10 dry multiplier is untouched and still means
+what its own note says. Verified: the 630 kVA dry reference is
+**byte-identical** before and after -- same load loss, same copper, same
+arrangement, same ex-works to the rupee.
+
+**Densities now:**
+
+| | LV suggested | sheet | | HV suggested | sheet | |
+|---|---|---|---|---|---|---|
+| 1250 oil | 1.45 | 1.44 | **+1 %** | 1.60 | 1.44 | +11 % |
+| 315 oil | 1.50 | 1.52 | **-1 %** | 1.65 | 1.43 | +15 % |
+| 630 dry | 2.80 | 2.79 | **0 %** | 2.95 | 2.89 | +2 % |
+
+**What it fixes, measured against the sheets:**
+
+| | before | after |
+|---|---|---|
+| 1250 copper vs 982 kg | 555 kg, **-43.4 %** | 980 kg, **-0.2 %** |
+| 315 load loss vs its calculated 2220 W | 3779 W, **+70.2 %** | 2212 W, **-0.4 %** |
+| 1250 LV arrangement vs 5ax x 6rad | 4 x 5 | **5 x 6, exact** |
+| 500 LV arrangement vs 3ax x 4rad | 2 x 4 | **3 x 4, exact** |
+| 1250 LV OD vs 374 mm | -6.7 % | **-2.0 %** |
+| 500 LV OD vs 285 mm | -2.2 % | **-1.2 %** |
+| 500 core mass vs 942.3 kg | -7.8 % | -5.4 % |
+
+Two arrangements that had never matched now match exactly, and the two
+largest standing errors in this file close to within half a per cent.
+
+**What it costs, and the single cause behind all of it.** Every degradation
+is on the HV side and every one traces to `axHV`/`rdHV` being built from a
+**fixed 2.1:1 conductor aspect with no measurement behind it** -- section
+11's own open question, blocked on DATA-REQUEST item 0. A correct density
+makes the HV conductor bigger; a wrong shape then builds it too deep:
+
+| | before | after |
+|---|---|---|
+| 1250 HV OD vs 494 mm | -0.6 % | **+6.7 %** |
+| 1250 tank length vs 1660 mm | -0.4 % | **+6.1 %** |
+| 1250 cutting chart, Plate B / C / total | within 5 % | +9.3 % / +10.8 % / +6.1 % |
+| 500 HV OD vs 404 mm | +2.2 % | **+7.3 %** |
+| 315 window width vs 198 mm | +1.2 % | **+6.0 %** |
+
+These are now `knownGap` entries in `reference-designs.test.mjs`, each
+naming the HV aspect as the cause and item 0 as the blocker, rather than
+hard assertions whose passing depended on the conductor being too small to
+expose the shape error. **They were never confirmations of the HV build.**
+
+**Two things this exposed that were not what they appeared.**
+
+The 315's load-loss gap was recorded against its **guaranteed** 3100 W. Its
+own **calculated** figure is 2220 W (section 63: 2690 W total less 470 W
+no-load, confirmed by the sheet's own 50 % figure, 470 + 0.25 x 2220 = 1025
+exactly). The guarantee carries about 28 % tender margin and is not what a
+design calculation targets. Retargeted, and the engine is now within half a
+per cent of it.
+
+The 315's short-circuit assertions were checking the sheet's own 18.246 ohm
+and 0.343 kA, which correspond to its **declared** 4.75 % impedance. This
+design's window solve now lands at 4.48 % -- a genuine near miss that
+section 73's machinery reports rather than hides -- so those figures came
+from a different %Z and the test was asserting the wrong thing. It now
+verifies the IS 2026 method is exact against the design's **own** %Z, keeps
+the design-independent Zs against the sheet, and prints the difference so
+it stays visible.
+
+**The `isHV` +0.15 offset is now visibly wrong for oil, and is left alone.**
+It is additive, so shrinking the base from 2.50 to 1.45 turned it from +6 %
+into +10 % of the figure. Both oil sheets show HV at or **below** LV (315:
+1.43 against 1.52) while the dry sheet shows it above (2.89 against 2.79),
+so the offset's own sign is contradicted by the only two designs that state
+both windings. Removing it lands all four measured densities within 5.2 %
+against +11 to +15 % for oil HV now. Not changed here: this section's
+instruction was the 1.72 correction, and a second change to the same
+function in the same commit would make neither attributable. It is the next
+obvious step and it will *reduce* the HV geometry gaps above, since a higher
+HV density means a smaller conductor.
+
+**No rating cycles any more.** Searched 60 combinations -- six ratings, oil
+and dry, five flux values -- and not one produced a limit cycle in
+`fitToSchedule`. Section 73 removed most of it by stabilising the window;
+this section removed the rest. `engine.test.mjs`'s cycle fixture can no
+longer assert a cycle. It is **not deleted**, per its own standing
+instruction: the detection code is still live and is now unexercised by the
+suite, which is a real coverage gap and is stated in the test rather than
+quietly dropped. If a cycling design is ever found again, the assertion goes
+back where it was.
+
+`ENGINE_VERSION` 1.35.0. The default case moves +0.24 % on ex-works, because
+`autoFit` refits density against the loss limits anyway and the suggestion
+only sets where that fit starts -- which is also why this correction matters
+most exactly where the fit has least to bite on.

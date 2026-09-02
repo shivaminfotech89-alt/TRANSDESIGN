@@ -323,8 +323,8 @@ const r = E.computeDesign(E.ESSENTIALS, {}, E.DEFAULT_RATES, []);
 // no-load figure. Re-verified directly against computeDesign, not
 // hand-adjusted -- CLAUDE.md's own golden-numbers table updated in the
 // same commit.
-eq("ex-works", Math.round(r.bom.exFactory), 2005344, 800);
-eq("delivered", Math.round(r.bom.withGst), 2366306, 900);
+eq("ex-works", Math.round(r.bom.exFactory), 2010238, 800);
+eq("delivered", Math.round(r.bom.withGst), 2372081, 900);
 eq("tank length mm", Math.round(r.design.tankL), 1541, 2);
 eq("no-load loss W", Math.round(r.design.noLoad), 1088, 5);
 eq("load loss W", Math.round(r.design.loadLoss), 6356, 30);
@@ -505,10 +505,10 @@ const impedanceDev = (kva, baselinePct) => {
 // crosses into a different discrete state this time (-0.95% to -2.38%,
 // still inside the range 100 and 630 kVA already sit in); 100, 630 and
 // 2500 kVA are unmoved.
-impedanceDev(100, 1.34);
+impedanceDev(100, 1.47);
 impedanceDev(630, 5.21);
 impedanceDev(2000, -2.42);
-impedanceDev(2500, 0.00);
+impedanceDev(2500, 2.40);
 
 console.log("\ncooling equipment: fan and pump count follow cooling type, not a fixed number");
 // CALIBRATION.md section 20. 5000 kVA, 33/11 kV power duty so ONAF is the
@@ -738,7 +738,7 @@ console.log("\nfit resolution: the fitted density is actively resolved to its ch
   // bracket-sensitivity cascade section 51's own note already describes
   // for a loss-moving change. Re-verified directly against computeDesign,
   // not hand-adjusted.
-  for (const [kva, ex] of [[630, 1588168], [1000, 2005344], [1250, 2301914]]) {
+  for (const [kva, ex] of [[630, 1590798], [1000, 2010238], [1250, 2309449]]) {
     const r = E.computeDesign({ ...E.ESSENTIALS, kva }, { coreConstruction: "A" }, E.DEFAULT_RATES, []);
     if (!r.fitBoundaryFound || !r.fitResolutionNote) {
       failures++; console.log(`  FAIL ${kva} kVA: expected fitBoundaryFound/fitResolutionNote, got fitBoundaryFound=${r.fitBoundaryFound}`);
@@ -903,13 +903,23 @@ console.log("\nfitToSchedule detects a discrete-geometry limit cycle and exits e
   const over = { flux: 1.75 };
   const spec = E.deriveSpec(core, over);
   const r = E.fitToSchedule(spec.S, over, undefined, undefined, E.DEFAULT_RATES, true);
-  if (!r.autoFitCycleNote) { failures++; console.log("  FAIL expected a detected limit cycle at flux=1.75, 100 kVA -- got none (try 315 kVA before deleting this)"); }
-  else console.log(`  ok   cycle detected: "${r.autoFitCycleNote}"`);
-  // CALIBRATION.md section 51: autoFitConverged is now purely a dynamics
-  // fact -- a cycle was, in fact, detected here, so this is correctly
-  // false. Whether a good state was ultimately built is fitResolutionNote's
-  // question, checked below, not this one's.
-  eq("autoFit converged (dynamics only, cycled)", r.autoFitConverged, false);
+  /* ENGINE_VERSION 1.35.0 (CALIBRATION.md section 75): NO rating cycles any
+     more. Searched 60 combinations -- 63/100/250/630/1000/2500 kVA, oil and
+     dry, flux 1.45/1.50/1.60/1.70/1.78 -- and not one produced a cycle. The
+     window solve gaining its own discrete resolution (section 73) removed
+     most of it, and the oil density correction (section 75) removed the
+     rest: the loss fit was partly chasing geometry that moved under it.
+
+     So this fixture can no longer assert a cycle. It is NOT deleted, per its
+     own previous instruction: the detection code in fitToSchedule is still
+     live and is now UNEXERCISED by this suite, which is a real coverage gap
+     and is stated here rather than quietly dropped. What is asserted instead
+     is the behaviour that replaced it -- a clean convergence that still
+     reports how it resolved. If a cycling design is ever found again, restore
+     the cycle assertion here rather than writing a new test elsewhere. */
+  if (r.autoFitCycleNote) { failures++; console.log(`  FAIL a cycle reappeared at 100 kVA flux 1.75 -- restore the cycle assertions here: ${r.autoFitCycleNote}`); }
+  else console.log("  ok   no cycle at 100 kVA flux 1.75 (no rating cycles any more -- detection path unexercised, see comment)");
+  eq("autoFit converged (no cycle to resolve)", r.autoFitConverged, true);
   if (!r.fitResolutionNote) { failures++; console.log("  FAIL expected fitResolutionNote once resolution ran -- got none"); }
   else console.log(`  ok   resolution note: "${r.fitResolutionNote}"`);
 
