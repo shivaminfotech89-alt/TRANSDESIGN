@@ -33,6 +33,19 @@ total, scale, projection symbol, project name, customer, transformer rating and
 voltage ratio, material where the sheet describes one part, part number where
 applicable, designer, checker, approval status, and the date.
 
+The **drawing number leads** -- larger and heavier than every other field in
+the block -- and the sheet counter is deliberately subordinate to it, labelled
+"Sheet of Set". This is not styling for its own sake. Drawing 20 alone produces
+two sheets, so from sheet 21 onward the counter runs one ahead of the drawing
+number: drawing 21 sits on sheet 22 of 23. Both numbers are correct, but while
+they were the same size and weight a reader met two disagreeing numbers on one
+page with nothing to say which identified the drawing, and read it as an error.
+Renumbering was the alternative and was rejected: the drawing numbers are
+already embedded in issued document codes (`...-D20L`, `...-D20T`), and
+changing them to keep a counter tidy would break the identity of documents
+already sent out. **Do not "align" the two numbers by renumbering; the
+hierarchy is the fix.**
+
 Designer, checker and approval status come from the approval workflow. Until
 that exists, render the field labels with a blank rule to be signed, never a
 placeholder name. An unsigned drawing is honest; an invented approver is not.
