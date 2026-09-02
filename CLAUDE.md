@@ -108,15 +108,22 @@ Default case: 1000 kVA, 11 kV / 433 V, Dyn11, IS, Level 2, copper, ONAN, fin tan
 
 | Quantity | Value |
 |---|---|
-| Ex-works | ₹21,39,036 |
-| Delivered incl. GST | ₹25,24,062 |
-| Tank length | 1576 mm |
-| No-load loss | 1033 W |
-| Load loss | 6541 W |
+| Ex-works | ₹21,53,803 |
+| Delivered incl. GST | ₹25,41,488 |
+| Tank length | 1580 mm |
+| No-load loss | 1025 W |
+| Load loss | 6547 W |
 | Impedance | 5.00 % |
 | Efficiency | 99.25 % |
-| Core mass | 1259 kg |
+| Core mass | 1273 kg |
 | Stepped core utilisation | 3 steps 0.8510, 9 steps 0.9483, 13 steps 0.9642 |
+
+Current as of ENGINE_VERSION 1.38.0 (CALIBRATION.md sections 79-81): a 5%
+flux design margin below the IS 1180 ceiling (1.604 T against 1.689), the
+short-circuit withstand calculation, and two guards. 10% is the target -- it
+is what the 315 kVA reference carries -- but at 10% the fit drives flux to the
+1.42 T floor, which is a different design rather than a margin, and it trips a
+core-mass invariant. Section 81 names the blocker.
 
 Current as of ENGINE_VERSION 1.37.0 (CALIBRATION.md section 77): three more
 IS 1180 requirements the engine did not meet. Impedance now comes from Table 6

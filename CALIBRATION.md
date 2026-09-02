@@ -6272,3 +6272,110 @@ is silently a change of winding metal, with different short-circuit strength
 and different terminations. Now disclosed on the design sheet, with the
 suggestion to pin the conductor explicitly when comparing levels on losses
 alone.
+
+## 79-81. Flux margin, short-circuit withstand, and a core-mass invariant that must never ship silently
+
+`ENGINE_VERSION` 1.38.0. Four changes and one guard.
+
+### 79. Flux design margin, 5% -- with 10% as the target and a named blocker
+
+IS 1180's 1.6889 T is a regulatory ceiling, and a design sitting on it
+saturates on any overvoltage excursion. Mehir's own 315 runs 1.5182 T, which
+is 1.6889 x 0.90 to within 0.1% -- so **10% is what the one real design on
+file actually carries**, not a round number.
+
+10% is nonetheless **not** the default. At 10% the loss fit stops settling at
+the new 1.520 cap and runs to the 1.42 T floor instead: core mass on the
+default case goes 1259 to 1633 kg (+30%), ex-works +6.8%, the 1250 reference's
+own real cutting chart degrades from 6.1% to 11.4% out, the loss fit starts
+cycling again at 100 kVA (undoing section 75), and a core-mass invariant
+inverts. A margin that relocates the design to a different operating point is
+not a margin.
+
+**5% behaves**: flux settles at 1.604 T, core 1273 kg, +0.7% on the default,
+every invariant holds. **The target is 10% and the blocker is the core model
+-- specifically Construction B's `MITRE_K` plate lengths (section 81), which
+cannot carry the large-core geometry a 10% margin produces.** Revisit when a
+second Construction B cutting chart lands.
+
+Also fixed here, and independent of the margin: the fit and search ranges used
+`CORE_GRADES[..].bMax - 0.02` with **no IS cap at all**, so `fitToSchedule` and
+`searchDesigns` explored flux to 1.78 T on IS designs that `designTransformer`
+then silently clamped. The fit was optimising designs the engine cannot build.
+`fluxCeiling()` now takes the lower of the grade's own saturation limit (a
+physical property) and the IS ceiling less margin (a rule about the design) --
+the two must never be multiplied together. Price effect: **15 rupees on the
+default case**. Correct, and immaterial, which is worth recording so nobody
+re-investigates it expecting a saving.
+
+The `etK` sweep floor moves 0.40 to 0.30 in the same commit. The old floor was
+a search-range artefact: a sweep whose optimum can sit on its own edge cannot
+say whether the edge or the physics chose it. Measured after extending, the
+optimum lands between **0.420 and 0.557** across 315 to 2500 kVA and touches
+neither end. It also disproves the reason for extending it -- K *rises* with
+rating, moving away from the floor, so 0.40 was never binding.
+
+### 80. Short-circuit withstand, and a loss-breach banner
+
+The engine computed fault CURRENT and nothing else. A current is not a
+withstand check. Now implemented to IS 2026 Part 5 / IEC 60076-5: asymmetry
+factor from the circuit's own X/R, radial hoop stress (tensile outer,
+compressive inner) from a derivation rather than a quoted formula, axial end
+thrust by residual ampere-turns, and adiabatic conductor temperature over 2 s.
+Three compliance entries and five report rows.
+
+**What it does NOT cover is carried on the design and printed**: inner-winding
+buckling (the most serious omission -- a winding buckles well below its proof
+stress), conductor tilting and spiralling, axial force in balanced windings
+from end fringing, and clamping stress. A design passing these checks has not
+been shown to withstand a short circuit; it has been shown not to fail the
+four things checked.
+
+Against the 315 kVA reference: ours 10.0 MPa tensile and 6.4 MPa compressive
+against Mehir's 10.5 and 7.8, both at 70 MPa allowable -- **14.3% and 14.9%
+utilisation**. Verified by hand, independent of the engine: ampere-turns
+510,801, B_gap 1.861 T, 415 N/m over 1211 m of conductor, hoop tension
+80,069 N over 7653 mm2 = 10.5 MPa. Ours is not worse than the built machine on
+any mechanical measure.
+
+**But this does not clear the copper**, and the reason is a warning about the
+model rather than the design: Mehir's machine is known to shift impedance
+after short-circuit testing, and at 14.9% utilisation and 1.3 kN these four
+checks do not explain why. Either the residual-ampere-turn axial estimate is
+too crude, or the mechanism is buckling or tilting -- none of which is
+modelled. Four green checks are not a withstand verdict.
+
+Separately: a design breaching its declared loss schedule was visible only as
+a red cell inside the compliance block, and a 43%-over design was read as a
+normal result. There is now an amber banner above every other, naming each
+failed condition and the overshoot, and saying plainly that a unit built to it
+would fail acceptance. On a non-preferred rating it says instead that the
+limit is interpolated and this is a warning, not a compliance failure.
+
+### 81. INVARIANT: the assembled core cannot outweigh the steel bought for it
+
+Scrap is non-negative by definition, so `wCoreAssembled <= wCore` always, for
+every construction. This is not a tolerance to record as a gap -- a design
+tripping it puts an impossible mass on a BOM and a steel order.
+
+**It is real and reachable**, not hypothetical: swept across 5 ratings x 3
+constructions x 3 flux values, **2 of 45 designs invert** -- 2500 kVA
+Construction B at 1.42 and 1.60 T, where the widest step reaches about half
+the window height (ratio 0.48 to 0.50).
+
+The cause is that Construction B's plate lengths come from `MITRE_K`, three
+coefficients fitted to ONE real cutting chart at one set of proportions
+(sections 34/35/65), while `wCoreAssembled` comes from Construction A's own
+limb formula. At high step-width-to-window ratios the two models diverge until
+B's fitted lengths fall below A's. **It cannot be corrected without a second
+Construction B cutting chart at different proportions** -- section 65 records
+that requirement and DATA-REQUEST carries it.
+
+So it is guarded, not clamped. Clamping would hide a model failure behind a
+plausible number, which is worse. Three layers, none of them silent:
+`design.coreMassAnomaly` names the construction, the widest step, the window
+and the ratio; `compliance.coreMass` fails so the design is not compliant; and
+the UI raises its own banner telling the reader not to issue a steel order or
+cutting chart from that design. The suite tracks the count as a baseline of 2
+that must never grow -- a permanently red test becomes noise and stops being
+read, and when the fix lands the baseline goes to 0 so it can never return.

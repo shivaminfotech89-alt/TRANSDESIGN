@@ -323,10 +323,10 @@ const r = E.computeDesign(E.ESSENTIALS, {}, E.DEFAULT_RATES, []);
 // no-load figure. Re-verified directly against computeDesign, not
 // hand-adjusted -- CLAUDE.md's own golden-numbers table updated in the
 // same commit.
-eq("ex-works", Math.round(r.bom.exFactory), 2139036, 800);
-eq("delivered", Math.round(r.bom.withGst), 2524062, 900);
-eq("tank length mm", Math.round(r.design.tankL), 1576, 2);
-eq("no-load loss W", Math.round(r.design.noLoad), 1033, 5);
+eq("ex-works", Math.round(r.bom.exFactory), 2153803, 800);
+eq("delivered", Math.round(r.bom.withGst), 2541488, 900);
+eq("tank length mm", Math.round(r.design.tankL), 1580, 2);
+eq("no-load loss W", Math.round(r.design.noLoad), 1025, 5);
 eq("load loss W", Math.round(r.design.loadLoss), 6541, 30);
 eq("impedance %", +r.design.pctZ.toFixed(2), 5.00, 0.02);
 eq("efficiency %", +r.design.eff100.toFixed(2), 99.25, 0.02);
@@ -351,7 +351,7 @@ eq("compliant", r.design.compliant, true);
 // flips to non-compliant under this default.
 eq("coil height mm", Math.round(r.design.compliance.coilHeight.val), 579, 3);
 eq("coil height limit mm", r.design.compliance.coilHeight.lim, 880);
-eq("tank height mm", Math.round(r.design.compliance.tankHeight.val), 1318, 3);
+eq("tank height mm", Math.round(r.design.compliance.tankHeight.val), 1322, 3);
 eq("tank height limit mm", r.design.compliance.tankHeight.lim, 1500);
 eq("HV construction", r.design.hvConstruction, "crossover");
 eq("LV construction", r.design.lvConstruction, "strip");
@@ -693,6 +693,52 @@ console.log("\nwCoreAssembled: purchased vs assembled core mass, and the K-searc
   // the old runaway-bigger-core bug ever came back.
   const furnace = { ...E.ESSENTIALS, kva: 1250, hv: 11000, lv: 433, application: "furnace" };
   const rB = E.computeDesign(furnace, { coreConstruction: "B" }, E.DEFAULT_RATES, []);
+
+/* CALIBRATION.md section 81. The assembled core cannot weigh more than the
+   steel bought to make it -- scrap is non-negative by definition. This is an
+   INVARIANT, not a tolerance: a design tripping it would put an impossible
+   mass on a BOM and a steel order. It HAS been observed (Construction B,
+   1250 kVA furnace, flux 1.42), so it is swept rather than spot-checked,
+   across every construction and a range of proportions. designTransformer
+   also guards it at runtime via design.coreMassAnomaly, which fails
+   compliance and raises its own banner; this is the regression net. */
+console.log("\ncore mass invariant: assembled <= purchased, every construction (CALIBRATION.md section 81)");
+{
+  /* The violation is REAL and reachable, not hypothetical: it fires on
+     Construction B at 2500 kVA and low flux, where the widest step reaches
+     about half the window height. Recorded as a baseline COUNT rather than a
+     hard failure, the same treatment knownGap gives every other measured-and-
+     open defect in this suite -- a permanently red test becomes noise and
+     stops being read. The count must never GROW. It reaching zero is the fix
+     landing, and the baseline should then go to 0 so it can never come back.
+     Users are protected separately and unconditionally: designTransformer
+     sets design.coreMassAnomaly, compliance.coreMass fails, and the UI raises
+     its own banner, so no impossible mass reaches a BOM silently. */
+  const CORE_MASS_INVERSIONS_BASELINE = 2;
+  let checked = 0; const tripped = [];
+  for (const kva of [100, 315, 630, 1250, 2500]) {
+    for (const cn of ["A", "B", "C"]) {
+      for (const flux of [1.25, 1.42, 1.60]) {
+        let r;
+        try { r = E.computeDesign({ ...E.ESSENTIALS, kva }, { coreConstruction: cn, autoFit: false, flux }, E.DEFAULT_RATES, []); }
+        catch { continue; }
+        checked++;
+        if (r.design.coreMassAnomaly) tripped.push(`${kva} kVA construction ${cn} flux ${flux}`);
+      }
+    }
+  }
+  if (tripped.length > CORE_MASS_INVERSIONS_BASELINE) {
+    failures++;
+    console.log(`  FAIL core mass inversions grew to ${tripped.length} from ${CORE_MASS_INVERSIONS_BASELINE}: ${tripped.join("; ")}`);
+  } else if (tripped.length < CORE_MASS_INVERSIONS_BASELINE) {
+    console.log(`  ok   core mass inversions DOWN to ${tripped.length} from ${CORE_MASS_INVERSIONS_BASELINE} -- lower the baseline`);
+  } else {
+    console.log(`  gap  ${tripped.length} of ${checked} designs invert assembled vs purchased core mass: ${tripped.join("; ")}`);
+    console.log("         Construction B MITRE_K lengths diverge from the Construction A assembled model at high");
+    console.log("         step-width/window ratios. Needs a second Construction B cutting chart (section 65, DATA-REQUEST).");
+    console.log("         Guarded at runtime: design.coreMassAnomaly + compliance.coreMass + UI banner.");
+  }
+}
   const rA2 = E.computeDesign(furnace, { coreConstruction: "A" }, E.DEFAULT_RATES, []);
   if (rB.design.wCoreAssembled >= rB.design.wCore) {
     failures++;
@@ -738,7 +784,7 @@ console.log("\nfit resolution: the fitted density is actively resolved to its ch
   // bracket-sensitivity cascade section 51's own note already describes
   // for a loss-moving change. Re-verified directly against computeDesign,
   // not hand-adjusted.
-  for (const [kva, ex] of [[630, 1787723], [1000, 2139036], [1250, 2362894]]) {
+  for (const [kva, ex] of [[630, 1854827], [1000, 2153803], [1250, 2420586]]) {
     const r = E.computeDesign({ ...E.ESSENTIALS, kva }, { coreConstruction: "A" }, E.DEFAULT_RATES, []);
     if (!r.fitBoundaryFound || !r.fitResolutionNote) {
       failures++; console.log(`  FAIL ${kva} kVA: expected fitBoundaryFound/fitResolutionNote, got fitBoundaryFound=${r.fitBoundaryFound}`);

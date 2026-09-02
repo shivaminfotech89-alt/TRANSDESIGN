@@ -653,6 +653,11 @@ export default function App() {
   // windowStraddle only when the closest achievable impedance falls outside
   // the standard's own tolerance -- at which point the design cannot be
   // built to its declared figure and the user has to change something.
+  // CALIBRATION.md section 80: a design breaching its declared loss schedule
+  // must be unmissable. Raised first, above every other banner, because it is
+  // the only one that says the unit cannot be delivered as tendered.
+  const activeCoreAnomaly = viewingRevision ? viewedResult!.design.coreMassAnomaly : budgetPreview ? undefined : result.design.coreMassAnomaly;
+  const activeLossBreach = viewingRevision ? viewedResult!.design.lossBreach : budgetPreview ? undefined : result.design.lossBreach;
   const activeWindowNote = viewingRevision ? viewedResult!.design.windowNote : budgetPreview ? undefined : result.design.windowNote;
   const activeWindowStraddle = viewingRevision ? !!viewedResult!.design.windowStraddle : budgetPreview ? false : !!result.design.windowStraddle;
 
@@ -824,6 +829,24 @@ export default function App() {
               No Volts-Per-Turn Setting Meets Every Declared Limit
             </div>
             <p className="text-[11px] text-ink2">{activeEtkNote}</p>
+          </div>
+        )}
+
+        {activeCoreAnomaly && (
+          <div className="bg-white border border-amber rounded-[2px] px-4 py-3 print:hidden">
+            <div className="text-[11px] font-display uppercase tracking-[0.14em] text-amber mb-1">
+              Core Mass Is Physically Impossible
+            </div>
+            <p className="text-[11px] text-ink2">{activeCoreAnomaly}</p>
+          </div>
+        )}
+
+        {activeLossBreach && (
+          <div className="bg-white border border-amber rounded-[2px] px-4 py-3 print:hidden">
+            <div className="text-[11px] font-display uppercase tracking-[0.14em] text-amber mb-1">
+              Declared Loss Schedule Not Met
+            </div>
+            <p className="text-[11px] text-ink2">{activeLossBreach}</p>
           </div>
         )}
 
