@@ -35,12 +35,22 @@ is better -- for the **HV winding**:
 5. **The arrangement of those strands, axial by radial** -- e.g. "2 axial
    by 3 radial", the same form the LV data on both sheets already gives.
 
-We already have exactly this for the **315 kVA**: 2.92 mm diameter round
-super enamel, single conductor, 6.69 mm2. That is one rating. **One more,
-at a different rating, settles the question** -- the whole problem is that
-a single point cannot tell us how the arrangement responds to rating and
-current, and 315 kVA against either 630 or 1250 spans a wide enough range
-to answer it.
+We already have exactly this on two of your sheets:
+
+- **315 kVA** -- 2.92 mm diameter round super enamel, single conductor,
+  6.69 mm2.
+- **500 kVA** -- 9 SWG round enamelled, 3.657 mm bare and 3.745 over the
+  enamel, single conductor, 10.50 mm2.
+
+Both are round, both single-strand, and both sit at the small end of the
+range. That is what makes the gap specific rather than general: we know
+what the HV conductor looks like where it is a single round wire, and
+nothing at all about it where it becomes rectangular strip or splits into
+parallel strands -- which is exactly where the 2.1:1 shape assumption
+starts doing the damage. **One more design, at 630 or 1250, settles it** --
+a single point (or two at the same end of the range) cannot show how the
+arrangement responds to rating and current, and 315/500 against either 630
+or 1250 spans a wide enough range to answer that.
 
 ### What it unblocks, plainly
 
