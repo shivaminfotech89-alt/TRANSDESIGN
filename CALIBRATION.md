@@ -1,10 +1,48 @@
 # Engine calibration against real working designs
 
-Two production design sheets from Mehir Transformers, prepared by a working
-designer, were compared against the engine. Given the designer's volts per turn
-and clearances, the engine reproduces both transformers to within a few per
-cent, so the geometry and turns model is sound. What needs correcting is what
-the engine *suggests* when left to choose.
+Four production design sheets from Mehir Transformers, prepared by working
+designers, are compared against the engine. Given the designer's volts per
+turn and clearances, the engine reproduces their geometry and turns to within
+a few per cent, so that part of the model is sound. What needs correcting is
+what the engine *suggests* when left to choose -- and the largest single
+example of that is immediately below.
+
+## The strongest single finding in this file: the oil current density is 1.72x too high
+
+Kept here, at the top, rather than inside a section, because it is the
+best-evidenced number in the document and the one most likely to be needed
+by someone who reads no further.
+
+| | `densitySuggest` | sheet | ratio |
+|---|---|---|---|
+| 1250 kVA, oil | 2.50 A/mm2 | ~1.44 | **1.74** |
+| 315 kVA, oil | 2.60 A/mm2 | 1.52 | **1.71** |
+| 630 kVA, dry | 2.80 A/mm2 | 2.84 | **0.99** |
+
+**Two independent oil designs, four times apart in rating, at the same
+ratio; the one dry design at 1.00.** Nothing else in this file rests on two
+matching points that far apart. A flat ratio across a 4x span is an
+intercept error, not a slope error, and the dry figure landing at 1.00 says
+the medium correction is right and the oil baseline specifically is wrong.
+
+The 1250's own implied ~1.44 was recorded in section 11 long before the 315
+sheet existed, which means the two points were never fitted to each other.
+
+**What correcting it does**, measured: the 315's load loss goes from +70.2%
+against its own calculated 2220 W to **-5.0%**; the 1250's copper mass from
+-43.4% against its 982 kg to **+6.1%**; and the LV conductor arrangement on
+the 500 and 1250 comes out exactly right for the first time. It closes the
+LV area gap open since section 11 -- which was never an area-model defect at
+all, the area model being exact to 0.2% when fed real densities (section 72).
+
+**It is not committed.** Correcting it enlarges the HV conductor, and the HV
+radial build is computed from a fixed 2.1:1 conductor shape with no
+measurement behind it (section 11's own open question), so the 1250's HV OD,
+tank length and real cutting chart all degrade. Blocked on one datum: HV
+conductor dimensions for the 1250 or 630 kVA. See DATA-REQUEST item 0 and
+sections 72 and 74.
+
+---
 
 Reference designs:
 - **1250 kVA, 11/0.433 kV, Dyn11, OLTC, oil, copper.** 1400 W no-load,

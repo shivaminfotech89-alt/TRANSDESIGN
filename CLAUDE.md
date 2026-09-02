@@ -230,10 +230,18 @@ const { design, bom, params, spec } = computeDesign(core, over, rates, extras);
 - **Guaranteed vs measured losses.** The design is held to the guaranteed
   figure. The standard's tolerance (+15 % component, +10 % total under IS/IEC)
   applies to the measured value on test, not to the design target.
-- **Current density is per material.** Copper runs about 2.5 A/mm² at 1000 kVA,
-  aluminium about 0.78 of that. Any search over materials must anchor the
-  density ladder on the material being tried, not the one already in the design.
-  Getting this wrong made aluminium look infeasible.
+- **Current density is per material, and the oil figure in `densitySuggest`
+  is known to be 1.72x too high.** Two real oil designs four times apart in
+  rating both run about 1.44-1.52 A/mm² where the engine suggests 2.50-2.60;
+  the one real dry design lands at 0.99 of its suggestion, so the medium
+  correction is right and the oil baseline specifically is wrong. Do not
+  quote the old "about 2.5 A/mm² at 1000 kVA" figure that stood here — it is
+  the wrong number and it is what this line used to say. The correction is
+  written and tested but blocked on HV conductor dimensions (CALIBRATION.md
+  header and sections 72/74, DATA-REQUEST item 0). Aluminium is about 0.78 of
+  copper. Any search over materials must anchor the density ladder on the
+  material being tried, not the one already in the design. Getting that wrong
+  made aluminium look infeasible.
 - **Temperature rise binds twice.** The cooling surface must satisfy both the
   top-oil limit and the winding-rise limit; take whichever is lower.
 - **Ageing uses the yearly weighted ambient (32 °C in India), not the maximum
