@@ -323,14 +323,14 @@ const r = E.computeDesign(E.ESSENTIALS, {}, E.DEFAULT_RATES, []);
 // no-load figure. Re-verified directly against computeDesign, not
 // hand-adjusted -- CLAUDE.md's own golden-numbers table updated in the
 // same commit.
-eq("ex-works", Math.round(r.bom.exFactory), 2020090, 800);
-eq("delivered", Math.round(r.bom.withGst), 2383706, 900);
-eq("tank length mm", Math.round(r.design.tankL), 1499, 2);
-eq("no-load loss W", Math.round(r.design.noLoad), 998, 5);
-eq("load loss W", Math.round(r.design.loadLoss), 6547, 30);
-eq("impedance %", +r.design.pctZ.toFixed(2), 4.89, 0.02);
+eq("ex-works", Math.round(r.bom.exFactory), 2139036, 800);
+eq("delivered", Math.round(r.bom.withGst), 2524062, 900);
+eq("tank length mm", Math.round(r.design.tankL), 1576, 2);
+eq("no-load loss W", Math.round(r.design.noLoad), 1033, 5);
+eq("load loss W", Math.round(r.design.loadLoss), 6541, 30);
+eq("impedance %", +r.design.pctZ.toFixed(2), 5.00, 0.02);
 eq("efficiency %", +r.design.eff100.toFixed(2), 99.25, 0.02);
-eq("core mass kg", Math.round(r.design.wCore), 1018, 15);
+eq("core mass kg", Math.round(r.design.wCore), 1259, 15);
 // autoFitConverged is a dynamics fact (CALIBRATION.md section 51): did the
 // damped iteration reach a stable point WITHOUT cycling. Section 59's own
 // no-load change moves this default case off the discrete-configuration
@@ -349,9 +349,9 @@ eq("compliant", r.design.compliant, true);
 // different design can now clear the old ratio while missing one of these,
 // or the reverse) -- see section 44 for the 2500 kVA furnace case that
 // flips to non-compliant under this default.
-eq("coil height mm", Math.round(r.design.compliance.coilHeight.val), 609, 3);
+eq("coil height mm", Math.round(r.design.compliance.coilHeight.val), 579, 3);
 eq("coil height limit mm", r.design.compliance.coilHeight.lim, 880);
-eq("tank height mm", Math.round(r.design.compliance.tankHeight.val), 1316, 3);
+eq("tank height mm", Math.round(r.design.compliance.tankHeight.val), 1318, 3);
 eq("tank height limit mm", r.design.compliance.tankHeight.lim, 1500);
 eq("HV construction", r.design.hvConstruction, "crossover");
 eq("LV construction", r.design.lvConstruction, "strip");
@@ -738,7 +738,7 @@ console.log("\nfit resolution: the fitted density is actively resolved to its ch
   // bracket-sensitivity cascade section 51's own note already describes
   // for a loss-moving change. Re-verified directly against computeDesign,
   // not hand-adjusted.
-  for (const [kva, ex] of [[630, 1707404], [1000, 2020090], [1250, 2247168]]) {
+  for (const [kva, ex] of [[630, 1787723], [1000, 2139036], [1250, 2362894]]) {
     const r = E.computeDesign({ ...E.ESSENTIALS, kva }, { coreConstruction: "A" }, E.DEFAULT_RATES, []);
     if (!r.fitBoundaryFound || !r.fitResolutionNote) {
       failures++; console.log(`  FAIL ${kva} kVA: expected fitBoundaryFound/fitResolutionNote, got fitBoundaryFound=${r.fitBoundaryFound}`);
@@ -968,8 +968,16 @@ console.log("\nfitToSchedule reports flux saturation separately from cycling (CA
      six ratings and four levels, ceiling saturation remains common
      (630/1000/1600 at level 2, among others), so this is a retarget and
      not a coverage loss. */
-  const r = E.computeDesign({ ...E.ESSENTIALS, kva: 1600 }, {}, E.DEFAULT_RATES, []);
-  if (!r.autoFitFluxLimit) { failures++; console.log("  FAIL expected autoFitFluxLimit at 1600 kVA (flux known to saturate at the grade ceiling here) -- got none"); }
+  /* ENGINE_VERSION 1.37.0 (CALIBRATION.md section 77): grade-ceiling
+     saturation is now UNREACHABLE under IS by construction. IS 1180 caps
+     flux at 1.6889 T and every CRGO grade ceiling is 1.75 or 1.80, so the
+     product limit always binds first and autoFitFluxLimit can never report
+     "ceiling" for an IS design. That is the correct new behaviour, not a
+     lost case. The check moves to IEC, where no such cap applies and the
+     grade ceiling still binds -- so the reporting path stays exercised.
+     If the IS cap is ever relaxed, move this back. */
+  const r = E.computeDesign({ ...E.ESSENTIALS, kva: 2000, standard: "IEC" }, {}, E.DEFAULT_RATES, []);
+  if (!r.autoFitFluxLimit) { failures++; console.log("  FAIL expected autoFitFluxLimit at 2000 kVA under IEC (IS caps flux below every grade ceiling, so IS can no longer saturate one) -- got none"); }
   else if (r.autoFitFluxLimit.at !== "ceiling") { failures++; console.log(`  FAIL expected flux saturated at the ceiling, got "${r.autoFitFluxLimit.at}"`); }
   else console.log(`  ok   flux saturation reported: at ${r.autoFitFluxLimit.at}, ${r.autoFitFluxLimit.value} T, noLoad ${r.autoFitFluxLimit.noLoad} W against ${r.autoFitFluxLimit.limit} W (compliant: ${r.autoFitFluxLimit.compliant})`);
 }

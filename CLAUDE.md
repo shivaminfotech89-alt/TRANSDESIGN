@@ -108,15 +108,25 @@ Default case: 1000 kVA, 11 kV / 433 V, Dyn11, IS, Level 2, copper, ONAN, fin tan
 
 | Quantity | Value |
 |---|---|
-| Ex-works | ₹20,20,090 |
-| Delivered incl. GST | ₹23,83,706 |
-| Tank length | 1499 mm |
-| No-load loss | 998 W |
-| Load loss | 6547 W |
-| Impedance | 4.89 % |
+| Ex-works | ₹21,39,036 |
+| Delivered incl. GST | ₹25,24,062 |
+| Tank length | 1576 mm |
+| No-load loss | 1033 W |
+| Load loss | 6541 W |
+| Impedance | 5.00 % |
 | Efficiency | 99.25 % |
-| Core mass | 1018 kg |
+| Core mass | 1259 kg |
 | Stepped core utilisation | 3 steps 0.8510, 9 steps 0.9483, 13 steps 0.9642 |
+
+Current as of ENGINE_VERSION 1.37.0 (CALIBRATION.md section 77): three more
+IS 1180 requirements the engine did not meet. Impedance now comes from Table 6
+(6.25 % at 1600-2500 kVA, where the old ladder said 5.00). Flux is capped at
+1.9/1.125 = 1.6889 T per clauses 6.9.1 and 7.9 -- the default case was fitting
+to 1.78 T and was non-compliant. Temperature rise uses IS 1180's own limits,
+45 K winding and 40 K oil for 250-2500 kVA and 40/35 for 16-200, superseding
+IS 2026's 55/50 inside the product standard's scope and falling back to it
+outside. Cooling surface rises 40-56 % in the 250-2500 band and 160 % at
+100 kVA. The flux cap is the largest single price effect on the default case.
 
 Current as of ENGINE_VERSION 1.36.0 (CALIBRATION.md section 76): the loss
 schedule is the published IS 1180 (Part 1) : 2014 tables, not a fitted

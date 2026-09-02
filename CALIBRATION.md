@@ -6085,3 +6085,103 @@ ever needs raising again it is a real instability, not a schedule change.
 fitted to the published 1000 kVA Level 2 row rather than to the formula's
 estimate. 630 kVA ex-works rises 7.3 % and 1250 kVA falls 2.7 %, both because
 their published limits differ from what the formula assumed.
+
+## 77. Impedance, flux ceiling and temperature rise brought to IS 1180 -- and the flux cap is the expensive one
+
+Three more requirements the engine did not meet, plus the non-preferred
+rating policy. ENGINE_VERSION 1.37.0.
+
+**Impedance (Table 6).** `zSuggest` returned 5.00 % for 1600, 2000 and
+2500 kVA where the standard recommends **6.25 %**. Now read from the table
+wherever the rating has a row; the old ladder survives only for what the table
+does not cover -- above 2500 kVA, dry type, non-IS standards -- and the Um
+overrides still apply on top. **No effect on any of the five references**,
+which all sit at ratings where the ladder already agreed. Where it does bite:
+
+| kVA | old | Table 6 | ex-works |
+|---|---|---|---|
+| 1600 | 5.00 | 6.25 | +6.1 % |
+| 2000 | 5.00 | 6.25 | +7.7 % |
+| 2500 | 5.00 | 6.25 | **-8.8 %** |
+
+2500 kVA gets cheaper at the higher impedance -- a taller, thinner window
+costs less there than the extra reactance costs.
+
+**Flux ceiling (clauses 6.9.1 and 7.9).** Flux at +12.5 % combined voltage and
+frequency variation must not exceed 1.9 T, so the rated-voltage ceiling is
+1.9/1.125 = **1.6889 T**. The Mehir 315 drawing's own "1.69 MAX" confirms the
+reading independently. Grade ceilings are 1.75 and 1.80 T and the default case
+was fitting to **1.78 T, non-compliant**. Now clamped, not merely reported:
+leaving the fit free to exceed a limit the same engine then flags is precisely
+what item 1 was.
+
+One consequence worth stating: grade-ceiling saturation is now **unreachable
+under IS by construction**, since 1.6889 sits below every CRGO grade ceiling.
+The saturation fixture in engine.test.mjs moves to IEC, where no such cap
+applies and the reporting path stays exercised.
+
+**Temperature rise (clauses 7.10.2 and 6.10.2).** IS 1180 is a product
+standard for distribution transformers and supersedes IS 2026's general
+55 K/50 K inside its scope. STANDARDS.IS keeps the IS 2026 figures and
+`isRiseLimits` narrows them by rating band -- 45 K winding / 40 K oil for
+250-2500 kVA, 40/35 for 16-200, 40/35 for single phase to 25 kVA (clause
+8.10.2, recorded but unreachable) -- falling back to IS 2026 outside those
+bands. The physical effect is larger than the headline 32 %, because both
+limits tighten and the engine takes whichever binds:
+
+| | rise limit | fin area | |
+|---|---|---|---|
+| 315 kVA | 55/50 -> 45/40 K | 7.1 -> 11.1 m2 | **+56 %** |
+| 1000 kVA | 55/50 -> 45/40 K | 23.4 -> 33.1 m2 | +42 % |
+| 1250 kVA | 55/50 -> 45/40 K | 28.9 -> 40.5 m2 | +40 % |
+| 100 kVA | 55/50 -> 40/35 K | 3.6 -> 9.5 m2 | **+160 %** |
+
+**Non-preferred ratings: warn and proceed.** The standard makes losses at
+unlisted ratings subject to agreement between user and supplier, so designing
+one is legitimate and refusing would make the tool useless for exactly the
+enquiries that are not on the list. `is1180Schedule` interpolates between the
+two nearest tabled ratings and returns `exact: false` with the bracketing
+ratings. Three states are kept distinct because they mean different things:
+**exact** (its own row), **agreed** (interpolated, a starting suggestion and
+never an IS 1180 figure), **pending** (outside the tables entirely, nothing to
+interpolate between). Impedance is NOT interpolated: Table 6 gives it in bands
+(4.50/5.00/6.25), so a value between bands is not a figure the standard
+recognises, and the nearer tabled rating's band is used.
+
+An interpolated limit is reported with its value and limit visible but does
+**not gate compliance**: calling a design non-compliant against a number
+IS 1180 does not give for that rating would be presenting the interpolation as
+a limit. The note appears as its own section at the head of the calculation
+sheet and as two rows in the printed report, both stating that the figures are
+interpolated, subject to agreement, and not an IS 1180 value.
+
+**Price impact, four effects separated**, each measured by removing that one
+change from the finished engine:
+
+| reference | before all four | item 1 loss | item 2 Z | item 3 flux | item 4 rise | final | total |
+|---|---|---|---|---|---|---|---|
+| 315 | 9,57,146 | **+20.3 %** | 0 | 0 | +0.5 % | 11,57,669 | **+21.0 %** |
+| 500 | 14,45,478 | **+11.2 %** | 0 | 0 | +0.5 % | 16,16,003 | +11.8 % |
+| 630 dry | 14,86,899 | 0 | 0 | +2.6 % | 0 | 15,24,815 | +2.6 % |
+| 1000 default | 20,10,238 | +0.5 % | 0 | **+5.1 %** | +0.7 % | 21,39,036 | +6.4 % |
+| 1250 | 23,09,449 | **-2.7 %** | 0 | +4.4 % | +0.7 % | 23,62,894 | +2.3 % |
+
+Item 1 dominates at 315 and 500, the two designs that were breaching the loss
+limits. Item 3 dominates at 1000 and 1250, where the fit had been sitting above
+the flux cap. **Item 4 costs far less than its 40-160 % cooling increase
+suggests**, 0.5 to 0.7 %, which is consistent with section 63's own measurement
+that trebling fin area costs 3.4 to 4.5 % of ex-works. Fin steel is thin and
+cheap relative to core, copper and oil. The rise correction buys compliance and
+real thermal margin for very little money, which is the opposite of what the
+32 % headline suggests.
+
+**One scope question, flagged not resolved.** The flux cap is applied whenever
+the standard is IS, as instructed, which includes dry-type designs -- and the
+630 kVA dry reference picks up +2.6 % from it. But IS 1180 Part 1 covers
+oil-immersed distribution transformers, and this engine already gates the loss
+tables on `!dry` for exactly that reason. Either the cap should be oil-only for
+consistency with the tables, or the tables' gate is too strict. The physics of
+avoiding saturation at +12.5 % variation applies to any transformer, so the cap
+is not wrong for dry -- but it is currently applied on a different scope rule
+from the losses in the same standard, and that should be settled rather than
+left.

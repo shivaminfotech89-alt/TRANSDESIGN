@@ -8,7 +8,7 @@
  * without bumping it, or old quotations stop reproducing.
  */
 
-export const ENGINE_VERSION = "1.36.0";
+export const ENGINE_VERSION = "1.37.0";
 
 const CONDUCTORS = {
   copper: { name: "Copper, EC grade", rho20: 0.017241, alpha: 0.00393, dens: 8890, dMax: 3.6, short: "Cu", proof: 1.0 },
@@ -278,6 +278,28 @@ const IS1180 = {
     25: [4.00, [125, 340], [110, 300], [95, 260]],
   },
 };
+/* CALIBRATION.md section 77, clauses 6.9.1 and 7.9: flux density at +12.5%
+   combined voltage and frequency variation must not exceed 1.9 T, so the
+   ceiling at RATED voltage is 1.9 / 1.125 = 1.6889 T. The Mehir 315 drawing
+   states "1.69 MAX", which confirms the reading independently. Our grade
+   ceilings are 1.75 and 1.80 T and the default case was fitting to 1.78 --
+   non-compliant. Applied when the standard is IS. */
+const IS1180_FLUX_MAX = 1.9 / 1.125;
+
+/* CALIBRATION.md section 77, clauses 7.10.2 (250-2500 kVA) and 6.10.2
+   (16-200 kVA), and 8.10.2 for single phase up to 25 kVA. IS 1180 is a
+   PRODUCT standard for distribution transformers and supersedes the general
+   IS 2026 figures (55 K winding, 50 K oil) for the ratings in its scope --
+   that is the point of it being a separate standard. Outside its scope the
+   IS 2026 figures still apply, so STANDARDS.IS keeps them and this narrows
+   them where a rating falls in scope. */
+function isRiseLimits(kva, phase = "three") {
+  if (phase === "single") return kva <= 25 ? { windRise: 40, oilRise: 35, clause: "8.10.2" } : null;
+  if (kva >= 250 && kva <= 2500) return { windRise: 45, oilRise: 40, clause: "7.10.2" };
+  if (kva >= 16 && kva < 250) return { windRise: 40, oilRise: 35, clause: "6.10.2" };
+  return null;
+}
+
 const IS1180_KVA = Object.keys(IS1180.three).map(Number).sort((a, b) => a - b);
 
 /* Exact lookup only. IS 1180 lists discrete ratings and says losses for
@@ -288,11 +310,37 @@ const IS1180_KVA = Object.keys(IS1180.three).map(Number).sort((a, b) => a - b);
    this part of the standard does not cover dry type. */
 function is1180Schedule(kva, level, dry, phase = "three") {
   if (dry) return null;
-  const row = (IS1180[phase] || IS1180.three)[kva];
-  if (!row) return null;
+  const tbl = IS1180[phase] || IS1180.three;
   const idx = level === "level1" ? 1 : level === "level3" ? 3 : 2;
-  const [p50, p100] = row[idx];
-  return { p50, p100, z: row[0], level: idx === 1 ? "level1" : idx === 3 ? "level3" : "level2" };
+  const lvl = idx === 1 ? "level1" : idx === 3 ? "level3" : "level2";
+  const row = tbl[kva];
+  if (row) {
+    const [p50, p100] = row[idx];
+    return { p50, p100, z: row[0], level: lvl, exact: true };
+  }
+  /* Non-preferred rating. The standard makes losses here "subject to
+     agreement between user and supplier", so designing one is legitimate --
+     refusing would make the tool useless for exactly the enquiries that are
+     not on the list. What is NOT legitimate is presenting the result as an
+     IS 1180 figure. So: interpolate between the two nearest tabled ratings
+     as a STARTING SUGGESTION, and carry `exact: false` with the bracketing
+     ratings so every consumer can say what it is. Outside the table's own
+     range entirely there is nothing to interpolate between, and that stays
+     null -- extrapolation would be invention, not agreement. */
+  const keys = Object.keys(tbl).map(Number).sort((a, b) => a - b);
+  const lo = [...keys].reverse().find((k) => k < kva);
+  const hi = keys.find((k) => k > kva);
+  if (lo == null || hi == null) return null;
+  const t = (kva - lo) / (hi - lo);
+  const [l50, l100] = tbl[lo][idx], [h50, h100] = tbl[hi][idx];
+  /* Impedance is NOT interpolated: Table 6 gives it in bands (4.50, 5.00,
+     6.25), not as a curve, so a value between two bands is not a figure the
+     standard recognises. The nearer tabled rating's band is used instead. */
+  const z = (kva - lo) <= (hi - kva) ? tbl[lo][0] : tbl[hi][0];
+  return {
+    p50: l50 + t * (h50 - l50), p100: l100 + t * (h100 - l100), z,
+    level: lvl, exact: false, lo, hi,
+  };
 }
 
 /* The unique (no-load, load) pair sitting exactly on BOTH published limits,
@@ -359,8 +407,18 @@ function clearancesFrom(bilHV, bilLV, medium, dryType) {
 const UM_STEPS = [1.1, 3.6, 7.2, 12, 17.5, 24, 36, 52, 72.5, 145];
 const umFor = (v) => UM_STEPS.find((u) => u >= (v / 1000) * 1.045) ?? 145;
 
-function zSuggest(kva, um) {
-  let z = kva <= 630 ? 4.5 : kva <= 2500 ? 5.0 : kva <= 10000 ? 6.25 : kva <= 31500 ? 8.0 : 12.5;
+/* CALIBRATION.md section 77. Table 6 gives a recommended impedance per
+   rating and the old ladder disagreed with it above 1250 kVA: it returned
+   5.00 % for 1600, 2000 and 2500 where the standard says 6.25 %. Read from
+   the table wherever the rating has a row, including the interpolated case
+   (which takes the nearer tabled rating's own band rather than a value
+   between bands -- see is1180Schedule). The ladder survives only for what
+   the table does not cover: above 2500 kVA, dry type, and non-IS standards.
+   The Um overrides below still apply on top, unchanged. */
+function zSuggest(kva, um, standard, dry) {
+  const pub = standard === "IS" ? is1180Schedule(kva, "level2", dry) : null;
+  let z = pub ? pub.z
+    : kva <= 630 ? 4.5 : kva <= 2500 ? 5.0 : kva <= 10000 ? 6.25 : kva <= 31500 ? 8.0 : 12.5;
   if (um >= 72.5) z = Math.max(z, 10);
   else if (um >= 36 && kva > 2500) z = Math.max(z, 8);
   return z;
@@ -511,7 +569,11 @@ function deriveSpec(core, over = {}) {
     put("tankType", kva > 2500 || estAreaM2 > FIN_WALL_CEILING_M2 ? "radiator" : "fin", null,
       [["fin", "Corrugated fin, sealed"], ["radiator", "Radiator + conservator"]],
       `Fin tanks up to about 2500 kVA or an estimated ${FIN_WALL_CEILING_M2} m² of required cooling surface (~${Math.round(estAreaM2)} m² estimated here), radiators above either.`);
-    put("oilRiseTarget", Math.min(std.oilRise, FLUIDS[fl].riseLimit), [30, Math.min(std.oilRise, FLUIDS[fl].riseLimit), 1], null, `Design to the ${std.name} limit. Lower means more cooling surface and more cost.`);
+    const isR = core.standard === "IS" && !dry ? isRiseLimits(kva) : null;
+    const oilRiseCap = Math.min(isR ? isR.oilRise : std.oilRise, FLUIDS[fl].riseLimit);
+    put("oilRiseTarget", oilRiseCap, [30, oilRiseCap, 1], null,
+      isR ? `IS 1180 (Part 1) : 2014 clause ${isR.clause} limits top-oil rise to ${isR.oilRise} K and winding rise to ${isR.windRise} K for ${kva} kVA -- tighter than IS 2026’s ${std.oilRise}/${std.windRise} K, which this product standard supersedes in its own scope. Lower means more cooling surface and more cost.`
+        : `Design to the ${std.name} limit. Lower means more cooling surface and more cost.`);
     put("radiatorPanelWidth", 520, [400, 650, 10], null, "Pressed-steel radiator panel width. 520 mm is typical Indian practice; override to your supplier's own panel.");
     put("radiatorPanelPitch", 45, [30, 65, 1], null, "Centre-to-centre spacing between adjacent radiator panels in a bank. A fitted typical figure, not a specific vendor's panel.");
     put("radiatorPanelsPerBank", 16, [6, 30, 1], null, "Panels bolted into one removable bank before another bank is started. A practical handling limit, not a physical one -- override to your works' own practice.");
@@ -564,7 +626,11 @@ function deriveSpec(core, over = {}) {
       : `Estimated from the level formula for ${kva} kVA. Replace it with the figure in the enquiry.`;
   put("limitNLL", Math.round(sch.nll), [Math.round(sch.nll * 0.5), Math.round(sch.nll * 2), 5], null, schNote);
   put("limitLL", Math.round(sch.ll), [Math.round(sch.ll * 0.5), Math.round(sch.ll * 2), 25], null, schNote);
-  const z = put("targetZ", zSuggest(kva, umHV), [3, 14, 0.25], null, `Standard value for ${kva} kVA at ${umHV} kV. Going lower raises fault current; going higher worsens regulation.`);
+  const zPub = core.standard === "IS" ? is1180Schedule(kva, lvlKey, dry) : null;
+  const z = put("targetZ", zSuggest(kva, umHV, core.standard, dry), [3, 14, 0.25], null,
+    zPub && zPub.exact ? `IS 1180 (Part 1) : 2014 Table 6 recommends ${zPub.z} % for ${kva} kVA. Going lower raises fault current; going higher worsens regulation.`
+      : zPub ? `${kva} kVA is not a preferred rating; ${zPub.z} % is the band the nearer tabled rating (${(kva - zPub.lo) <= (zPub.hi - kva) ? zPub.lo : zPub.hi} kVA) carries in IS 1180 Table 6, not a figure the standard gives for ${kva} kVA. Subject to agreement.`
+      : `Standard value for ${kva} kVA at ${umHV} kV. Going lower raises fault current; going higher worsens regulation.`);
   /* CALIBRATION.md section 68: IS 2026:2011 Part V clause 4.1 puts the
      SOURCE impedance in series with the transformer's own, so the fault
      current a winding actually has to withstand is lower than the
@@ -1042,7 +1108,12 @@ function designTransformer(p) {
   const fluid = FLUIDS[p.fluid] || FLUIDS.mineral;
   const dryT = DRY_TYPES[p.dryType] || DRY_TYPES.castResin;
   const cls = INS_CLASS[p.insClass] || INS_CLASS.A;
-  const B = Math.min(p.flux, grade.bMax);
+  /* section 77: IS 1180 caps flux at 1.9 T under +12.5% combined variation,
+     so 1.6889 T at rated voltage. Clamped, not merely reported -- leaving
+     the fit free to exceed a limit the same engine then flags would be
+     knowingly producing non-compliant designs, which is what item 1 was. */
+  const bCeil = p.standard === "IS" ? Math.min(grade.bMax, IS1180_FLUX_MAX) : grade.bMax;
+  const B = Math.min(p.flux, bCeil);
   const cLV = CONDUCTORS[p.condLV], cHV = CONDUCTORS[p.condHV];
   const dLV = Math.min(p.deltaLV, cLV.dMax), dHV = Math.min(p.deltaHV, cHV.dMax);
   const clr = p;
@@ -1502,8 +1573,15 @@ function designTransformer(p) {
 
   /* thermal */
   const grad = 2.4 * Math.pow((dLV + dHV) / 2, 2) * (p.condLV === "aluminium" ? 1.12 : 1.0);
-  const riseLimit = dry ? cls.rise : Math.min(std.oilRise, fluid.riseLimit);
-  const wRiseLimit = dry ? cls.rise : Math.min(std.windRise, fluid.wRiseLimit);
+  /* CALIBRATION.md section 77: IS 1180's own rise limits supersede the
+     general IS 2026 figures inside its scope, and STANDARDS.IS falls back to
+     IS 2026 outside it. Dry type is unaffected -- its limit comes from the
+     insulation class, not the product standard. */
+  const isRise = p.standard === "IS" && !dry ? isRiseLimits(p.kva) : null;
+  const stdOilRise = isRise ? isRise.oilRise : std.oilRise;
+  const stdWindRise = isRise ? isRise.windRise : std.windRise;
+  const riseLimit = dry ? cls.rise : Math.min(stdOilRise, fluid.riseLimit);
+  const wRiseLimit = dry ? cls.rise : Math.min(stdWindRise, fluid.wRiseLimit);
 
   let tankL = 0, tankW = 0, tankH = 0, tankArea = 0, finAreaReq = 0, wTank = 0, wFin = 0;
   let fluidLitres = 0, oilRise = 0, windRise = 0, coilArea = 0, wEnclosure = 0;
@@ -1709,8 +1787,13 @@ function designTransformer(p) {
     nll: { val: noLoad, lim: sch.nll, ok: noLoad <= sch.nll },
     ll: { val: loadLoss, lim: sch.ll, ok: loadLoss <= sch.ll },
     total: { val: totalLoss, lim: sch.nll + sch.ll, ok: totalLoss <= sch.nll + sch.ll },
-    is50: isSch ? { val: is50, lim: isSch.p50, ok: is50 <= isSch.p50 } : null,
-    is100: isSch ? { val: is100, lim: isSch.p100, ok: is100 <= isSch.p100 } : null,
+    /* An interpolated limit is a suggestion, not a standard figure, so it is
+       reported (val/lim visible) but does not gate `compliant` -- calling a
+       design non-compliant against a number IS 1180 does not give for that
+       rating would be presenting the interpolation as a limit. */
+    is50: isSch ? { val: is50, lim: isSch.p50, ok: isSch.exact ? is50 <= isSch.p50 : true, advisory: !isSch.exact, met: is50 <= isSch.p50 } : null,
+    flux: p.standard === "IS" ? { val: B, lim: IS1180_FLUX_MAX, ok: B <= IS1180_FLUX_MAX + 1e-9 } : null,
+    is100: isSch ? { val: is100, lim: isSch.p100, ok: isSch.exact ? is100 <= isSch.p100 : true, advisory: !isSch.exact, met: is100 <= isSch.p100 } : null,
     z: { val: g.pctZ, lim: p.targetZ, ok: Math.abs(g.pctZ - p.targetZ) / p.targetZ <= Math.min(p.zTol, std.zTol) / 100 },
     rise: { val: dry ? windRise : oilRise, lim: riseLimit, ok: (dry ? windRise : oilRise) <= riseLimit + 0.5 },
     wRise: { val: windRise, lim: wRiseLimit, ok: windRise <= wRiseLimit + 0.5 },
@@ -1767,9 +1850,22 @@ function designTransformer(p) {
     /* CLAUDE.md invariant 5: an unlisted rating has no published limit, so
        the dependent output is pending and names what is missing, rather
        than being extrapolated from neighbouring rows. */
-    isLossPending: p.standard === "IS" && !dry && !isSch
-      ? `IS 1180 (Part 1) : 2014 does not list ${p.kva} kVA. The standard makes losses at unlisted ratings subject to agreement between user and supplier, so there is no published limit to check against. The figures shown are the engine's own estimate, not a standard limit.`
-      : null,
+    /* CLAUDE.md invariant 5 and section 77. Three states, kept distinct
+       because they mean different things to whoever reads the sheet:
+         - exact:   the rating has its own published row.
+         - agreed:  a non-preferred rating. IS 1180 makes losses here subject
+                    to agreement between user and supplier, so designing one
+                    is legitimate. The figures are interpolated between the
+                    two nearest tabled ratings as a STARTING SUGGESTION and
+                    must never be presented as an IS 1180 value.
+         - pending: outside the table's range entirely, nothing to
+                    interpolate between. */
+    isLossBasis: !(p.standard === "IS") || dry ? "n/a" : isSch ? (isSch.exact ? "exact" : "agreed") : "pending",
+    isLossNote: !(p.standard === "IS") || dry ? null
+      : isSch && isSch.exact ? null
+      : isSch
+        ? `${p.kva} kVA is not a preferred rating in IS 1180 (Part 1) : 2014. The loss figures shown are INTERPOLATED between the ${isSch.lo} kVA and ${isSch.hi} kVA rows as a starting suggestion. They are NOT an IS 1180 limit for this rating -- the standard makes losses at non-preferred ratings subject to agreement between user and supplier, and this design cannot be declared IS 1180 compliant on them until that agreement is recorded.`
+        : `IS 1180 (Part 1) : 2014 does not cover ${p.kva} kVA and it falls outside the range of the tables, so there is nothing to interpolate between. The loss figures shown are the engine's own estimate, not a published or interpolated limit.`,
     fanCount, pumpCount,
     dualForced, dualLoadLoss, dualTotalLoss, dualOilRise, dualWindRise, dualCompliance, dualCompliant,
     Kw, aWin, Hw0, util: shape === "circ" ? stepUtil(p.steps) : ct.aspect, sf: grade.sf,
@@ -2959,6 +3055,11 @@ function calcSheet(d, bom) {
 
   const star = (c) => (c === "y" || c === "Y");
 
+  if (d.isLossNote) {
+    sec("0. Loss limits, basis of", "IS 1180 (Part 1) : 2014", [
+      row("Loss limit basis", "n/a", d.isLossBasis === "agreed" ? "interpolated, subject to agreement" : "not published", d.isLossNote, d.isLossBasis, "IS 1180 (Part 1) : 2014", "rating"),
+    ]);
+  }
   sec("1. Ratings, connections and currents", REFS.S, [
     row("Rated power", "S", "given", "n/a", `${p.kva} kVA`, "Enquiry", "input"),
     row("HV phase voltage", "V\u2081\u209A\u2095", d.hvConn === "D" ? "V\u2081\u209A\u2095 = V\u2081\u2097" : `V\u2081\u209A\u2095 = V\u2081\u2097 / ${R3}`,
@@ -4021,6 +4122,17 @@ function routineTestSchedule(d) {
       t: `Load loss and impedance at principal tap${p.dualRating && p.kva2 > 0 ? `, stated at ${p.kva} kVA (${p.cooling}) only` : ""}`,
       ref: "IEC 60076-1", exp: `${f0(d.loadLoss)} W, ${f2(d.pctZ)} %`, lim: `${f0(d.sch.ll)} W guaranteed, impedance \u00B1${p.zTol} %`,
     },
+    ...(d.compliance.is50 ? [{
+      t: `Total losses at 50 % load${d.isLossBasis === "agreed" ? " -- INTERPOLATED, subject to agreement, NOT an IS 1180 figure for this rating" : ""}`,
+      ref: `IS 1180 (Part 1) : 2014${d.isLossBasis === "exact" ? `, ${p.kva} kVA row` : ""}`,
+      exp: `${f0(d.compliance.is50.val)} W`,
+      lim: `${f0(d.compliance.is50.lim)} W${d.isLossBasis === "agreed" ? " (interpolated suggestion)" : " maximum"}`,
+    }, {
+      t: `Total losses at 100 % load${d.isLossBasis === "agreed" ? " -- INTERPOLATED, subject to agreement, NOT an IS 1180 figure for this rating" : ""}`,
+      ref: `IS 1180 (Part 1) : 2014${d.isLossBasis === "exact" ? `, ${p.kva} kVA row` : ""}`,
+      exp: `${f0(d.compliance.is100.val)} W`,
+      lim: `${f0(d.compliance.is100.lim)} W${d.isLossBasis === "agreed" ? " (interpolated suggestion)" : " maximum"}`,
+    }] : []),
     { t: "Separate source AC withstand, HV", ref: "IEC 60076-3", exp: `${p.acHV} kV for 60 s`, lim: "No breakdown" },
     { t: "Separate source AC withstand, LV", ref: "IEC 60076-3", exp: `${p.acLV} kV for 60 s`, lim: "No breakdown" },
     { t: "Induced overvoltage withstand", ref: "IEC 60076-3", exp: "Twice rated voltage, duration per clause", lim: "No breakdown" },
