@@ -6904,3 +6904,72 @@ sweep or a search is quotable until it has been rebuilt through
 check. Not because the engine is unreliable -- it reproduced all five of
 these exactly -- but because a price is the one number in this product that
 looks equally authoritative whether or not anything passed.
+
+## 90. The flux window is not costing money; the fit's own path is
+
+Request: widen the flux sweep from 1.50 down to about 1.38, on the evidence
+that the three Mehir references run at 1.3947, 1.5182 and 1.534 T. Measured
+at five ratings before changing anything. The change would have done
+nothing, and the direction is backwards -- but the instinct that money is
+being left on the table is right, for a different reason.
+
+**`fluxRange` is dead code as far as the search is concerned.** Section 27
+removed flux as a swept dimension: each candidate calls `fitToSchedule`,
+which bisects flux continuously over [bMin, ceiling]. `fluxRange` survives
+as an export with no caller in the engine's search path and none in `src/`
+at all -- its only other mention is section 27's own comment saying the grid
+"used to enumerate flux (fluxRange)". Widening it changes no search at any
+rating. (It should probably be deleted; left for now so this is one finding
+rather than two.)
+
+**Nor is the optimum outside a window relative to a suggestion.** Flux is
+bisected over an absolute band, and `fluxSuggest` only seeds it. Proof from
+the grid itself: the full 800 kVA run holds 570 M5 candidates, 6 feasible,
+all landing at exactly B 1.420 -- the floor, far below M5's own 1.60
+suggestion at Level 2. (The suggestion is 1.60 there, not 1.70; 1.70 is the
+`conventional` figure.)
+
+**Extending the window downward finds compliant designs, all dearer.**
+Pinned flux, 1.38 to 1.70, at five ratings:
+
+| kVA | autoFit lands | cheapest compliant pin | at pin 1.38 | compliant below 1.42, cheapest |
+|---|---|---|---|---|
+| 315 | 1.4200, 13,05,250 | **1.5000, 12,79,780** (-1.95 %) | 13,28,893 | 13,20,506 |
+| 630 | 1.4200, 18,54,827 | **1.6044, 17,36,307** (-6.39 %) | 18,70,094 | 18,04,805 |
+| 800 | 1.6044, 20,22,804 | **1.6044, 19,61,214** (-3.04 %) | 21,88,236 | 21,64,035 |
+| 1000 | 1.6044, 21,53,803 | **1.6044, 20,68,075** (-3.98 %) | 23,48,227 | 22,86,354 |
+| 1250 | 1.5445, 24,20,586 | **1.6044, 23,49,324** (-2.94 %) | 28,24,157 | 26,34,700 |
+
+Sub-floor designs are compliant at every rating -- two points each -- and
+every one is more expensive than that rating's own cheapest. Cost falls
+monotonically as flux RISES, now confirmed at five ratings rather than the
+three of the earlier flux-floor work. A lower window cannot save money
+anywhere. The direction that saves money is up, and it is blocked by the IS
+1180 ceiling with the 5 % margin at 1.6044 T -- already at 100 % utilisation
+on the default case.
+
+**The real finding, which the request was half-right about.** At every one
+of the five ratings there IS a cheaper compliant design than `autoFit`
+lands on, by 1.95 to 6.39 %. But look at 800 and 1000: `autoFit` lands at
+1.6044 and the cheapest pin is ALSO 1.6044, three to four per cent cheaper
+at the same flux. Same flux, different price, so flux is not the variable.
+Pinning changes the fit's path -- which discrete winding configuration and
+window solve it settles on -- and the pinned path lands cheaper. At 630 the
+gap is 6.39 % and `autoFit` drives down onto the 1.42 floor when 1.6044 is
+both compliant and cheaper.
+
+So `autoFit` does not find the cheapest compliant design, even at its own
+flux. That is worth 2-6 % across the book and is a real target. It is the
+same discrete-geometry path dependence as sections 46, 49 and 51, showing up
+in the fit rather than in the K search. Not fixed here; recorded with
+numbers so it can be.
+
+**The general risk, stated accurately.** "A parameter swept relative to a
+suggestion puts the optimum outside the window when the suggestion is far
+from it" is a real hazard, but it does not apply to flux, which is bisected
+over an absolute band. It applies to the parameters that genuinely are
+relative: `gapScales` (0.9/1.0/1.12 x `lvHvClr`), `riseTargets` (the
+design's own target and two 5 K steps below it), and stage 2's
+`windowAround` on etK. Each of those is a multiplicative or additive window
+around a derived value, and each would miss an optimum sitting outside it.
+That is where to look, not at flux.
