@@ -298,9 +298,10 @@ export function ResultsDisplay({
                     ].map(([label, c]: [string, any]) => (
                       <tr key={label}>
                         <td className={`${tdCls} text-ink2 text-[11px]`}>{label}</td>
-                        <td className={`${tdCls} text-right font-mono text-[11px] ${c.ok ? 'text-ink' : 'text-alert'}`}>{c.val.toFixed(2)}</td>
-                        <td className={`${tdCls} text-right font-mono text-[11px] text-steel`}>{c.lim.toFixed(2)}</td>
-                        <td className={`${tdCls} text-right font-mono text-[11px]`}><CheckMark ok={c.ok} /></td>
+                        <td className={`${tdCls} text-right font-mono text-[11px] ${!c ? 'text-steel' : c.ok ? 'text-ink' : 'text-alert'}`}>{c ? c.val.toFixed(2) : '—'}</td>
+                        <td className={`${tdCls} text-right font-mono text-[11px] text-steel`}>{c ? c.lim.toFixed(2) : 'not declared'}</td>
+                        {/* section 84: a null check is NOT a tick -- nothing was assessed, and it says so */}
+                        <td className={`${tdCls} text-right font-mono text-[11px]`}>{c ? <CheckMark ok={c.ok} /> : <span className="text-steel text-[10px]">n/a</span>}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -323,9 +324,10 @@ export function ResultsDisplay({
                       ].map(([label, c]: [string, any]) => (
                         <tr key={label}>
                           <td className={`${tdCls} text-ink2 text-[11px]`}>{label}</td>
-                          <td className={`${tdCls} text-right font-mono text-[11px] ${c.ok ? 'text-ink' : 'text-alert'}`}>{c.val.toFixed(2)}</td>
-                          <td className={`${tdCls} text-right font-mono text-[11px] text-steel`}>{c.lim.toFixed(2)}</td>
-                          <td className={`${tdCls} text-right font-mono text-[11px]`}><CheckMark ok={c.ok} /></td>
+                        <td className={`${tdCls} text-right font-mono text-[11px] ${!c ? 'text-steel' : c.ok ? 'text-ink' : 'text-alert'}`}>{c ? c.val.toFixed(2) : '—'}</td>
+                        <td className={`${tdCls} text-right font-mono text-[11px] text-steel`}>{c ? c.lim.toFixed(2) : 'not declared'}</td>
+                        {/* section 84: a null check is NOT a tick -- nothing was assessed, and it says so */}
+                        <td className={`${tdCls} text-right font-mono text-[11px]`}>{c ? <CheckMark ok={c.ok} /> : <span className="text-steel text-[10px]">n/a</span>}</td>
                         </tr>
                       ))}
                     </tbody>

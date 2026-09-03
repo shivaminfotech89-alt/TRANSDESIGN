@@ -6501,3 +6501,58 @@ tenfold, effectively removing them:
 8303 W figure is doing no work except providing a false impression that a
 bound was checked -- which is precisely how it produced a green badge on an
 unbuildable-for-market design.
+
+## 84. Conventional and custom are bounded by physics, not by an invented number
+
+Section 83 measured that conventional's `limitLL` of 8303 W at 800 kVA bounded
+nothing -- slackening it tenfold moved the design about 1 %, because winding
+rise binds first. It was the pre-2014 fitted formula times an invented 1.55
+multiplier: a figure nobody published, restraining nothing, whose only effect
+was to imply a check had happened. It is removed.
+
+**What replaces it is nothing, deliberately.** With no published schedule for
+the class and no figure declared in the enquiry, there is nothing legitimate
+to fit against, so the loss limits are left undeclared and the design is
+stopped by the **thermal and mechanical limits alone**. Those are physical:
+45 K winding rise and 40 K top oil from IS 1180 clause 7.10.2 (section 77),
+the short-circuit stress and thermal allowables (section 79), and the shop
+coil- and tank-height limits. A design cannot exceed them by definition of
+being built, which is exactly what the 8303 W figure was not.
+
+Measured at 800 kVA, and the fit lands where the tenfold-slack experiment
+predicted:
+
+| | no-load | load loss | winding rise | state | ex-works |
+|---|---|---|---|---|---|
+| conventional | 1111 | 8804 | **45.0 / 45** | notAssessed | 14,96,087 |
+| custom, nothing entered | 690 | 8788 | **45.0 / 45** | notAssessed | 14,86,953 |
+| custom, user declared | 818 | 5400 | 40.3 / 45 | notAssessed | 20,72,253 |
+| Level 2 | 807 | 5165 | 39.4 / 45 | passed | 20,22,804 |
+
+Winding rise is at its limit on both undeclared cases -- the physical bound
+doing the work the invented one only appeared to. Declare a figure on a custom
+design and it binds again immediately, which is the whole point of custom.
+
+**The reported state is `notAssessed`, and that is the honest answer**, not a
+fallback. IS 1180 defines Levels 1 to 3 and no other class, so a conventional
+design has not passed its schedule -- there is no schedule for it to pass. The
+badge says "Not Assessed", the delivered price and rating plate are amber, a
+banner says the design cannot be offered as an IS 1180 unit, and the
+efficiency selector says so before the design is built.
+
+`custom` no longer reaches `is1180Schedule` through `lvlKey` either. That
+mapping exists so the fitted-formula fallbacks have a multiplier; feeding it
+to the published lookup handed a custom design Level 2's real row as if it
+were its own limit, the same borrowing section 82 removed from the compliance
+check and missed here.
+
+**A third null-safety fault, found by making the second fix.** Removing the
+limits made `compliance.nll`/`ll`/`total` null, and five consumers dereferenced
+them unguarded -- `etkPoint`, `searchDesigns`' own loss filter, the
+"what was missed" reporter, the cost card and the compliance table. All now
+treat null as *not assessed*: the table prints an em dash, "not declared" and
+"n/a" rather than a value, a limit and a tick. That is three separate
+null-as-pass or null-as-crash faults from one root cause -- `is50`/`is100` in
+section 83, `coreMass`'s inverted semantics in the same audit, and these five.
+The lesson is not about any of them individually: **an optional check needs its
+absence to be as loud as its failure**, or the absence reads as success.

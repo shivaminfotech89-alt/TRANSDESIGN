@@ -110,7 +110,7 @@ export function CostCardTab({ design: d, params: p, rates, onCardExtraChange, re
               <div className="text-[11px] font-display uppercase tracking-[0.14em] text-copper mb-2">Losses</div>
               <DataRow label="Losses at 50% load" value={f(lossAt50, 0)} unit="Watts" />
               <DataRow label="Losses at 100% load" value={f(lossAt100, 0)} unit="Watts" />
-              <DataRow label="No load loss required" value={f(d.compliance.nll.lim, 0)} unit="Watts" />
+              <DataRow label="No load loss required" value={d.compliance.nll ? f(d.compliance.nll.lim, 0) : "not declared"} unit={d.compliance.nll ? "Watts" : ""} />
               <DataRow label="Max load losses achieved" value={f(d.loadLoss, 0)} unit="Watts" />
               <DataRow label="No load losses" value={f(d.noLoad, 0)} unit="Watts" />
               <DataRow label="Load losses" value={f(d.loadLoss, 0)} unit="Watts" />

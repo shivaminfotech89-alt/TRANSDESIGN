@@ -662,15 +662,30 @@ function deriveSpec(core, over = {}) {
      IS compliance is the pair of total-loss conditions (compliance.is50 /
      is100), not these two numbers separately. */
   const lvlKey = core.effLevel === "custom" ? "level2" : core.effLevel;
-  const pubSch = core.standard === "IS" ? is1180Schedule(kva, lvlKey, dry) : null;
+  /* section 84: effLevel passed through as chosen, NOT via lvlKey. lvlKey maps
+     custom -> level2 so the fitted-formula fallbacks have a multiplier to use;
+     feeding that to is1180Schedule would hand a custom design Level 2's
+     published row as a real limit, which is the same borrowing section 82
+     removed for the compliance check. */
+  const pubSch = core.standard === "IS" ? is1180Schedule(kva, core.effLevel, dry) : null;
   const sch = pubSch ? is1180Corner(pubSch) : lossSchedule(kva, lvlKey, dry);
   const schNote = pubSch
     ? `IS 1180 (Part 1) : 2014 gives maximum TOTAL losses for ${kva} kVA ${EFF_LEVELS[lvlKey].name}: ${pubSch.p50} W at 50% load and ${pubSch.p100} W at 100%. This split is the corner of that region; any split inside it is equally compliant. Replace with the figure in the enquiry.`
     : core.standard === "IS" && !dry
       ? `IS 1180 does not list ${kva} kVA -- the standard makes losses at unlisted ratings subject to agreement between user and supplier. This is the engine's own estimate, NOT a published limit.`
       : `Estimated from the level formula for ${kva} kVA. Replace it with the figure in the enquiry.`;
+  /* CALIBRATION.md section 84: whether a loss limit exists at all, as opposed
+     to what its value is. True when IS 1180 has a row for this class and
+     rating, or when the user has declared a figure in the enquiry. False for
+     conventional and custom with nothing entered -- where the old default was
+     the pre-2014 fitted formula times an invented 1.55 multiplier, a number
+     nobody published that bounded nothing (measured: slackening it tenfold
+     moved the design 1%, because winding rise binds first) and served only to
+     imply a check had happened. */
+  const lossLimitsDeclared = !!pubSch || over.limitNLL !== undefined || over.limitLL !== undefined;
   put("limitNLL", Math.round(sch.nll), [Math.round(sch.nll * 0.5), Math.round(sch.nll * 2), 5], null, schNote);
   put("limitLL", Math.round(sch.ll), [Math.round(sch.ll * 0.5), Math.round(sch.ll * 2), 25], null, schNote);
+  S.lossLimitsDeclared = lossLimitsDeclared;
   const zPub = core.standard === "IS" ? is1180Schedule(kva, lvlKey, dry) : null;
   /* CALIBRATION.md section 79. IS 1180's 1.6889 T is a hard ceiling: flux
      rises with system overvoltage, and a design sitting on it saturates on
@@ -1981,11 +1996,17 @@ function designTransformer(p) {
      seek out the cheapest point in the region on its own. That belongs to
      the cost search, and is not this section's work. */
   const isScale = isSch ? Math.min(isSch.p50 / Math.max(1e-9, is50), isSch.p100 / Math.max(1e-9, is100)) : null;
-  const schFit = sch;
+  /* section 84: with no declared or published loss limit there is nothing
+     legitimate to fit against, so the fit is left unbounded on losses and the
+     design is stopped by the thermal and mechanical limits instead -- which
+     are physical, not invented. Measured at 800 kVA conventional: winding rise
+     binds at exactly 45.0 K of 45, and the design is within 1% of what the
+     fabricated 8303 W limit produced. */
+  const schFit = p.lossLimitsDeclared === false ? { nll: Infinity, ll: Infinity } : sch;
   const compliance = {
-    nll: { val: noLoad, lim: sch.nll, ok: noLoad <= sch.nll },
-    ll: { val: loadLoss, lim: sch.ll, ok: loadLoss <= sch.ll },
-    total: { val: totalLoss, lim: sch.nll + sch.ll, ok: totalLoss <= sch.nll + sch.ll },
+    nll: p.lossLimitsDeclared === false ? null : { val: noLoad, lim: sch.nll, ok: noLoad <= sch.nll },
+    ll: p.lossLimitsDeclared === false ? null : { val: loadLoss, lim: sch.ll, ok: loadLoss <= sch.ll },
+    total: p.lossLimitsDeclared === false ? null : { val: totalLoss, lim: sch.nll + sch.ll, ok: totalLoss <= sch.nll + sch.ll },
     /* An interpolated limit is a suggestion, not a standard figure, so it is
        reported (val/lim visible) but does not gate `compliant` -- calling a
        design non-compliant against a number IS 1180 does not give for that
@@ -2726,7 +2747,7 @@ function searchDesigns(base, rates, band, opts) {
                       const bom = buildBOM(d, rates);
                       const zOk = Math.abs(d.pctZ - base.targetZ) / base.targetZ <= opts.zTol / 100;
                       const thermalOk = d.compliance.rise.ok && d.compliance.wRise.ok;
-                      const lossOk = !opts.enforceLimits || (d.compliance.nll.ok && d.compliance.ll.ok);
+                      const lossOk = !opts.enforceLimits || !d.compliance.nll || !d.compliance.ll || (d.compliance.nll.ok && d.compliance.ll.ok);
                       // CALIBRATION.md section 44 (was section 28's aspect
                       // ratio proxy): a candidate can be impedance-, thermal-
                       // and loss-compliant with a coil or tank the shop
@@ -2999,7 +3020,8 @@ function etkPoint(p, rates, k, over, fast = false) {
   const bom = buildBOM(d, rates);
   const zOk = Math.abs(d.pctZ - p.targetZ) / p.targetZ <= p.zTol / 100;
   const thermalOk = d.compliance.rise.ok && d.compliance.wRise.ok;
-  const lossOk = d.compliance.nll.ok && d.compliance.ll.ok;
+  // section 84: null means no declared or published limit, so nothing to fail.
+  const lossOk = !d.compliance.nll || !d.compliance.ll || (d.compliance.nll.ok && d.compliance.ll.ok);
   // CALIBRATION.md section 44 (was section 28's aspect ratio proxy):
   // without this, a low K that trades an ever taller, ever thinner (and so
   // unbuildable) coil for lower load loss looks like a genuine saving to
@@ -3214,8 +3236,8 @@ function fitEtkToCost(p, over = {}, rates = DEFAULT_RATES) {
   const d = designTransformer({ ...p, etK: best.etK, ...best.fitted });
   const zOk = Math.abs(d.pctZ - p.targetZ) / p.targetZ <= p.zTol / 100;
   const missed = [];
-  if (!d.compliance.nll.ok) missed.push(`no-load loss ${Math.round(d.compliance.nll.val)} W against ${Math.round(d.compliance.nll.lim)} W declared`);
-  if (!d.compliance.ll.ok) missed.push(`load loss ${Math.round(d.compliance.ll.val)} W against ${Math.round(d.compliance.ll.lim)} W declared`);
+  if (d.compliance.nll && !d.compliance.nll.ok) missed.push(`no-load loss ${Math.round(d.compliance.nll.val)} W against ${Math.round(d.compliance.nll.lim)} W declared`);
+  if (d.compliance.ll && !d.compliance.ll.ok) missed.push(`load loss ${Math.round(d.compliance.ll.val)} W against ${Math.round(d.compliance.ll.lim)} W declared`);
   if (!zOk) missed.push(`impedance ${d.pctZ.toFixed(2)}% against ${p.targetZ}% declared`);
   if (!d.compliance.rise.ok) missed.push(`top-oil/enclosure rise ${d.compliance.rise.val.toFixed(1)} against ${d.compliance.rise.lim} °C`);
   if (!d.compliance.wRise.ok) missed.push(`winding rise ${d.compliance.wRise.val.toFixed(1)} against ${d.compliance.wRise.lim} °C`);
