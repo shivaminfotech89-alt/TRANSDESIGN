@@ -8,12 +8,20 @@
  * without bumping it, or old quotations stop reproducing.
  */
 
-export const ENGINE_VERSION = "1.34.0";
+export const ENGINE_VERSION = "1.38.0";
 
+/* CALIBRATION.md section 79. cp (specific heat, J/kg.K), scTemp (maximum
+   permitted conductor temperature after a short circuit, IEC 60076-5 /
+   IS 2026 Part 5, oil-immersed with paper insulation) and proof0 (0.2%
+   proof stress, MPa) feed the short-circuit withstand checks. proof0 is a
+   SOFT/annealed figure, which is what transformer strip normally is;
+   hard-drawn conductor runs several times higher, and the parameter is
+   editable for exactly that reason. Published material properties, not
+   fitted constants. */
 const CONDUCTORS = {
-  copper: { name: "Copper, EC grade", rho20: 0.017241, alpha: 0.00393, dens: 8890, dMax: 3.6, short: "Cu", proof: 1.0 },
-  aluminium: { name: "Aluminium, EC grade", rho20: 0.028264, alpha: 0.00403, dens: 2703, dMax: 2.3, short: "Al", proof: 0.52 },
-  cca: { name: "Copper-clad aluminium", rho20: 0.02150, alpha: 0.00400, dens: 3630, dMax: 2.9, short: "CCA", proof: 0.6 },
+  copper: { name: "Copper, EC grade", rho20: 0.017241, alpha: 0.00393, dens: 8890, dMax: 3.6, short: "Cu", proof: 1.0, cp: 385, scTemp: 250, proof0: 70 },
+  aluminium: { name: "Aluminium, EC grade", rho20: 0.028264, alpha: 0.00403, dens: 2703, dMax: 2.3, short: "Al", proof: 0.52, cp: 900, scTemp: 200, proof0: 35 },
+  cca: { name: "Copper-clad aluminium", rho20: 0.02150, alpha: 0.00400, dens: 3630, dMax: 2.9, short: "CCA", proof: 0.6, cp: 700, scTemp: 200, proof0: 45 },
 };
 
 const CORE_GRADES = {
@@ -209,6 +217,196 @@ const EFF_LEVELS = {
    set by a single ratio. 4.6 -> 4.75 (geometric mean of the coefficient
    implied by each of the three points at the existing exponent) is a flat
    +3.3% at every rating, not a reshaping. */
+/* ---------------- IS 1180 (Part 1) : 2014, published loss tables ----------
+   Transcribed from the standard, Table 3 (16 to 200 kVA) and Table 6 (250 to
+   2500 kVA, up to 11 kV), three-phase oil-immersed distribution.
+
+   The standard does NOT give separate no-load and load-loss limits. It gives
+   maximum TOTAL losses -- no-load plus load loss at 75 C -- at 50% and at
+   100% of rated load, per efficiency level. Two numbers, not two limits, and
+   the pair is what a design has to satisfy:
+
+     noLoad + 0.25 x loadLoss  <=  the 50% figure
+     noLoad +        loadLoss  <=  the 100% figure
+
+   (0.25 because load loss goes with the square of current.) That is a
+   FEASIBLE REGION, not a box: a design may carry more core loss if it carries
+   less copper loss, which the standard permits and which the engine's own
+   separate nll/ll limits forbade. The 50% condition is the one that usually
+   binds, and it is the one the old fitted formula never checked.
+
+   Each row is [z, [L1 50, L1 100], [L2 50, L2 100], [L3 50, L3 100]] in W.
+   The z column is Table 6's own recommended impedance. */
+const IS1180 = {
+  /* THREE PHASE. Table 3 (16-200 kVA), impedance 4.50 throughout, and
+     Table 6 (250-2500 kVA, up to 11 kV). */
+  three: {
+    16:   [4.50, [150, 480],   [135, 440],   [120, 400]],
+    25:   [4.50, [210, 695],   [190, 635],   [175, 595]],
+    63:   [4.50, [380, 1250],  [340, 1140],  [300, 1050]],
+    100:  [4.50, [520, 1800],  [475, 1650],  [435, 1500]],
+    160:  [4.50, [770, 2200],  [670, 1950],  [570, 1700]],
+    200:  [4.50, [890, 2700],  [780, 2300],  [670, 2100]],
+    250:  [4.50, [1050, 3150], [980, 2930],  [920, 2700]],
+    315:  [4.50, [1100, 3275], [1025, 3100], [955, 2750]],
+    400:  [4.50, [1300, 3875], [1225, 3450], [1150, 3330]],
+    500:  [4.50, [1600, 4750], [1510, 4300], [1430, 4100]],
+    630:  [4.50, [2000, 5855], [1860, 5300], [1745, 4850]],
+    /* 800 kVA is ABSENT from the 2014 PDF print and comes from a secondary
+       published copy. Flagged, not quietly merged: every other row in this
+       table is round to 5 W and this one is not (2459, 7300, 2287, 6402,
+       2147, 5837), which is what a later amendment recomputed from a
+       formula tends to look like. Treat it as the least certain row here
+       and confirm it against a dated copy of the amendment before relying
+       on it for a tender. */
+    800:  [5.00, [2459, 7300], [2287, 6402], [2147, 5837]],
+    1000: [5.00, [3000, 9000], [2790, 7700], [2620, 7000]],
+    1250: [5.00, [3600, 10750],[3300, 9200], [3220, 8400]],
+    1600: [6.25, [4500, 13500],[4200, 11800],[3970, 11300]],
+    2000: [6.25, [5400, 17000],[5050, 15000],[4790, 14100]],
+    2500: [6.25, [6500, 20000],[6150, 18500],[5900, 17500]],
+  },
+  /* SINGLE PHASE, Table 9, up to 25 kVA, 11 kV class. Transcribed and held
+     but NOT reachable: this engine is three-phase only -- every vector group
+     it offers is three-phase and the copper-loss term is a hard 3 x I^2R --
+     so no design can currently select these. Recorded now rather than when
+     single phase is built, because transcribing a standard is the part worth
+     doing while the printed copy is to hand.
+
+     Impedance is 4.00 throughout EXCEPT the 5 kVA row, where the 2014 PDF
+     gives 2.5 % and a secondary copy gives 4.0 %. The PDF figure is used, as
+     the primary source; the discrepancy is recorded here rather than
+     silently resolved, and 2.5 % against 4.0 % is a large enough difference
+     on fault current that it should be confirmed before a 5 kVA single-phase
+     design is ever issued. */
+  single: {
+    5:  [2.50, [40, 115],  [35, 95],   [30, 75]],
+    10: [4.00, [70, 190],  [60, 170],  [55, 150]],
+    16: [4.00, [95, 265],  [82, 224],  [63, 190]],
+    25: [4.00, [125, 340], [110, 300], [95, 260]],
+  },
+};
+/* CALIBRATION.md section 77, clauses 6.9.1 and 7.9: flux density at +12.5%
+   combined voltage and frequency variation must not exceed 1.9 T, so the
+   ceiling at RATED voltage is 1.9 / 1.125 = 1.6889 T. The Mehir 315 drawing
+   states "1.69 MAX", which confirms the reading independently. Our grade
+   ceilings are 1.75 and 1.80 T and the default case was fitting to 1.78 --
+   non-compliant. Applied when the standard is IS. */
+const IS1180_FLUX_MAX = 1.9 / 1.125;
+
+/* CALIBRATION.md section 77, clauses 7.10.2 (250-2500 kVA) and 6.10.2
+   (16-200 kVA), and 8.10.2 for single phase up to 25 kVA. IS 1180 is a
+   PRODUCT standard for distribution transformers and supersedes the general
+   IS 2026 figures (55 K winding, 50 K oil) for the ratings in its scope --
+   that is the point of it being a separate standard. Outside its scope the
+   IS 2026 figures still apply, so STANDARDS.IS keeps them and this narrows
+   them where a rating falls in scope. */
+function isRiseLimits(kva, phase = "three") {
+  if (phase === "single") return kva <= 25 ? { windRise: 40, oilRise: 35, clause: "8.10.2" } : null;
+  if (kva >= 250 && kva <= 2500) return { windRise: 45, oilRise: 40, clause: "7.10.2" };
+  if (kva >= 16 && kva < 250) return { windRise: 40, oilRise: 35, clause: "6.10.2" };
+  return null;
+}
+
+/* CALIBRATION.md section 80. The flux ceiling a design must respect is the
+   LOWER of two unrelated things: the steel grade's own saturation limit
+   (bMax, a physical property) and IS 1180's regulatory ceiling less whatever
+   design margin is carried (a rule about the design, not the metal). They
+   must not be multiplied together -- scaling a grade's saturation limit by a
+   regulatory margin is meaningless.
+
+   designTransformer already took the lower of the two correctly. The FIT and
+   SEARCH ranges did not: they used CORE_GRADES[..].bMax - 0.02 with no IS cap
+   at all, so fitToSchedule and searchDesigns explored flux up to 1.78 T on an
+   IS design that designTransformer would then silently clamp to 1.52. The fit
+   was optimising against designs the engine cannot build, and its converged
+   answer was evaluated at a flux the final design does not have. */
+function fluxCeiling(S, gradeKey) {
+  const gb = CORE_GRADES[gradeKey || S.coreGrade].bMax;
+  const isCap = S.standard === "IS" ? IS1180_FLUX_MAX * (1 - (S.fluxMargin || 0) / 100) : Infinity;
+  // the -0.02 backoff belongs to the grade limit only; the IS ceiling is a
+  // hard number the design may sit exactly on
+  return Math.min(gb - 0.02, isCap);
+}
+
+const IS1180_KVA = Object.keys(IS1180.three).map(Number).sort((a, b) => a - b);
+
+/* Exact lookup only. IS 1180 lists discrete ratings and says losses for
+   anything else are subject to agreement between user and supplier, so a
+   rating between two rows has no published limit to interpolate toward --
+   interpolating would invent one. Returns null, and the caller reports
+   `pending` naming the rating (CLAUDE.md invariant 5). Oil-immersed only:
+   this part of the standard does not cover dry type. */
+function is1180Schedule(kva, level, dry, phase = "three") {
+  if (dry) return null;
+  /* CALIBRATION.md section 82. IS 1180 defines Level 1, Level 2 and Level 3.
+     It defines nothing else, so nothing else has a row in these tables.
+
+     This used to read `level === "level1" ? 1 : level === "level3" ? 3 : 2`,
+     which quietly swept CONVENTIONAL and CUSTOM into the Level 2 column. A
+     conventional design -- a lower efficiency class than Level 1, chosen
+     deliberately -- was then judged against Level 2 limits it was never meant
+     to meet, and marked NON-COMPLIANT for no reason. A custom design, where
+     the user has typed their own guaranteed figures, was judged against a
+     level they never claimed.
+
+     Borrowing another level's numbers is exactly what "not applicable" is
+     for. Both now return null, which reports as not applicable and leaves
+     the declared limits (compliance.nll/ll) as the only thing binding --
+     which for both of these is the correct authority. */
+  if (level !== "level1" && level !== "level2" && level !== "level3") return null;
+  const tbl = IS1180[phase] || IS1180.three;
+  const idx = level === "level1" ? 1 : level === "level3" ? 3 : 2;
+  const lvl = idx === 1 ? "level1" : idx === 3 ? "level3" : "level2";
+  const row = tbl[kva];
+  if (row) {
+    const [p50, p100] = row[idx];
+    return { p50, p100, z: row[0], level: lvl, exact: true };
+  }
+  /* Non-preferred rating. The standard makes losses here "subject to
+     agreement between user and supplier", so designing one is legitimate --
+     refusing would make the tool useless for exactly the enquiries that are
+     not on the list. What is NOT legitimate is presenting the result as an
+     IS 1180 figure. So: interpolate between the two nearest tabled ratings
+     as a STARTING SUGGESTION, and carry `exact: false` with the bracketing
+     ratings so every consumer can say what it is. Outside the table's own
+     range entirely there is nothing to interpolate between, and that stays
+     null -- extrapolation would be invention, not agreement. */
+  const keys = Object.keys(tbl).map(Number).sort((a, b) => a - b);
+  const lo = [...keys].reverse().find((k) => k < kva);
+  const hi = keys.find((k) => k > kva);
+  if (lo == null || hi == null) return null;
+  const t = (kva - lo) / (hi - lo);
+  const [l50, l100] = tbl[lo][idx], [h50, h100] = tbl[hi][idx];
+  /* Impedance is NOT interpolated: Table 6 gives it in bands (4.50, 5.00,
+     6.25), not as a curve, so a value between two bands is not a figure the
+     standard recognises. The nearer tabled rating's band is used instead. */
+  const z = (kva - lo) <= (hi - kva) ? tbl[lo][0] : tbl[hi][0];
+  return {
+    p50: l50 + t * (h50 - l50), p100: l100 + t * (h100 - l100), z,
+    level: lvl, exact: false, lo, hi,
+  };
+}
+
+/* The unique (no-load, load) pair sitting exactly on BOTH published limits,
+   solved from the two conditions rather than chosen:
+     nll + 0.25 ll = p50 and nll + ll = p100  =>  ll = (p100 - p50)/0.75.
+   Used only to give limitNLL/limitLL a default consistent with the standard
+   -- the binding check is the pair itself (compliance.is50/is100), not these.
+   A real design sits inside the region, not on its corner: the Mehir 315
+   sheet runs 470 W no-load against this corner's 333 W and is fully
+   compliant, because its load loss is correspondingly lower. */
+function is1180Corner(sch) {
+  const ll = (sch.p100 - sch.p50) / 0.75;
+  return { nll: sch.p100 - ll, ll };
+}
+
+/* The pre-2014 fitted formula. Retained ONLY as the fallback for what the
+   published tables do not cover: dry type, and ratings not listed. Checked
+   against the real table it is wrong in both directions -- at Level 2 it is
+   11.5% loose at 315 kVA and 12.5% at 400 on the 50% figure (the one it
+   never checked), and 17% to 31% tight at 16-100 kVA and 14-17% tight at
+   2000-2500 on the 100% figure. Do not extend it; get the rating's own row. */
 function lossSchedule(kva, level, dry) {
   const m = (EFF_LEVELS[level] || EFF_LEVELS.level2).mul;
   const kn = dry ? 1.45 : 1, kl = dry ? 1.20 : 1;
@@ -254,8 +452,18 @@ function clearancesFrom(bilHV, bilLV, medium, dryType) {
 const UM_STEPS = [1.1, 3.6, 7.2, 12, 17.5, 24, 36, 52, 72.5, 145];
 const umFor = (v) => UM_STEPS.find((u) => u >= (v / 1000) * 1.045) ?? 145;
 
-function zSuggest(kva, um) {
-  let z = kva <= 630 ? 4.5 : kva <= 2500 ? 5.0 : kva <= 10000 ? 6.25 : kva <= 31500 ? 8.0 : 12.5;
+/* CALIBRATION.md section 77. Table 6 gives a recommended impedance per
+   rating and the old ladder disagreed with it above 1250 kVA: it returned
+   5.00 % for 1600, 2000 and 2500 where the standard says 6.25 %. Read from
+   the table wherever the rating has a row, including the interpolated case
+   (which takes the nearer tabled rating's own band rather than a value
+   between bands -- see is1180Schedule). The ladder survives only for what
+   the table does not cover: above 2500 kVA, dry type, and non-IS standards.
+   The Um overrides below still apply on top, unchanged. */
+function zSuggest(kva, um, standard, dry) {
+  const pub = standard === "IS" ? is1180Schedule(kva, "level2", dry) : null;
+  let z = pub ? pub.z
+    : kva <= 630 ? 4.5 : kva <= 2500 ? 5.0 : kva <= 10000 ? 6.25 : kva <= 31500 ? 8.0 : 12.5;
   if (um >= 72.5) z = Math.max(z, 10);
   else if (um >= 36 && kva > 2500) z = Math.max(z, 8);
   return z;
@@ -316,7 +524,21 @@ function densitySuggest(kva, cond, dry, isHV) {
      oil at the same rating, not a lower one. The 630 kVA sheet runs
      2.79/2.89 A/mm^2 (LV/HV) where the old factor suggested 2.10/2.25.
      1.10 is fitted from that sheet, the only dry one available. */
+  /* CALIBRATION.md sections 72/75: the OIL baseline ran 1.72x high against
+     two independent references four times apart in rating -- 1250 kVA at
+     ~1.44 A/mm^2 against a 2.50 suggestion, 315 kVA at 1.52 against 2.60,
+     ratios 1.74 and 1.71. A flat ratio across a 4x span is an intercept
+     error, not a slope one, so the whole expression is divided rather than
+     a rating term added (the shape of section 1's clearance fix).
+
+     The divisor sits INSIDE the oil branch on purpose. The dry reference
+     lands at 0.99 of its own suggestion, so dry is already right and must
+     not move; dividing the shared base instead would drag it from 2.80 to
+     1.63 and break the one dry design on file. "Correct oil, leave dry
+     alone" is therefore a branch, not a change to the 1.10 multiplier --
+     which is untouched and still means what its own note above says. */
   if (dry) b *= 1.10;
+  else b /= 1.72;
   if (isHV) b += 0.15;
   return Math.min(Math.round(b * 20) / 20, CONDUCTORS[cond].dMax);
 }
@@ -392,7 +614,11 @@ function deriveSpec(core, over = {}) {
     put("tankType", kva > 2500 || estAreaM2 > FIN_WALL_CEILING_M2 ? "radiator" : "fin", null,
       [["fin", "Corrugated fin, sealed"], ["radiator", "Radiator + conservator"]],
       `Fin tanks up to about 2500 kVA or an estimated ${FIN_WALL_CEILING_M2} m² of required cooling surface (~${Math.round(estAreaM2)} m² estimated here), radiators above either.`);
-    put("oilRiseTarget", Math.min(std.oilRise, FLUIDS[fl].riseLimit), [30, Math.min(std.oilRise, FLUIDS[fl].riseLimit), 1], null, `Design to the ${std.name} limit. Lower means more cooling surface and more cost.`);
+    const isR = core.standard === "IS" && !dry ? isRiseLimits(kva) : null;
+    const oilRiseCap = Math.min(isR ? isR.oilRise : std.oilRise, FLUIDS[fl].riseLimit);
+    put("oilRiseTarget", oilRiseCap, [30, oilRiseCap, 1], null,
+      isR ? `IS 1180 (Part 1) : 2014 clause ${isR.clause} limits top-oil rise to ${isR.oilRise} K and winding rise to ${isR.windRise} K for ${kva} kVA -- tighter than IS 2026’s ${std.oilRise}/${std.windRise} K, which this product standard supersedes in its own scope. Lower means more cooling surface and more cost.`
+        : `Design to the ${std.name} limit. Lower means more cooling surface and more cost.`);
     put("radiatorPanelWidth", 520, [400, 650, 10], null, "Pressed-steel radiator panel width. 520 mm is typical Indian practice; override to your supplier's own panel.");
     put("radiatorPanelPitch", 45, [30, 65, 1], null, "Centre-to-centre spacing between adjacent radiator panels in a bank. A fitted typical figure, not a specific vendor's panel.");
     put("radiatorPanelsPerBank", 16, [6, 30, 1], null, "Panels bolted into one removable bank before another bank is started. A practical handling limit, not a physical one -- override to your works' own practice.");
@@ -423,15 +649,58 @@ function deriveSpec(core, over = {}) {
     }
   }
   put("refTemp", dry ? INS_CLASS[S.insClass].ref : 75, [55, 140, 5], null, "Temperature at which the load loss is declared.");
-  const indian = ["IS", "CBIP", "ECBC"].includes(core.standard);
+ const indian = ["IS", "CBIP", "ECBC"].includes(core.standard);
   put("ambient", indian ? 50 : 40, [20, 60, 1], null, indian ? "Indian practice: 50 \u00B0C maximum." : "40 \u00B0C maximum for this standard.");
   put("ambientAvg", indian ? 32 : 20, [10, 45, 1], null, "Yearly weighted ambient. Only used for the insulation-ageing figure.");
 
   /* --- losses and impedance --- */
-  const sch = lossSchedule(kva, core.effLevel === "custom" ? "level2" : core.effLevel, dry);
-  put("limitNLL", Math.round(sch.nll), [Math.round(sch.nll * 0.5), Math.round(sch.nll * 2), 5], null, `Estimated from the level formula for ${kva} kVA. Replace it with the figure in the enquiry.`);
-  put("limitLL", Math.round(sch.ll), [Math.round(sch.ll * 0.5), Math.round(sch.ll * 2), 25], null, `Estimated for ${kva} kVA. Replace it with the figure in the enquiry.`);
-  const z = put("targetZ", zSuggest(kva, umHV), [3, 14, 0.25], null, `Standard value for ${kva} kVA at ${umHV} kV. Going lower raises fault current; going higher worsens regulation.`);
+  /* CALIBRATION.md section 76. When the standard is IS and the rating has a
+     published row, limitNLL/limitLL default to the corner of the published
+     region rather than to the old fitted formula -- the unique pair sitting
+     on both the 50% and 100% total-loss limits. They remain editable and
+     remain what a declared enquiry figure overrides; what actually binds for
+     IS compliance is the pair of total-loss conditions (compliance.is50 /
+     is100), not these two numbers separately. */
+  const lvlKey = core.effLevel === "custom" ? "level2" : core.effLevel;
+  /* section 84: effLevel passed through as chosen, NOT via lvlKey. lvlKey maps
+     custom -> level2 so the fitted-formula fallbacks have a multiplier to use;
+     feeding that to is1180Schedule would hand a custom design Level 2's
+     published row as a real limit, which is the same borrowing section 82
+     removed for the compliance check. */
+  const pubSch = core.standard === "IS" ? is1180Schedule(kva, core.effLevel, dry) : null;
+  const sch = pubSch ? is1180Corner(pubSch) : lossSchedule(kva, lvlKey, dry);
+  const schNote = pubSch
+    ? `IS 1180 (Part 1) : 2014 gives maximum TOTAL losses for ${kva} kVA ${EFF_LEVELS[lvlKey].name}: ${pubSch.p50} W at 50% load and ${pubSch.p100} W at 100%. This split is the corner of that region; any split inside it is equally compliant. Replace with the figure in the enquiry.`
+    : core.standard === "IS" && !dry
+      ? `IS 1180 does not list ${kva} kVA -- the standard makes losses at unlisted ratings subject to agreement between user and supplier. This is the engine's own estimate, NOT a published limit.`
+      : `Estimated from the level formula for ${kva} kVA. Replace it with the figure in the enquiry.`;
+  /* CALIBRATION.md section 84: whether a loss limit exists at all, as opposed
+     to what its value is. True when IS 1180 has a row for this class and
+     rating, or when the user has declared a figure in the enquiry. False for
+     conventional and custom with nothing entered -- where the old default was
+     the pre-2014 fitted formula times an invented 1.55 multiplier, a number
+     nobody published that bounded nothing (measured: slackening it tenfold
+     moved the design 1%, because winding rise binds first) and served only to
+     imply a check had happened. */
+  const lossLimitsDeclared = !!pubSch || over.limitNLL !== undefined || over.limitLL !== undefined;
+  put("limitNLL", Math.round(sch.nll), [Math.round(sch.nll * 0.5), Math.round(sch.nll * 2), 5], null, schNote);
+  put("limitLL", Math.round(sch.ll), [Math.round(sch.ll * 0.5), Math.round(sch.ll * 2), 25], null, schNote);
+  S.lossLimitsDeclared = lossLimitsDeclared;
+  const zPub = core.standard === "IS" ? is1180Schedule(kva, lvlKey, dry) : null;
+  /* CALIBRATION.md section 79. IS 1180's 1.6889 T is a hard ceiling: flux
+     rises with system overvoltage, and a design sitting on it saturates on
+     any excursion. No works builds there. Mehir's own 315 runs 1.5182 T,
+     which is 1.6889 x 0.90 to within 0.1% -- so 10% is not a chosen round
+     number, it is what the one real design on file actually carries.
+     Editable, and zero is permitted by the standard but not by practice. */
+  put("fluxMargin", core.standard === "IS" ? 5 : 0, [0, 25, 1], null,
+    core.standard === "IS"
+      ? "Design margin below the IS 1180 flux ceiling of 1.689 T. 10% gives 1.520 T, which is what the 315 kVA reference actually runs. Zero is permitted by the standard but is not what a works builds: at the ceiling the core saturates on any overvoltage excursion."
+      : "Design margin below the core grade's own flux ceiling. Not required outside IS 1180.");
+  const z = put("targetZ", zSuggest(kva, umHV, core.standard, dry), [3, 14, 0.25], null,
+    zPub && zPub.exact ? `IS 1180 (Part 1) : 2014 Table 6 recommends ${zPub.z} % for ${kva} kVA. Going lower raises fault current; going higher worsens regulation.`
+      : zPub ? `${kva} kVA is not a preferred rating; ${zPub.z} % is the band the nearer tabled rating (${(kva - zPub.lo) <= (zPub.hi - kva) ? zPub.lo : zPub.hi} kVA) carries in IS 1180 Table 6, not a figure the standard gives for ${kva} kVA. Subject to agreement.`
+      : `Standard value for ${kva} kVA at ${umHV} kV. Going lower raises fault current; going higher worsens regulation.`);
   /* CALIBRATION.md section 68: IS 2026:2011 Part V clause 4.1 puts the
      SOURCE impedance in series with the transformer's own, so the fault
      current a winding actually has to withstand is lower than the
@@ -636,6 +905,12 @@ function deriveSpec(core, over = {}) {
   const cHV = put("condHV", condSug, null, Object.entries(CONDUCTORS).map(([k, v]) => [k, v.name]), "Usually the same metal on both windings.");
   put("deltaLV", densitySuggest(kva, cLV, dry, false), rng(densitySuggest(kva, cLV, dry, false), 0.6, 1.35, 0.05), null, `Normal band for ${CONDUCTORS[cLV].short} at ${kva} kVA. Higher means less metal, more load loss and a hotter winding.`);
   put("deltaHV", densitySuggest(kva, cHV, dry, true), rng(densitySuggest(kva, cHV, dry, true), 0.6, 1.35, 0.05), null, `Normal band for ${CONDUCTORS[cHV].short} on the HV side.`);
+  /* CALIBRATION.md section 79: short-circuit withstand allowables. */
+  put("scDuration", 2, [0.5, 3, 0.1], null, "Short-circuit duration for the thermal check. IS 2026 Part 5 and IEC 60076-5 use 2 s.");
+  put("scProofStress", CONDUCTORS[S.condHV].proof0, [20, 400, 5], null,
+    `0.2% proof stress used as the mechanical allowable, MPa. ${CONDUCTORS[S.condHV].proof0} is a SOFT/annealed figure, which is what transformer strip normally is. Hard-drawn conductor runs several times higher -- set it from the temper actually ordered, because the withstand verdict depends directly on it.`);
+  put("scTempLimit", CONDUCTORS[S.condHV].scTemp, [120, 300, 5], null,
+    `Maximum conductor temperature after a short circuit, IEC 60076-5 / IS 2026 Part 5. ${CONDUCTORS[S.condHV].scTemp} °C for ${CONDUCTORS[S.condHV].short} in oil with paper insulation.`);
   put("stray", app.stray, [6, 30, 1], null, `Eddy and stray loss as a percentage of I\u00B2R. ${app.name} duty runs near ${app.stray}%.`);
 
   /* --- tappings --- */
@@ -909,7 +1184,13 @@ function designTransformer(p) {
   const fluid = FLUIDS[p.fluid] || FLUIDS.mineral;
   const dryT = DRY_TYPES[p.dryType] || DRY_TYPES.castResin;
   const cls = INS_CLASS[p.insClass] || INS_CLASS.A;
-  const B = Math.min(p.flux, grade.bMax);
+  /* section 77: IS 1180 caps flux at 1.9 T under +12.5% combined variation,
+     so 1.6889 T at rated voltage. Clamped, not merely reported -- leaving
+     the fit free to exceed a limit the same engine then flags would be
+     knowingly producing non-compliant designs, which is what item 1 was. */
+  const fluxCap = p.standard === "IS" ? IS1180_FLUX_MAX * (1 - (p.fluxMargin || 0) / 100) : grade.bMax;
+  const bCeil = Math.min(grade.bMax, fluxCap);
+  const B = Math.min(p.flux, bCeil);
   const cLV = CONDUCTORS[p.condLV], cHV = CONDUCTORS[p.condHV];
   const dLV = Math.min(p.deltaLV, cLV.dMax), dHV = Math.min(p.deltaHV, cHV.dMax);
   const clr = p;
@@ -1278,6 +1559,7 @@ function designTransformer(p) {
     wYoke = wYokeA;
   }
   const wCore = wLimb + wYoke;
+
   /* CALIBRATION.md section 48: wCore above is PURCHASED weight -- the
      mitre-cut, construction-specific plate mass (Plate A/B/C for
      Construction A, V-notch/outer/centre for B), correctly used for cost,
@@ -1315,6 +1597,33 @@ function designTransformer(p) {
      matched geometry (6-21% depending on proportions) -- that gap is
      Construction B's own scrap, not a property of core loss in general. */
   const wCoreAssembled = wLimbA + wYokeA;
+  /* CALIBRATION.md section 81. INVARIANT: the assembled core cannot weigh
+     more than the steel bought to make it. Scrap is non-negative by
+     definition, so wCoreAssembled <= wCore always, for every construction.
+
+     This is not a tolerance to record as a gap. It is physically impossible,
+     and a design that trips it would put a mass on a BOM and a steel order
+     that cannot exist. It has been observed: a 1250 kVA furnace design on
+     Construction B at flux 1.42 (a low-flux, large-core geometry reached
+     when the flux margin was briefly defaulted to 10%) returned an assembled
+     mass of 2924 kg against a purchased 2505 kg.
+
+     The cause is that Construction B's plate lengths come from MITRE_K,
+     three coefficients fitted to ONE real cutting chart (section 34/35) at
+     one set of proportions, while wCoreAssembled comes from Construction A's
+     own limb formula. At large step-width-to-window ratios the two models
+     diverge until B's fitted lengths fall below A's. It cannot be corrected
+     without a second Construction B chart at different proportions --
+     section 65 records that requirement and DATA-REQUEST carries it.
+
+     So it is guarded rather than silently clamped: clamping would hide a
+     model failure behind a plausible number, which is the worse outcome. The
+     anomaly is carried on the design, raised in compliance, and named with
+     the construction and the step width that produced it so the next person
+     can reproduce it directly. */
+  const coreMassAnomaly = wCoreAssembled > wCore + 1e-6
+    ? `Assembled core mass ${wCoreAssembled.toFixed(1)} kg exceeds purchased core mass ${wCore.toFixed(1)} kg on Construction ${p.coreConstruction}. That is physically impossible -- scrap cannot be negative -- and means the plate-length model for this construction has diverged from the assembled-mass model at these proportions: widest step ${coreSteps.rows[0] ? coreSteps.rows[0].w.toFixed(1) : "?"} mm against a ${Hw.toFixed(0)} mm window, ratio ${coreSteps.rows[0] ? (coreSteps.rows[0].w / Hw).toFixed(3) : "?"}. Do NOT issue a steel order or a cutting chart from this design. CALIBRATION.md section 81; the fix needs a second Construction B cutting chart, DATA-REQUEST.`
+    : null;
   const coreHeight = Hw + 2 * yokeDepth;
   const coreWidth = 2 * g.cc + (shape === "circ" ? dCore : coreD);
 
@@ -1369,8 +1678,15 @@ function designTransformer(p) {
 
   /* thermal */
   const grad = 2.4 * Math.pow((dLV + dHV) / 2, 2) * (p.condLV === "aluminium" ? 1.12 : 1.0);
-  const riseLimit = dry ? cls.rise : Math.min(std.oilRise, fluid.riseLimit);
-  const wRiseLimit = dry ? cls.rise : Math.min(std.windRise, fluid.wRiseLimit);
+  /* CALIBRATION.md section 77: IS 1180's own rise limits supersede the
+     general IS 2026 figures inside its scope, and STANDARDS.IS falls back to
+     IS 2026 outside it. Dry type is unaffected -- its limit comes from the
+     insulation class, not the product standard. */
+  const isRise = p.standard === "IS" && !dry ? isRiseLimits(p.kva) : null;
+  const stdOilRise = isRise ? isRise.oilRise : std.oilRise;
+  const stdWindRise = isRise ? isRise.windRise : std.windRise;
+  const riseLimit = dry ? cls.rise : Math.min(stdOilRise, fluid.riseLimit);
+  const wRiseLimit = dry ? cls.rise : Math.min(stdWindRise, fluid.wRiseLimit);
 
   let tankL = 0, tankW = 0, tankH = 0, tankArea = 0, finAreaReq = 0, wTank = 0, wFin = 0;
   let fluidLitres = 0, oilRise = 0, windRise = 0, coilArea = 0, wEnclosure = 0;
@@ -1510,6 +1826,113 @@ function designTransformer(p) {
   const zTx = (g.pctZ / 100) * ((p.hv / 1000) * (p.hv / 1000)) / (p.kva / 1000);
   const iscHVline = p.hv / (Math.sqrt(3) * (zSys + zTx));
   const iscMult = iscHVline / Math.max(1e-9, iLineHV);
+  /* ============================================================
+     SHORT-CIRCUIT WITHSTAND -- IS 2026 Part 5 / IEC 60076-5
+     CALIBRATION.md section 79.
+
+     The engine previously computed the fault CURRENT and nothing else. A
+     current is not a withstand check: what damages a transformer is the
+     force that current produces and the heat it deposits, and neither was
+     modelled. documentRegister has carried "detailed short-circuit force
+     calculation is not modelled" since it was written; this closes the
+     electrical and radial parts of that, and states plainly what it still
+     does not close.
+
+     ASYMMETRY. The symmetrical RMS figure understates the first peak. The
+     IEC 60076-5 factor is derived from the circuit's own X/R:
+        phi = arctan(X/R),  k = 1 + e^(-(phi + pi/2) . R/X) . sin(phi)
+        i_peak = sqrt(2) . k . I_sym
+     k runs about 1.5 to 1.8 for distribution X/R ratios, and 1.8 is the
+     conventional quoted value -- computed here rather than assumed.
+
+     RADIAL FORCE, derived not quoted. Ampere-turns AT = N.i_peak. The axial
+     leakage field in the gap is B_gap = mu0.AT/h and a winding sees the mean
+     of it, B_gap/2. Force per unit conductor length is B.i; total conductor
+     length is N.pi.D_m; a ring under uniform radial pressure carries hoop
+     tension F/(2.pi), shared by N turns of area a. That reduces to
+
+        sigma_hoop = mu0 . N . i_peak^2 . D_m / (4 . h . a)
+
+     tensile in the OUTER winding (forced outward) and compressive in the
+     INNER (forced onto the core). Compression is the more dangerous of the
+     two because it can buckle rather than yield.
+
+     AXIAL FORCE, by residual ampere-turns. With windings of equal height and
+     balanced ampere-turns the net axial force is zero by symmetry, and what
+     produces real end thrust is the IMBALANCE -- principally the tapped-out
+     section of the HV. Residual AT is the tapped fraction of the total, and
+     the radial flux it drives gives
+
+        F_axial = mu0 . AT_res^2 . pi . D_m / (2 . h)
+
+     THERMAL, adiabatic. Two seconds is short enough that no heat leaves the
+     conductor, so all the I^2R goes into its own heat capacity:
+
+        delta_theta = J^2 . rho_theta . t / (c . gamma)
+
+     with J the fault current density, rho at the starting temperature, c the
+     specific heat and gamma the density. Checked against the IEC 60076-5
+     ceiling: 250 C for copper, 200 C for aluminium, oil-immersed with paper.
+
+     WHAT THIS DOES NOT DO, and must not be read as covering:
+       - Inner-winding BUCKLING (free and forced). Compressive stress is
+         computed; the critical buckling load is not, and buckling can occur
+         well below the proof stress. This is the most serious remaining gap.
+       - Conductor tilting and spiralling between radial spacers.
+       - Axial force in BALANCED windings from end fringing -- the residual
+         method gives zero there, which is the idealisation, not the truth.
+       - Clamping structure stress, and the dynamic (as opposed to peak
+         static) response.
+     A design passing every check below has NOT been shown to withstand a
+     short circuit. It has been shown not to fail the four things checked. */
+  const scT = p.scDuration;
+  const scXR = g.pctR > 0 ? g.pctX / g.pctR : 50;
+  const scPhi = Math.atan(scXR);
+  const scK = 1 + Math.exp(-(scPhi + Math.PI / 2) / scXR) * Math.sin(scPhi);
+  const scPeakFactor = Math.SQRT2 * scK;
+  // per-phase symmetrical fault currents, from the same iscMult the terminal
+  // figures use, so the two can never disagree about the same fault
+  const scIlv = iLV * iscMult, scIhv = iHV * iscMult;
+  const scIlvPk = scIlv * scPeakFactor, scIhvPk = scIhv * scPeakFactor;
+  const MU0 = 4e-7 * Math.PI;
+  const hAx = Math.max(0.05, Math.min(g.hLV, g.hHV) / 1000);
+  const dmLV = (g.lvID + g.lvOD) / 2000, dmHV = (g.hvID + g.hvOD) / 2000;
+  const hoop = (N, iPk, dm, aMM2) => (MU0 * N * iPk * iPk * dm) / (4 * hAx * (aMM2 * 1e-6)) / 1e6; // MPa
+  const scHoopHV = hoop(nHV, scIhvPk, dmHV, aHVreq);
+  const scHoopLV = hoop(nLV, scIlvPk, dmLV, aLVreq);
+  // outer winding is in tension, inner in compression -- which is which
+  // follows from the geometry, not from an assumption about HV being outside
+  const hvOutside = dmHV > dmLV;
+  const scTensile = hvOutside ? scHoopHV : scHoopLV;
+  const scCompressive = hvOutside ? scHoopLV : scHoopHV;
+  const scAllow = p.scProofStress;
+  // axial: residual ampere-turns from the tapped-out section
+  const tapFrac = Math.max(0, (p.tapPlus || 0)) / 100;
+  const scATres = nHV * scIhvPk * tapFrac;
+  const scAxial = (MU0 * scATres * scATres * Math.PI * dmHV) / (2 * hAx); // N
+  // thermal, adiabatic over scDuration
+  const adiabatic = (cond, iSym, aMM2) => {
+    const J = (iSym / aMM2) * 1e6;               // A/m^2
+    const rho = cond.rho20 * (1 + cond.alpha * (refT - 20)) * 1e-6; // ohm.m
+    return (J * J * rho * scT) / (cond.cp * cond.dens);
+  };
+  const scDthLV = adiabatic(cLV, scIlv, aLVreq), scDthHV = adiabatic(cHV, scIhv, aHVreq);
+  const scTempLV = refT + scDthLV, scTempHV = refT + scDthHV;
+  const scTempMax = Math.max(scTempLV, scTempHV);
+  const shortCircuit = {
+    duration: scT, xr: scXR, k: scK, peakFactor: scPeakFactor,
+    iSymLV: scIlv, iSymHV: scIhv, iPeakLV: scIlvPk, iPeakHV: scIhvPk,
+    hoopHV: scHoopHV, hoopLV: scHoopLV, tensile: scTensile, compressive: scCompressive,
+    allowStress: scAllow, outerWinding: hvOutside ? "HV" : "LV",
+    axialForce: scAxial, tapFraction: tapFrac,
+    tempLV: scTempLV, tempHV: scTempHV, tempMax: scTempMax, allowTemp: p.scTempLimit,
+    notChecked: [
+      "inner-winding buckling, free and forced -- the most serious omission",
+      "conductor tilting and spiralling between radial spacers",
+      "axial force in balanced windings from end fringing",
+      "clamping structure stress and dynamic response",
+    ],
+  };
   const noise = 39 + 12.5 * Math.log10(Math.max(1, p.kva / 100)) + (B - 1.6) * 28 + grade.noise + (dry ? 4 : 0);
 
   /* p.limitNLL/limitLL are always the single source of truth here, not
@@ -1538,10 +1961,69 @@ function designTransformer(p) {
      section 22, recorded as a known gap, not silently absent). Do not
      read dualCompliance as covering this: it only carries the thermal and
      loss checks the fin-area solve actually produces. */
+  /* CALIBRATION.md section 76: IS 1180 (Part 1) : 2014 does not give separate
+     no-load and load-loss limits. It gives maximum TOTAL losses at 50% and
+     100% of rated load, and a design satisfies BOTH or neither:
+        noLoad + 0.25 x loadLoss  <=  50% figure
+        noLoad +        loadLoss  <=  100% figure
+     That is a feasible region, so a design may carry more core loss if it
+     carries correspondingly less copper loss. The engine's own nll/ll pair
+     forbade that trade; these two conditions permit it, as the standard does.
+     Null when the standard is not IS, when the rating has no published row
+     (the standard makes those subject to agreement -- reported pending, never
+     extrapolated), or for dry type, which this part does not cover. */
+  // section 82: the level is passed through as chosen. custom and conventional
+  // have no IS 1180 row and must not borrow Level 2's.
+  const isSch = p.standard === "IS" ? is1180Schedule(p.kva, p.effLevel, dry) : null;
+  const is50 = noLoad + 0.25 * loadLoss;
+  const is100 = noLoad + loadLoss;
+
+  /* What the loss FIT targets, and why it is NOT the region's edge.
+
+     Scaling this design's own losses to the boundary was tried and is a
+     self-referential target: schFit.nll = noLoad * s makes the fit's own
+     goal move with the value it is chasing, so marginTargetNLL keeps asking
+     for 10% below wherever the design currently is. It never converges --
+     flux runs to the floor and the default case came out at 1389 kg of core,
+     17% dearer, and NON-COMPLIANT. Measured, not reasoned about.
+
+     So the fit targets the corner: a fixed, stable point that satisfies both
+     conditions by construction. That is a conservative default split, not a
+     restriction -- compliance below is the two published conditions, so any
+     split inside the region passes, and a designer or the budget search may
+     move off the corner freely and still be called compliant. What the
+     engine no longer does is FORBID the trade; what it does not yet do is
+     seek out the cheapest point in the region on its own. That belongs to
+     the cost search, and is not this section's work. */
+  const isScale = isSch ? Math.min(isSch.p50 / Math.max(1e-9, is50), isSch.p100 / Math.max(1e-9, is100)) : null;
+  /* section 84: with no declared or published loss limit there is nothing
+     legitimate to fit against, so the fit is left unbounded on losses and the
+     design is stopped by the thermal and mechanical limits instead -- which
+     are physical, not invented. Measured at 800 kVA conventional: winding rise
+     binds at exactly 45.0 K of 45, and the design is within 1% of what the
+     fabricated 8303 W limit produced. */
+  const schFit = p.lossLimitsDeclared === false ? { nll: Infinity, ll: Infinity } : sch;
   const compliance = {
-    nll: { val: noLoad, lim: sch.nll, ok: noLoad <= sch.nll },
-    ll: { val: loadLoss, lim: sch.ll, ok: loadLoss <= sch.ll },
-    total: { val: totalLoss, lim: sch.nll + sch.ll, ok: totalLoss <= sch.nll + sch.ll },
+    nll: p.lossLimitsDeclared === false ? null : { val: noLoad, lim: sch.nll, ok: noLoad <= sch.nll },
+    ll: p.lossLimitsDeclared === false ? null : { val: loadLoss, lim: sch.ll, ok: loadLoss <= sch.ll },
+    total: p.lossLimitsDeclared === false ? null : { val: totalLoss, lim: sch.nll + sch.ll, ok: totalLoss <= sch.nll + sch.ll },
+    /* An interpolated limit is a suggestion, not a standard figure, so it is
+       reported (val/lim visible) but does not gate `compliant` -- calling a
+       design non-compliant against a number IS 1180 does not give for that
+       rating would be presenting the interpolation as a limit. */
+    is50: isSch ? { val: is50, lim: isSch.p50, ok: isSch.exact ? is50 <= isSch.p50 : true, advisory: !isSch.exact, met: is50 <= isSch.p50 } : null,
+    flux: p.standard === "IS" ? { val: B, lim: IS1180_FLUX_MAX, ok: B <= IS1180_FLUX_MAX + 1e-9 } : null,
+    fluxMargin: p.standard === "IS" && p.fluxMargin > 0 ? { val: B, lim: bCeil, ok: B <= bCeil + 1e-9 } : null,
+    scHoopTensile: { val: shortCircuit.tensile, lim: shortCircuit.allowStress, ok: shortCircuit.tensile <= shortCircuit.allowStress },
+    scHoopCompressive: { val: shortCircuit.compressive, lim: shortCircuit.allowStress, ok: shortCircuit.compressive <= shortCircuit.allowStress },
+    scThermal: { val: shortCircuit.tempMax, lim: shortCircuit.allowTemp, ok: shortCircuit.tempMax <= shortCircuit.allowTemp },
+    /* CALIBRATION.md section 83: always present, never null. This one had
+       INVERTED semantics -- null meant "healthy" here while null means "not
+       assessed" on every other entry -- and with a null-tolerant every() gate
+       the two are indistinguishable. Same shape as the bug that let a
+       conventional design read Compliant. */
+    coreMass: { val: wCoreAssembled, lim: wCore, ok: !coreMassAnomaly },
+    is100: isSch ? { val: is100, lim: isSch.p100, ok: isSch.exact ? is100 <= isSch.p100 : true, advisory: !isSch.exact, met: is100 <= isSch.p100 } : null,
     z: { val: g.pctZ, lim: p.targetZ, ok: Math.abs(g.pctZ - p.targetZ) / p.targetZ <= Math.min(p.zTol, std.zTol) / 100 },
     rise: { val: dry ? windRise : oilRise, lim: riseLimit, ok: (dry ? windRise : oilRise) <= riseLimit + 0.5 },
     wRise: { val: windRise, lim: wRiseLimit, ok: windRise <= wRiseLimit + 0.5 },
@@ -1557,7 +2039,119 @@ function designTransformer(p) {
     coilHeight: { val: Math.max(g.hLV, g.hHV), lim: p.coilHeightLimit, ok: Math.max(g.hLV, g.hHV) <= p.coilHeightLimit },
     tankHeight: { val: tankH, lim: p.tankHeightLimit, ok: tankH <= p.tankHeightLimit },
   };
-  const compliant = Object.values(compliance).every((x) => x.ok);
+  // is50/is100 are null when no published row applies; a null is not a failure.
+  /* CALIBRATION.md section 83. A null check is NOT a pass. It used to be
+     counted as one, and that turned "IS 1180 defines no schedule for this
+     efficiency class" into a green Compliant badge on a design running 49%
+     outside the standard. A design with no applicable schedule has not passed
+     one.
+
+     So compliance is now three-valued. `compliant` keeps its old meaning --
+     every check that WAS assessed came back ok -- because other code reads it
+     and silently inverting that would be its own trap. `complianceState` is
+     the one the UI must show:
+       "failed"      an assessed check failed
+       "notAssessed" everything assessed passed, but something material was
+                     never assessed at all
+       "passed"      everything material was assessed and passed
+
+     Only IS-standard designs with no IS 1180 loss schedule count as material
+     here: flux and fluxMargin go null under a non-IS standard, where a
+     different standard governs and the declared limits are still checked, so
+     those are genuinely not applicable rather than not assessed. */
+  const assessed = Object.values(compliance).filter((x) => x != null);
+  const compliant = assessed.every((x) => x.ok);
+  const notAssessed = [];
+  if (p.standard === "IS" && !isSch) {
+    notAssessed.push(
+      dry
+        ? `IS 1180 (Part 1) : 2014 covers oil-immersed transformers, so it sets no loss schedule for this dry-type design and none was checked.`
+        : !["level1", "level2", "level3"].includes(p.effLevel)
+          ? `IS 1180 (Part 1) : 2014 defines loss schedules for Level 1, Level 2 and Level 3 only. "${EFF_LEVELS[p.effLevel] ? EFF_LEVELS[p.effLevel].name : p.effLevel}" is not one of them, so NO total-loss limit was checked. This design cannot be offered as an IS 1180 unit.`
+          : `IS 1180 (Part 1) : 2014 lists no ${p.kva} kVA row and the rating falls outside its tables, so no total-loss limit was checked.`
+    );
+  }
+  const complianceState = !compliant ? "failed" : notAssessed.length ? "notAssessed" : "passed";
+  const complianceNote = notAssessed.length
+    ? `${notAssessed.join(" ")} Every other check was applied and passed, but this design has NOT been assessed against a loss schedule -- do not read the result as approval against IS 1180.`
+    : null;
+
+  /* CALIBRATION.md section 78: which constraint is ACTUALLY binding, and how
+     much room is left against the loss schedule.
+
+     This exists because a user comparing efficiency levels can see prices
+     that barely move and reasonably conclude the selector does nothing. The
+     honest answer is usually that something else is binding first -- most
+     often the IS 1180 top-oil rise, which forces enough cooling surface that
+     the losses land under the schedule without the schedule having to pull
+     them there. Asserting that in prose would be a claim; this computes it
+     from the design and shows the margins so a reader can check it.
+
+     Utilisation is val/lim for every constraint that has a limit, so they are
+     comparable on one scale. Impedance is excluded: its constraint is a
+     two-sided tolerance band, not a ceiling, so a ratio against the target
+     does not mean the same thing as the others. */
+  const utilOf = [
+    compliance.is50 && { key: "losses at 50% load", val: compliance.is50.val, lim: compliance.is50.lim, advisory: !!compliance.is50.advisory },
+    compliance.is100 && { key: "losses at 100% load", val: compliance.is100.val, lim: compliance.is100.lim, advisory: !!compliance.is100.advisory },
+    { key: dry ? "enclosure rise" : "top-oil rise", val: compliance.rise.val, lim: compliance.rise.lim },
+    { key: "winding rise", val: compliance.wRise.val, lim: compliance.wRise.lim },
+    { key: "coil height", val: compliance.coilHeight.val, lim: compliance.coilHeight.lim },
+    { key: "tank height", val: compliance.tankHeight.val, lim: compliance.tankHeight.lim },
+  ].filter(Boolean).map((c) => ({ ...c, util: c.lim > 0 ? c.val / c.lim : 0 }));
+  const binding = utilOf.reduce((a2, b2) => (b2.util > a2.util ? b2 : a2), utilOf[0]);
+  const lossUtil = utilOf.filter((c) => c.key.startsWith("losses")).reduce((m, c) => Math.max(m, c.util), 0);
+  const lossIsBinding = binding.key.startsWith("losses");
+  const pc1 = (x) => `${(x * 100).toFixed(1)}%`;
+  /* CALIBRATION.md section 78: below 630 kVA the AUTO conductor choice
+     depends on the efficiency level -- aluminium at Level 1 and conventional,
+     copper at Level 2 and above (deriveSpec's condSug). So changing the level
+     there silently changes the winding metal, which moves price far more than
+     the loss figures do and changes short-circuit strength and terminations
+     with it. Measured at 315 kVA: Level 1 aluminium 7,33,587 against Level 2
+     copper 13,05,250, a 44% gap of which only about 11% is the loss limits.
+     Disclosed rather than left for a reader to discover from the price. */
+  const condAutoLevelDependent = p.condPref === "auto" && p.kva < 630;
+  const condNote = condAutoLevelDependent
+    ? `Conductor was auto-selected as ${cLV.name} for ${p.kva} kVA at ${EFF_LEVELS[p.effLevel] ? EFF_LEVELS[p.effLevel].name : p.effLevel}. Below 630 kVA this choice depends on the efficiency level -- Level 1 and conventional take aluminium, Level 2 and above take copper -- so changing the level here also changes the winding metal, and with it the short-circuit strength, the terminations and most of the price difference between levels. Set the conductor explicitly to compare levels on losses alone.`
+    : null;
+
+  /* CALIBRATION.md section 80. A design breaching its declared loss schedule
+     was visible only as a red cell inside the compliance block, and a reader
+     took a 43%-over design for a normal result. Loss non-compliance is not a
+     detail: it is a unit that cannot be delivered against the enquiry. This
+     builds the sentence the UI raises as an amber banner, naming the
+     condition and the overshoot, so it cannot be scrolled past. */
+  const lossBreach = (() => {
+    const fails = [];
+    if (compliance.is50 && compliance.is50.met === false) fails.push({ n: "50% load", c: compliance.is50 });
+    else if (compliance.is50 && !compliance.is50.ok) fails.push({ n: "50% load", c: compliance.is50 });
+    if (compliance.is100 && compliance.is100.met === false) fails.push({ n: "100% load", c: compliance.is100 });
+    else if (compliance.is100 && !compliance.is100.ok) fails.push({ n: "100% load", c: compliance.is100 });
+    if (!fails.length) return null;
+    const advisory = fails.some((f) => f.c.advisory);
+    const parts = fails.map((f) => `${f.n}: ${Math.round(f.c.val)} W against ${Math.round(f.c.lim)} W, over by ${(100 * (f.c.val / f.c.lim - 1)).toFixed(1)}%`);
+    return `This design does not meet its declared loss schedule. ${parts.join(". ")}. `
+      + (advisory
+        ? `Note the limit shown is INTERPOLATED for a non-preferred rating, not an IS 1180 figure, so this is a warning rather than a compliance failure -- but the design is still outside the figures it would be tendered against.`
+        : `IS 1180 (Part 1) : 2014 ${EFF_LEVELS[p.effLevel] ? EFF_LEVELS[p.effLevel].name : p.effLevel} for ${p.kva} kVA. A unit built to this design would fail acceptance. Raise the efficiency level, relax the declared losses, or change a parameter that lowers them.`);
+  })();
+
+  const constraintNote = (() => {
+    if (!compliance.is50) return null;
+    const m50 = 100 * (1 - compliance.is50.val / compliance.is50.lim);
+    const m100 = 100 * (1 - compliance.is100.val / compliance.is100.lim);
+    const head = `Binding constraint: ${binding.key}, at ${pc1(binding.util)} of its limit `
+      + `(${Math.round(binding.val)} against ${Math.round(binding.lim)}).`;
+    const losses = ` Total losses are ${Math.round(compliance.is50.val)} W at 50% load against a `
+      + `${Math.round(compliance.is50.lim)} W limit (${m50.toFixed(1)}% inside) and `
+      + `${Math.round(compliance.is100.val)} W at 100% against ${Math.round(compliance.is100.lim)} W `
+      + `(${m100.toFixed(1)}% inside).`;
+    const verdict = lossIsBinding
+      ? ` The loss schedule IS the active constraint here, so the efficiency level directly sets this design's size and price.`
+      : ` The loss schedule is NOT the active constraint here: ${binding.key} binds first, and the cooling surface it forces brings the losses under the schedule without the schedule pulling them there. Changing the efficiency level will move this design's price less than the level's own loss figures suggest.`;
+    return head + losses + verdict;
+  })();
 
   /* Second rating's own compliance, reported alongside the primary's for
      the nameplate and GTP -- a real dual-rated unit is guaranteed at both
@@ -1592,7 +2186,38 @@ function designTransformer(p) {
     wPerKg, wJoint, noLoad, loadLoss, totalLoss, i0pct, i2rLV: g.i2rLV, i2rHV: g.i2rHV, rLV: g.rLV, rHV: g.rHV,
     pctX: g.pctX, pctR: g.pctR, pctZ: g.pctZ, regFull, oilRise, windRise, grad, hotspot, hotspotAvg, lifeFactor,
     riseLimit, wRiseLimit, eff100: effAt(1), eff75: effAt(0.75), eff50: effAt(0.5), maxEffLoad,
-    iscLV: iLineLV * iscMult, iscHV: iscHVline, iscMult, zSys, zTx, noise, sch, compliance, compliant,
+    iscLV: iLineLV * iscMult, iscHV: iscHVline, iscMult, zSys, zTx, shortCircuit, noise, sch, compliance, compliant,
+    isSch, schFit, isScale, binding, constraintNote, lossBreach, coreMassAnomaly,
+    complianceState, notAssessed, complianceNote, lossUtil, lossIsBinding, condNote, condAutoLevelDependent,
+    /* CLAUDE.md invariant 5: an unlisted rating has no published limit, so
+       the dependent output is pending and names what is missing, rather
+       than being extrapolated from neighbouring rows. */
+    /* CLAUDE.md invariant 5 and section 77. Three states, kept distinct
+       because they mean different things to whoever reads the sheet:
+         - exact:   the rating has its own published row.
+         - agreed:  a non-preferred rating. IS 1180 makes losses here subject
+                    to agreement between user and supplier, so designing one
+                    is legitimate. The figures are interpolated between the
+                    two nearest tabled ratings as a STARTING SUGGESTION and
+                    must never be presented as an IS 1180 value.
+         - pending: outside the table's range entirely, nothing to
+                    interpolate between. */
+    /* section 82: four states, and the difference between the last two
+       matters. "notALevel" means IS 1180 defines no schedule for this
+       efficiency class at all; "pending" means it defines them for this class
+       but not at this rating. Reporting the first as the second would say the
+       rating is the problem when the level is. */
+    isLossBasis: !(p.standard === "IS") || dry ? "n/a"
+      : isSch ? (isSch.exact ? "exact" : "agreed")
+      : !["level1", "level2", "level3"].includes(p.effLevel) ? "notALevel"
+      : "pending",
+    isLossNote: !(p.standard === "IS") || dry ? null
+      : isSch && isSch.exact ? null
+      : !isSch && !["level1", "level2", "level3"].includes(p.effLevel)
+        ? `IS 1180 (Part 1) : 2014 defines loss schedules for Level 1, Level 2 and Level 3 only. "${EFF_LEVELS[p.effLevel] ? EFF_LEVELS[p.effLevel].name : p.effLevel}" is not one of them, so the standard sets no total-loss limit for this design and none is checked. The declared no-load and load-loss figures are the only limits binding here. This is NOT a compliance failure -- it is the standard not applying.`
+      : isSch
+        ? `${p.kva} kVA is not a preferred rating in IS 1180 (Part 1) : 2014. The loss figures shown are INTERPOLATED between the ${isSch.lo} kVA and ${isSch.hi} kVA rows as a starting suggestion. They are NOT an IS 1180 limit for this rating -- the standard makes losses at non-preferred ratings subject to agreement between user and supplier, and this design cannot be declared IS 1180 compliant on them until that agreement is recorded.`
+        : `IS 1180 (Part 1) : 2014 does not cover ${p.kva} kVA and it falls outside the range of the tables, so there is nothing to interpolate between. The loss figures shown are the engine's own estimate, not a published or interpolated limit.`,
     fanCount, pumpCount,
     dualForced, dualLoadLoss, dualTotalLoss, dualOilRise, dualWindRise, dualCompliance, dualCompliant,
     Kw, aWin, Hw0, util: shape === "circ" ? stepUtil(p.steps) : ct.aspect, sf: grade.sf,
@@ -2071,7 +2696,7 @@ function searchDesigns(base, rates, band, opts) {
       // Same clamp fitToSchedule itself applies, used here only to give its
       // bisection a starting flux inside the grade actually being tried --
       // base.flux can easily sit outside a different grade's own bMax/bMin.
-      const bMaxG = CORE_GRADES[g].bMax - 0.02;
+      const bMaxG = fluxCeiling(base, g);
       const bMinG = g === "amor" ? 1.20 : 1.42;
       // A pinned flux is the design's own current value, held exactly as
       // the main path holds it -- not reclamped into whatever grade is
@@ -2122,7 +2747,7 @@ function searchDesigns(base, rates, band, opts) {
                       const bom = buildBOM(d, rates);
                       const zOk = Math.abs(d.pctZ - base.targetZ) / base.targetZ <= opts.zTol / 100;
                       const thermalOk = d.compliance.rise.ok && d.compliance.wRise.ok;
-                      const lossOk = !opts.enforceLimits || (d.compliance.nll.ok && d.compliance.ll.ok);
+                      const lossOk = !opts.enforceLimits || !d.compliance.nll || !d.compliance.ll || (d.compliance.nll.ok && d.compliance.ll.ok);
                       // CALIBRATION.md section 44 (was section 28's aspect
                       // ratio proxy): a candidate can be impedance-, thermal-
                       // and loss-compliant with a coil or tank the shop
@@ -2331,7 +2956,15 @@ function stagedSearchDesigns(base, rates, band, opts, onProgress, shouldCancel) 
    fitEtkToCost on every computeDesign call and by the Fit to Budget K panel,
    both of which want one clean line, not one point out of the big grid's
    many thousands. */
-const ETK_RANGE = Array.from({ length: 16 }, (_, i) => Math.round((0.40 + i * 0.02) * 100) / 100);
+/* CALIBRATION.md section 80: floor extended 0.40 -> 0.30. The old floor was a
+   search-range artefact, not a limit: nothing physical happens at 0.40, and a
+   sweep whose optimum can sit on its own edge cannot tell you whether the
+   edge or the physics chose it. Measured after extending, the optimum lands
+   between 0.42 and 0.56 across 315 to 2500 kVA and touches neither end, so
+   the range is now genuinely wider than the answer -- which is the only state
+   in which a swept optimum means anything. If a rating ever lands ON 0.30,
+   that is the same artefact again and the floor must move, not the design. */
+const ETK_RANGE = Array.from({ length: 21 }, (_, i) => Math.round((0.30 + i * 0.02) * 100) / 100);
 
 /* CALIBRATION.md section 39: one candidate's own worth at one K -- flux and
    density are re-fitted for THIS K (not held at whatever a different K's
@@ -2387,7 +3020,8 @@ function etkPoint(p, rates, k, over, fast = false) {
   const bom = buildBOM(d, rates);
   const zOk = Math.abs(d.pctZ - p.targetZ) / p.targetZ <= p.zTol / 100;
   const thermalOk = d.compliance.rise.ok && d.compliance.wRise.ok;
-  const lossOk = d.compliance.nll.ok && d.compliance.ll.ok;
+  // section 84: null means no declared or published limit, so nothing to fail.
+  const lossOk = !d.compliance.nll || !d.compliance.ll || (d.compliance.nll.ok && d.compliance.ll.ok);
   // CALIBRATION.md section 44 (was section 28's aspect ratio proxy):
   // without this, a low K that trades an ever taller, ever thinner (and so
   // unbuildable) coil for lower load loss looks like a genuine saving to
@@ -2602,8 +3236,8 @@ function fitEtkToCost(p, over = {}, rates = DEFAULT_RATES) {
   const d = designTransformer({ ...p, etK: best.etK, ...best.fitted });
   const zOk = Math.abs(d.pctZ - p.targetZ) / p.targetZ <= p.zTol / 100;
   const missed = [];
-  if (!d.compliance.nll.ok) missed.push(`no-load loss ${Math.round(d.compliance.nll.val)} W against ${Math.round(d.compliance.nll.lim)} W declared`);
-  if (!d.compliance.ll.ok) missed.push(`load loss ${Math.round(d.compliance.ll.val)} W against ${Math.round(d.compliance.ll.lim)} W declared`);
+  if (d.compliance.nll && !d.compliance.nll.ok) missed.push(`no-load loss ${Math.round(d.compliance.nll.val)} W against ${Math.round(d.compliance.nll.lim)} W declared`);
+  if (d.compliance.ll && !d.compliance.ll.ok) missed.push(`load loss ${Math.round(d.compliance.ll.val)} W against ${Math.round(d.compliance.ll.lim)} W declared`);
   if (!zOk) missed.push(`impedance ${d.pctZ.toFixed(2)}% against ${p.targetZ}% declared`);
   if (!d.compliance.rise.ok) missed.push(`top-oil/enclosure rise ${d.compliance.rise.val.toFixed(1)} against ${d.compliance.rise.lim} °C`);
   if (!d.compliance.wRise.ok) missed.push(`winding rise ${d.compliance.wRise.val.toFixed(1)} against ${d.compliance.wRise.lim} °C`);
@@ -2782,6 +3416,19 @@ function calcSheet(d, bom) {
 
   const star = (c) => (c === "y" || c === "Y");
 
+  if (d.constraintNote || d.condNote) {
+    sec("0. Which constraint is binding", "IS 1180 (Part 1) : 2014", [
+      ...(d.constraintNote ? [row("Binding constraint", "n/a", `${d.binding.key} at ${(d.binding.util * 100).toFixed(1)}% of limit`, d.constraintNote, `${Math.round(d.binding.val)} / ${Math.round(d.binding.lim)}`, "IS 1180 (Part 1) : 2014", "losses, rise limits, shop limits")] : []),
+      ...(d.compliance.is50 ? [row("Total losses at 50% load", "P₅₀", "no-load + 0.25 x load loss", `= ${Math.round(d.noLoad)} + 0.25 x ${Math.round(d.loadLoss)}`, `${Math.round(d.compliance.is50.val)} W of ${Math.round(d.compliance.is50.lim)} W (${(100 * (1 - d.compliance.is50.val / d.compliance.is50.lim)).toFixed(1)}% inside)`, "IS 1180 (Part 1) : 2014", "losses")] : []),
+      ...(d.compliance.is100 ? [row("Total losses at 100% load", "P₁₀₀", "no-load + load loss", `= ${Math.round(d.noLoad)} + ${Math.round(d.loadLoss)}`, `${Math.round(d.compliance.is100.val)} W of ${Math.round(d.compliance.is100.lim)} W (${(100 * (1 - d.compliance.is100.val / d.compliance.is100.lim)).toFixed(1)}% inside)`, "IS 1180 (Part 1) : 2014", "losses")] : []),
+      ...(d.condNote ? [row("Conductor choice depends on level", "n/a", "auto-selection below 630 kVA", d.condNote, d.cLV.name, "deriveSpec", "rating, efficiency level")] : []),
+    ]);
+  }
+  if (d.isLossNote) {
+    sec("0b. Loss limits, basis of", "IS 1180 (Part 1) : 2014", [
+      row("Loss limit basis", "n/a", d.isLossBasis === "agreed" ? "interpolated, subject to agreement" : "not published", d.isLossNote, d.isLossBasis, "IS 1180 (Part 1) : 2014", "rating"),
+    ]);
+  }
   sec("1. Ratings, connections and currents", REFS.S, [
     row("Rated power", "S", "given", "n/a", `${p.kva} kVA`, "Enquiry", "input"),
     row("HV phase voltage", "V\u2081\u209A\u2095", d.hvConn === "D" ? "V\u2081\u209A\u2095 = V\u2081\u2097" : `V\u2081\u209A\u2095 = V\u2081\u2097 / ${R3}`,
@@ -3844,6 +4491,27 @@ function routineTestSchedule(d) {
       t: `Load loss and impedance at principal tap${p.dualRating && p.kva2 > 0 ? `, stated at ${p.kva} kVA (${p.cooling}) only` : ""}`,
       ref: "IEC 60076-1", exp: `${f0(d.loadLoss)} W, ${f2(d.pctZ)} %`, lim: `${f0(d.sch.ll)} W guaranteed, impedance \u00B1${p.zTol} %`,
     },
+    ...(d.compliance.is50 ? [{
+      t: `Total losses at 50 % load${d.isLossBasis === "agreed" ? " -- INTERPOLATED, subject to agreement, NOT an IS 1180 figure for this rating" : ""}`,
+      ref: `IS 1180 (Part 1) : 2014${d.isLossBasis === "exact" ? `, ${p.kva} kVA row` : ""}`,
+      exp: `${f0(d.compliance.is50.val)} W`,
+      lim: `${f0(d.compliance.is50.lim)} W${d.isLossBasis === "agreed" ? " (interpolated suggestion)" : " maximum"}`,
+    }, {
+      t: `Total losses at 100 % load${d.isLossBasis === "agreed" ? " -- INTERPOLATED, subject to agreement, NOT an IS 1180 figure for this rating" : ""}`,
+      ref: `IS 1180 (Part 1) : 2014${d.isLossBasis === "exact" ? `, ${p.kva} kVA row` : ""}`,
+      exp: `${f0(d.compliance.is100.val)} W`,
+      lim: `${f0(d.compliance.is100.lim)} W${d.isLossBasis === "agreed" ? " (interpolated suggestion)" : " maximum"}`,
+    }] : []),
+    { t: "Short-circuit withstand, radial (outer winding tensile)", ref: "IS 2026 Part 5 / IEC 60076-5",
+      exp: `${f1(d.shortCircuit.tensile)} MPa at ${f0(d.shortCircuit.iPeakHV)} A peak`, lim: `${f0(d.shortCircuit.allowStress)} MPa proof stress` },
+    { t: "Short-circuit withstand, radial (inner winding compressive)", ref: "IS 2026 Part 5 / IEC 60076-5",
+      exp: `${f1(d.shortCircuit.compressive)} MPa`, lim: `${f0(d.shortCircuit.allowStress)} MPa proof stress -- BUCKLING NOT CHECKED, see note` },
+    { t: "Short-circuit withstand, axial end thrust", ref: "IS 2026 Part 5 / IEC 60076-5",
+      exp: `${f0(d.shortCircuit.axialForce)} N from ${f0(d.shortCircuit.tapFraction * 100)} % residual ampere-turns`, lim: "Clamping structure not modelled" },
+    { t: `Short-circuit thermal, ${f0(d.shortCircuit.duration)} s adiabatic`, ref: "IS 2026 Part 5 / IEC 60076-5",
+      exp: `${f1(d.shortCircuit.tempMax)} °C`, lim: `${f0(d.shortCircuit.allowTemp)} °C maximum` },
+    { t: "Short-circuit withstand, NOT COVERED by the above", ref: "IS 2026 Part 5 / IEC 60076-5",
+      exp: d.shortCircuit.notChecked.join("; "), lim: "Requires type test or a full mechanical calculation" },
     { t: "Separate source AC withstand, HV", ref: "IEC 60076-3", exp: `${p.acHV} kV for 60 s`, lim: "No breakdown" },
     { t: "Separate source AC withstand, LV", ref: "IEC 60076-3", exp: `${p.acLV} kV for 60 s`, lim: "No breakdown" },
     { t: "Induced overvoltage withstand", ref: "IEC 60076-3", exp: "Twice rated voltage, duration per clause", lim: "No breakdown" },
@@ -4054,7 +4722,7 @@ const FIT_RESOLVE_DENSITY_STEPS = [0.01, 0.02, 0.03];
 const FIT_RESOLVE_FLUX_STEPS = [0.005, 0.01, 0.015, 0.02];
 
 function resolveDiscreteNeighbourhood(S, seedFlux, seedDLV, seedDHV, rates, lockF, lockD) {
-  const bMax = CORE_GRADES[S.coreGrade].bMax - 0.02;
+  const bMax = fluxCeiling(S);
   const bMin = S.coreGrade === "amor" ? 1.20 : 1.42;
   const clF = (x) => Math.min(bMax, Math.max(bMin, x));
   const clLV = (x) => Math.min(CONDUCTORS[S.condLV].dMax, Math.max(0.7, x));
@@ -4091,9 +4759,9 @@ function resolveDiscreteNeighbourhood(S, seedFlux, seedDLV, seedDHV, rates, lock
   const consider = (flux, dLV, dHV) => {
     const t = designTransformer({ ...S, flux, deltaLV: dLV, deltaHV: dHV });
     const sig = discreteGeometrySignature(t);
-    const target = S.marginTargetLL * t.sch.ll;
+    const target = S.marginTargetLL * t.schFit.ll;
     const dist = Math.abs(t.loadLoss - target);
-    const compliant = t.loadLoss <= t.sch.ll && t.noLoad <= t.sch.nll;
+    const compliant = t.loadLoss <= t.schFit.ll && t.noLoad <= t.schFit.nll;
     const prev = found.get(sig);
     if (!prev || dist < prev.dist) found.set(sig, { flux, dLV, dHV, t, sig, dist, compliant });
   };
@@ -4143,7 +4811,7 @@ function resolveDiscreteNeighbourhood(S, seedFlux, seedDLV, seedDHV, rates, lock
     const evalAt = (m) => designTransformer({
       ...S, flux: entry.flux, deltaLV: clLV(entry.dLV * m), deltaHV: clHV(entry.dHV * m),
     });
-    const okAt = (t) => discreteGeometrySignature(t) === entry.sig && t.loadLoss <= t.sch.ll;
+    const okAt = (t) => discreteGeometrySignature(t) === entry.sig && t.loadLoss <= t.schFit.ll;
     let inM = 1, inT = entry.t;
     if (!okAt(inT)) {
       // The discovered sample is already over the schedule -- walk inward
@@ -4155,7 +4823,7 @@ function resolveDiscreteNeighbourhood(S, seedFlux, seedDLV, seedDHV, rates, lock
         const t = evalAt(cand);
         if (discreteGeometrySignature(t) !== entry.sig) break; // signature itself this thin -- give up, keep what we have
         inM = cand; inT = t; step *= 1.4;
-        if (t.loadLoss <= t.sch.ll) break;
+        if (t.loadLoss <= t.schFit.ll) break;
       }
     }
     let outM = null;
@@ -4178,7 +4846,7 @@ function resolveDiscreteNeighbourhood(S, seedFlux, seedDLV, seedDHV, rates, lock
 
   const entries = [...found.values()].map((e) => {
     const refinedT = refineWithinSignature(e);
-    const compliant = refinedT.loadLoss <= refinedT.sch.ll && refinedT.noLoad <= refinedT.sch.nll;
+    const compliant = refinedT.loadLoss <= refinedT.schFit.ll && refinedT.noLoad <= refinedT.schFit.nll;
     // designTransformer's own output names these B/dLV/dHV, not the
     // flux/deltaLV/deltaHV it takes as input -- refinedT is its output.
     return { ...e, t: refinedT, flux: refinedT.B, dLV: refinedT.dLV, dHV: refinedT.dHV, compliant };
@@ -4201,17 +4869,17 @@ function resolveDiscreteNeighbourhood(S, seedFlux, seedDLV, seedDHV, rates, lock
   let flux = winner.flux, dLV = winner.dLV, dHV = winner.dHV;
   const roundedT = designTransformer({ ...S, flux: r2(flux), deltaLV: r2(dLV), deltaHV: r2(dHV) });
   const roundedOk = discreteGeometrySignature(roundedT) === winner.sig
-    && (!winner.compliant || (roundedT.loadLoss <= roundedT.sch.ll && roundedT.noLoad <= roundedT.sch.nll));
+    && (!winner.compliant || (roundedT.loadLoss <= roundedT.schFit.ll && roundedT.noLoad <= roundedT.schFit.nll));
   if (roundedOk) { flux = r2(flux); dLV = r2(dLV); dHV = r2(dHV); }
 
   const seedExFactory = buildBOM(seedT, rates).exFactory;
-  const seedCompliant = seedT.loadLoss <= seedT.sch.ll && seedT.noLoad <= seedT.sch.nll;
-  const marginPct = (100 * (winner.t.sch.ll - winner.t.loadLoss)) / winner.t.sch.ll;
+  const seedCompliant = seedT.loadLoss <= seedT.schFit.ll && seedT.noLoad <= seedT.schFit.nll;
+  const marginPct = (100 * (winner.t.schFit.ll - winner.t.loadLoss)) / winner.t.schFit.ll;
   let note;
   if (entries.length > 1) {
     if (!compliantEntries.length) {
       note = `A neighbourhood search found ${entries.length} distinct nearby winding configurations; none meets the `
-        + `${Math.round(winner.t.sch.ll)} W load-loss / ${Math.round(winner.t.sch.nll)} W no-load schedule here. `
+        + `${Math.round(winner.t.schFit.ll)} W load-loss / ${Math.round(winner.t.schFit.nll)} W no-load schedule here. `
         + `Returning the closest approach, ${inr(winner.exFactory)} ex-works.`;
     } else if (winner.sig !== seedSig) {
       note = `The fit's own iteration settled on a different, more expensive configuration `
@@ -4247,7 +4915,7 @@ export function fitToSchedule(S, over = {}, maxIters = FIT_MAX_ITERS, tol = FIT_
   const lockF = over.flux !== undefined;
   const lockD = over.deltaLV !== undefined || over.deltaHV !== undefined;
   if (lockF && lockD) return {};
-  const bMax = CORE_GRADES[S.coreGrade].bMax - 0.02;
+  const bMax = fluxCeiling(S);
   const bMin = S.coreGrade === "amor" ? 1.20 : 1.42;
   const cl = (x, lo, hi) => Math.min(hi, Math.max(lo, x));
   let flux = S.flux, dLV = S.deltaLV, dHV = S.deltaHV;
@@ -4291,11 +4959,11 @@ export function fitToSchedule(S, over = {}, maxIters = FIT_MAX_ITERS, tol = FIT_
     }
 
     if (!lockF && t.noLoad > 0) {
-      const fluxTarget = cl(flux * Math.pow(Math.pow((S.marginTargetNLL * t.sch.nll) / t.noLoad, 1 / 0.9), 0.55), bMin, bMax);
+      const fluxTarget = cl(flux * Math.pow(Math.pow((S.marginTargetNLL * t.schFit.nll) / t.noLoad, 1 / 0.9), 0.55), bMin, bMax);
       flux += FIT_RELAX * (fluxTarget - flux);
     }
     if (!lockD && t.loadLoss > 0) {
-      const k = Math.pow((S.marginTargetLL * t.sch.ll) / t.loadLoss, 0.6);
+      const k = Math.pow((S.marginTargetLL * t.schFit.ll) / t.loadLoss, 0.6);
       const dLVTarget = cl(dLV * k, 0.7, CONDUCTORS[S.condLV].dMax);
       const dHVTarget = cl(dHV * k, 0.7, CONDUCTORS[S.condHV].dMax);
       dLV += FIT_RELAX * (dLVTarget - dLV);
@@ -4363,8 +5031,8 @@ export function fitToSchedule(S, over = {}, maxIters = FIT_MAX_ITERS, tol = FIT_
         at: atCeiling ? "ceiling" : "floor",
         value: Math.round(finalFlux * 100) / 100,
         noLoad: Math.round(finalT.noLoad),
-        limit: Math.round(finalT.sch.nll),
-        compliant: finalT.noLoad <= finalT.sch.nll,
+        limit: Math.round(finalT.schFit.nll),
+        compliant: finalT.noLoad <= finalT.schFit.nll,
       };
     }
   }

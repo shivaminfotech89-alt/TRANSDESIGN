@@ -40,9 +40,14 @@ Break any of these and the product is wrong, not just untidy.
    `pending` and name the missing parameter. A plausible-looking fabricated
    value in a customer document is worse than a blank.
 
-6. **Loss limits are estimates until the user overrides them.** The IS 1180
-   level schedule in the engine is fitted from a scaling formula, not the
-   published table. Any UI that shows a limit must say so and offer the manual
+6. **Loss limits are published where IS 1180 lists the rating, and estimates
+   everywhere else.** The IS 1180 (Part 1) : 2014 tables are transcribed into
+   the engine (`IS1180`) and are exact for the ratings they list. Outside them
+   — an unlisted rating, dry type, or a non-IS standard — the figure is still
+   the old fitted formula and is an estimate; the standard makes losses at
+   unlisted ratings subject to agreement between user and supplier, so the
+   engine reports `isLossPending` naming the rating rather than extrapolating.
+   Any UI showing a limit must say which of the two it is and offer the manual
    entry.
 
 7. **`documentRegister` must be reviewed whenever a phase lands.** Its whole
@@ -103,15 +108,57 @@ Default case: 1000 kVA, 11 kV / 433 V, Dyn11, IS, Level 2, copper, ONAN, fin tan
 
 | Quantity | Value |
 |---|---|
-| Ex-works | ₹20,05,344 |
-| Delivered incl. GST | ₹23,66,306 |
-| Tank length | 1541 mm |
-| No-load loss | 1088 W |
-| Load loss | 6356 W |
+| Ex-works | ₹21,53,803 |
+| Delivered incl. GST | ₹25,41,488 |
+| Tank length | 1580 mm |
+| No-load loss | 1025 W |
+| Load loss | 6547 W |
 | Impedance | 5.00 % |
-| Efficiency | 99.26 % |
-| Core mass | 1109 kg |
+| Efficiency | 99.25 % |
+| Core mass | 1273 kg |
 | Stepped core utilisation | 3 steps 0.8510, 9 steps 0.9483, 13 steps 0.9642 |
+
+Current as of ENGINE_VERSION 1.38.0 (CALIBRATION.md sections 79-81): a 5%
+flux design margin below the IS 1180 ceiling (1.604 T against 1.689), the
+short-circuit withstand calculation, and two guards. 10% is the target -- it
+is what the 315 kVA reference carries -- but at 10% the fit drives flux to the
+1.42 T floor, which is a different design rather than a margin, and it trips a
+core-mass invariant. Section 81 names the blocker.
+
+Current as of ENGINE_VERSION 1.37.0 (CALIBRATION.md section 77): three more
+IS 1180 requirements the engine did not meet. Impedance now comes from Table 6
+(6.25 % at 1600-2500 kVA, where the old ladder said 5.00). Flux is capped at
+1.9/1.125 = 1.6889 T per clauses 6.9.1 and 7.9 -- the default case was fitting
+to 1.78 T and was non-compliant. Temperature rise uses IS 1180's own limits,
+45 K winding and 40 K oil for 250-2500 kVA and 40/35 for 16-200, superseding
+IS 2026's 55/50 inside the product standard's scope and falling back to it
+outside. Cooling surface rises 40-56 % in the 250-2500 band and 160 % at
+100 kVA. The flux cap is the largest single price effect on the default case.
+
+Current as of ENGINE_VERSION 1.36.0 (CALIBRATION.md section 76): the loss
+schedule is the published IS 1180 (Part 1) : 2014 tables, not a fitted
+formula. The standard gives maximum TOTAL losses at 50% and 100% of rated
+load, not separate no-load and load-loss limits, so compliance is two
+conditions on the pair and a design may trade core against copper. The old
+formula was 11.5% loose at 315 kVA and 12.5% at 400 on the 50% figure it
+never checked, and 17-31% tight at 16-100 kVA on the 100% figure. Every
+figure below moved because the default case is now fitted to the published
+1000 kVA Level 2 row (2790 W at 50%, 7700 W at 100%) rather than to the
+formula's own estimate. The engine was producing IS 1180 NON-COMPLIANT
+designs at 315 and 500 kVA before this; it no longer does.
+
+Current as of ENGINE_VERSION 1.35.0 (CALIBRATION.md section 75): the OIL
+current density baseline is corrected, divided by 1.72. It ran that much high
+against two independent oil references four times apart in rating (1250 kVA
+at ~1.44 A/mm2 against a 2.50 suggestion, 315 kVA at 1.52 against 2.60) while
+the one dry reference sat at 0.99 of its own, so the divisor is applied
+inside the oil branch only and dry is untouched -- byte-identical, verified.
+The default case barely moves (ex-works +0.24%) because `autoFit` refits
+density against the loss limits anyway; the suggestion only sets where that
+fit starts. What moves is every design where the fit is off or the limits are
+slack, and the references: the 1250's copper mass goes from -43.4% to -0.2%
+against its 982 kg and the 315's load loss from +70.2% to -0.4% against its
+own calculated 2220 W.
 
 Current as of ENGINE_VERSION 1.31.0 (CALIBRATION.md section 66): rectangular
 strip conductor now carries a corner radius (`cornerRadius`, default 1 mm).
@@ -230,18 +277,17 @@ const { design, bom, params, spec } = computeDesign(core, over, rates, extras);
 - **Guaranteed vs measured losses.** The design is held to the guaranteed
   figure. The standard's tolerance (+15 % component, +10 % total under IS/IEC)
   applies to the measured value on test, not to the design target.
-- **Current density is per material, and the oil figure in `densitySuggest`
-  is known to be 1.72x too high.** Two real oil designs four times apart in
-  rating both run about 1.44-1.52 A/mm² where the engine suggests 2.50-2.60;
-  the one real dry design lands at 0.99 of its suggestion, so the medium
-  correction is right and the oil baseline specifically is wrong. Do not
-  quote the old "about 2.5 A/mm² at 1000 kVA" figure that stood here — it is
-  the wrong number and it is what this line used to say. The correction is
-  written and tested but blocked on HV conductor dimensions (CALIBRATION.md
-  header and sections 72/74, DATA-REQUEST item 0). Aluminium is about 0.78 of
-  copper. Any search over materials must anchor the density ladder on the
-  material being tried, not the one already in the design. Getting that wrong
-  made aluminium look infeasible.
+- **Current density is per material.** The oil baseline in `densitySuggest`
+  was 1.72x too high and is corrected (ENGINE_VERSION 1.35.0, CALIBRATION.md
+  section 75); oil copper now runs about 1.45-1.50 A/mm² at these ratings, not
+  the "about 2.5 A/mm² at 1000 kVA" this line used to claim. Dry is a separate
+  branch and was already right — do not apply the oil divisor to it. Aluminium
+  is about 0.78 of copper. Any search over materials must anchor the density
+  ladder on the material being tried, not the one already in the design.
+  Getting that wrong made aluminium look infeasible. The `isHV` +0.15 offset is
+  still additive and so is now a much larger fraction of the corrected oil
+  base — it makes oil HV read about 11-15% high against both sheets, which
+  both show HV at or below LV. Not yet changed; see section 75.
 - **Temperature rise binds twice.** The cooling surface must satisfy both the
   top-oil limit and the winding-rise limit; take whichever is lower.
 - **Ageing uses the yearly weighted ambient (32 °C in India), not the maximum

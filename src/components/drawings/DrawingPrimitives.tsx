@@ -250,11 +250,11 @@ export interface TitleBlockProps {
   partNumber?: string;
 }
 
-function Cell({ label, value, mono = true, className = '' }: { label: string; value: React.ReactNode; mono?: boolean; className?: string }) {
+function Cell({ label, value, mono = true, className = '', lead = false }: { label: string; value: React.ReactNode; mono?: boolean; className?: string; lead?: boolean }) {
   return (
     <div className={`px-2 py-1 border-r border-line last:border-r-0 ${className}`}>
       <div className="text-[8px] font-display uppercase tracking-[0.12em] text-steel leading-none">{label}</div>
-      <div className={`text-[11px] text-ink mt-0.5 ${mono ? 'font-mono' : ''} truncate`}>{value}</div>
+      <div className={`${lead ? 'text-[13px] font-semibold' : 'text-[11px]'} text-ink mt-0.5 ${mono ? 'font-mono' : ''} truncate`}>{value}</div>
     </div>
   );
 }
@@ -289,10 +289,18 @@ export function TitleBlock({
         <Cell label="Title" value={title} mono={false} />
         <Cell label="Rating" value={ratingLabel} />
       </div>
-      <div className="grid grid-cols-[1.3fr_0.5fr_0.7fr_0.6fr_auto]">
-        <Cell label="Drawing No." value={drawingNo} />
+      {/* DRAWINGS.md, title block: the drawing number is the identifier and is
+          set to lead; the sheet counter is a position within the printed set
+          and is deliberately subordinate to it. They do not agree after
+          drawing 20, which alone produces two sheets, so from sheet 21 the
+          counter runs one ahead of the drawing number -- correct, and it read
+          as an error while both were the same size and weight. The counter's
+          own label says "of set" for the same reason: so a reader can never
+          mistake "22 of 23" for the drawing's own number. */}
+      <div className="grid grid-cols-[1.7fr_0.45fr_0.85fr_0.6fr_auto]">
+        <Cell label="Drawing No." value={drawingNo} lead />
         <Cell label="Rev" value={rev} />
-        <Cell label="Sheet" value={`${sheet} of ${totalSheets}`} />
+        <Cell label="Sheet of Set" value={`${sheet} of ${totalSheets}`} />
         <Cell label="Scale" value={scaleLabel(fit)} />
         <div className="px-2 py-1 flex items-center gap-1.5">
           <ProjectionSymbol thirdAngle={thirdAngle} />

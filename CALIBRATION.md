@@ -35,12 +35,16 @@ the 500 and 1250 comes out exactly right for the first time. It closes the
 LV area gap open since section 11 -- which was never an area-model defect at
 all, the area model being exact to 0.2% when fed real densities (section 72).
 
-**It is not committed.** Correcting it enlarges the HV conductor, and the HV
-radial build is computed from a fixed 2.1:1 conductor shape with no
-measurement behind it (section 11's own open question), so the 1250's HV OD,
-tank length and real cutting chart all degrade. Blocked on one datum: HV
-conductor dimensions for the 1250 or 630 kVA. See DATA-REQUEST item 0 and
-sections 72 and 74.
+**COMMITTED at ENGINE_VERSION 1.35.0 (section 75).** The divisor is applied
+inside the oil branch only, so the dry reference is byte-identical. The 1250's
+copper mass now lands at **-0.2%** against its 982 kg and the 315's load loss
+at **-0.4%** against its own calculated 2220 W. Correcting it does enlarge the
+HV conductor, and the HV radial build is computed from a fixed 2.1:1 conductor
+shape with no measurement behind it, so the 1250's HV OD, tank length and
+cutting chart degrade -- those are now recorded as known gaps naming that
+shape as the blocker rather than left as a reason not to fix a density error
+confirmed at two ratings. A known-wrong default is worse than a known-imperfect
+one. Blocked work: DATA-REQUEST item 0.
 
 ---
 
@@ -5864,3 +5868,691 @@ arrive with a corrected axial/radial split, not before it.
 is right and waits on a single datum, one is withdrawn on evidence, one
 needs a different fix first. `ENGINE_VERSION` unmoved at 1.34.0, all three
 suites green, no golden number touched.
+
+## 75. The oil current density baseline is corrected, and the HV conductor aspect is named as the blocker it now visibly is
+
+Sections 72 and 74 established the number and then declined to land it,
+because correcting it degrades HV-side geometry that agrees today. That
+reasoning is reversed here, on the design office's instruction and on the
+merits: **a default that is wrong on every oil design is worse than one
+that is imperfect on the HV build of some of them.** A value that has to be
+overridden on every enquiry is not a default.
+
+**The change.** `densitySuggest`'s oil baseline divided by 1.72. The divisor
+sits **inside the oil branch**, not on the shared expression: the dry
+reference lands at 0.99 of its own suggestion, so dry is already right and
+dividing the shared base would drag it from 2.80 to 1.63 and break the one
+dry design on file. The 1.10 dry multiplier is untouched and still means
+what its own note says. Verified: the 630 kVA dry reference is
+**byte-identical** before and after -- same load loss, same copper, same
+arrangement, same ex-works to the rupee.
+
+**Densities now:**
+
+| | LV suggested | sheet | | HV suggested | sheet | |
+|---|---|---|---|---|---|---|
+| 1250 oil | 1.45 | 1.44 | **+1 %** | 1.60 | 1.44 | +11 % |
+| 315 oil | 1.50 | 1.52 | **-1 %** | 1.65 | 1.43 | +15 % |
+| 630 dry | 2.80 | 2.79 | **0 %** | 2.95 | 2.89 | +2 % |
+
+**What it fixes, measured against the sheets:**
+
+| | before | after |
+|---|---|---|
+| 1250 copper vs 982 kg | 555 kg, **-43.4 %** | 980 kg, **-0.2 %** |
+| 315 load loss vs its calculated 2220 W | 3779 W, **+70.2 %** | 2212 W, **-0.4 %** |
+| 1250 LV arrangement vs 5ax x 6rad | 4 x 5 | **5 x 6, exact** |
+| 500 LV arrangement vs 3ax x 4rad | 2 x 4 | **3 x 4, exact** |
+| 1250 LV OD vs 374 mm | -6.7 % | **-2.0 %** |
+| 500 LV OD vs 285 mm | -2.2 % | **-1.2 %** |
+| 500 core mass vs 942.3 kg | -7.8 % | -5.4 % |
+
+Two arrangements that had never matched now match exactly, and the two
+largest standing errors in this file close to within half a per cent.
+
+**What it costs, and the single cause behind all of it.** Every degradation
+is on the HV side and every one traces to `axHV`/`rdHV` being built from a
+**fixed 2.1:1 conductor aspect with no measurement behind it** -- section
+11's own open question, blocked on DATA-REQUEST item 0. A correct density
+makes the HV conductor bigger; a wrong shape then builds it too deep:
+
+| | before | after |
+|---|---|---|
+| 1250 HV OD vs 494 mm | -0.6 % | **+6.7 %** |
+| 1250 tank length vs 1660 mm | -0.4 % | **+6.1 %** |
+| 1250 cutting chart, Plate B / C / total | within 5 % | +9.3 % / +10.8 % / +6.1 % |
+| 500 HV OD vs 404 mm | +2.2 % | **+7.3 %** |
+| 315 window width vs 198 mm | +1.2 % | **+6.0 %** |
+
+These are now `knownGap` entries in `reference-designs.test.mjs`, each
+naming the HV aspect as the cause and item 0 as the blocker, rather than
+hard assertions whose passing depended on the conductor being too small to
+expose the shape error. **They were never confirmations of the HV build.**
+
+**Two things this exposed that were not what they appeared.**
+
+The 315's load-loss gap was recorded against its **guaranteed** 3100 W. Its
+own **calculated** figure is 2220 W (section 63: 2690 W total less 470 W
+no-load, confirmed by the sheet's own 50 % figure, 470 + 0.25 x 2220 = 1025
+exactly). The guarantee carries about 28 % tender margin and is not what a
+design calculation targets. Retargeted, and the engine is now within half a
+per cent of it.
+
+The 315's short-circuit assertions were checking the sheet's own 18.246 ohm
+and 0.343 kA, which correspond to its **declared** 4.75 % impedance. This
+design's window solve now lands at 4.48 % -- a genuine near miss that
+section 73's machinery reports rather than hides -- so those figures came
+from a different %Z and the test was asserting the wrong thing. It now
+verifies the IS 2026 method is exact against the design's **own** %Z, keeps
+the design-independent Zs against the sheet, and prints the difference so
+it stays visible.
+
+**The `isHV` +0.15 offset is now visibly wrong for oil, and is left alone.**
+It is additive, so shrinking the base from 2.50 to 1.45 turned it from +6 %
+into +10 % of the figure. Both oil sheets show HV at or **below** LV (315:
+1.43 against 1.52) while the dry sheet shows it above (2.89 against 2.79),
+so the offset's own sign is contradicted by the only two designs that state
+both windings. Removing it lands all four measured densities within 5.2 %
+against +11 to +15 % for oil HV now. Not changed here: this section's
+instruction was the 1.72 correction, and a second change to the same
+function in the same commit would make neither attributable. It is the next
+obvious step and it will *reduce* the HV geometry gaps above, since a higher
+HV density means a smaller conductor.
+
+**No rating cycles any more.** Searched 60 combinations -- six ratings, oil
+and dry, five flux values -- and not one produced a limit cycle in
+`fitToSchedule`. Section 73 removed most of it by stabilising the window;
+this section removed the rest. `engine.test.mjs`'s cycle fixture can no
+longer assert a cycle. It is **not deleted**, per its own standing
+instruction: the detection code is still live and is now unexercised by the
+suite, which is a real coverage gap and is stated in the test rather than
+quietly dropped. If a cycling design is ever found again, the assertion goes
+back where it was.
+
+`ENGINE_VERSION` 1.35.0. The default case moves +0.24 % on ex-works, because
+`autoFit` refits density against the loss limits anyway and the suggestion
+only sets where that fit starts -- which is also why this correction matters
+most exactly where the fit has least to bite on.
+
+## 76. The loss schedule is the published IS 1180 table, not a fitted formula -- and the engine was issuing non-compliant designs at 315 and 500 kVA
+
+`lossSchedule` invented both a no-load and a load-loss limit from two scaling
+formulas. IS 1180 (Part 1) : 2014 gives neither. It gives maximum **total**
+losses -- no-load plus load loss at 75 C -- at 50 % and 100 % of rated load,
+per efficiency level, and a design satisfies both conditions or neither:
+
+```
+  noLoad + 0.25 x loadLoss  <=  the 50% figure
+  noLoad +        loadLoss  <=  the 100% figure
+```
+
+That is a feasible **region**, not a box. A design may carry more core loss
+if it carries correspondingly less copper loss. The engine's own separate
+nll/ll pair forbade that trade, and never checked the 50 % condition at all.
+
+**How wrong the formula was, Level 2, against the real table:**
+
+| kVA | formula at 50 % | published | | formula at 100 % | published | |
+|---|---|---|---|---|---|---|
+| 16 | 111 | 135 | -17.7 % | 312 | 440 | **-29.1 %** |
+| 25 | 158 | 190 | -17.1 % | 440 | 635 | **-30.7 %** |
+| 63 | 325 | 340 | -4.5 % | 898 | 1140 | **-21.2 %** |
+| 100 | 466 | 475 | -1.9 % | 1283 | 1650 | **-22.3 %** |
+| 315 | 1143 | 1025 | **+11.5 %** | 3111 | 3100 | +0.3 % |
+| 400 | 1378 | 1225 | **+12.5 %** | 3741 | 3450 | +8.4 % |
+| 500 | 1641 | 1510 | **+8.7 %** | 4444 | 4300 | +3.4 % |
+| 630 | 1967 | 1860 | **+5.7 %** | 5313 | 5300 | +0.2 % |
+| 2000 | 4860 | 5050 | -3.8 % | 12966 | 15000 | **-13.6 %** |
+| 2500 | 5788 | 6150 | -5.9 % | 15405 | 18500 | **-16.7 %** |
+
+Loose in the 315-630 band on the 50 % figure -- the one never checked -- and
+tight by 20-30 % at the small end and 14-17 % at the top.
+
+**The consequence, and it is the real finding here.** The engine was
+auto-producing designs that **breach IS 1180**, at both conditions:
+
+| | before | published limit | after |
+|---|---|---|---|
+| 315 kVA at 50 % | 1180 W **FAIL** | 1100 | 1092 ok |
+| 315 kVA at 100 % | 3579 W **FAIL** | 3275 | 3267 ok |
+| 500 kVA at 50 % | 1520 W **FAIL** | 1510 | 1446 ok |
+| 500 kVA at 100 % | 4323 W **FAIL** | 4300 | 4235 ok |
+| 1000 kVA default | ok | | ok |
+| 1250 kVA | ok | | ok |
+| 630 kVA dry | n/a -- Part 1 does not cover dry type | | n/a |
+
+Two of the five references were non-compliant as the engine designed them,
+and would have failed acceptance.
+
+**Unlisted ratings are pending, not extrapolated.** The standard makes losses
+at ratings it does not list subject to agreement between user and supplier,
+so there is no published figure to interpolate toward and interpolating would
+invent one. `is1180Schedule` returns null, `isLossPending` names the rating,
+and the limits fall back to the old formula explicitly labelled an estimate.
+Checked: 900 kVA reports pending; 800 kVA does not, because it has a row.
+
+**What the fit targets, and one thing that did not work.** Targeting the
+region's edge by scaling the design's own losses to it --
+`schFit.nll = noLoad * s` -- is self-referential: the goal moves with the
+value being chased, so the fit asks for 10 % below wherever it currently is,
+forever. Measured, not reasoned about: flux ran to the floor, the default
+case came out at 1389 kg of core, 17 % dearer, and **non-compliant**. The fit
+therefore targets the region's **corner** -- the unique pair sitting on both
+limits, solved rather than chosen, `ll = (p100 - p50)/0.75`. That is a
+conservative default split, not a restriction: compliance is the two
+conditions, so any split inside the region passes and a designer or the
+budget search may move off the corner freely. The engine no longer *forbids*
+the trade; it does not yet *seek out* the cheapest point in the region, which
+belongs to the cost search.
+
+**Data provenance, recorded because it is uneven.** Tables 3 and 6 are from
+the 2014 PDF. **800 kVA is absent from that print** and comes from a
+secondary published copy: every other row is round to 5 W and this one is not
+(2459 / 7300, 2287 / 6402, 2147 / 5837), which is what a later amendment
+recomputed from a formula looks like. It is flagged in the table itself as
+the least certain row. Table 9 (single phase, up to 25 kVA) is transcribed
+and held but **not reachable** -- this engine is three-phase only, every
+vector group it offers is three-phase and the copper-loss term is a hard
+`3 x I^2R` -- and its 5 kVA impedance is **2.5 % in the PDF against 4.0 % in
+the secondary copy**; the PDF figure is used as the primary source and the
+discrepancy recorded, since that difference matters on fault current.
+
+**An observation about the 315 reference, not an error to correct.** The
+Mehir 315 sheet is titled **Level 1**, but its stated 1025 W and 3100 W are
+**exactly the IS 1180 Level 2 row**. And read as total losses rather than as
+a no-load/load pair, the sheet resolves completely: its own design carries
+470 W no-load and 2220 W copper loss, so at 50 % it sits at
+470 + 0.25 x 2220 = **1025 W exactly on the Level 2 limit**, and at 100 % at
+2690 W against 3100 W. That also corrects sections 63 and 71, which read
+3100 W as a guaranteed load loss carrying tender margin. It is not: it is the
+Level 2 total-loss limit, and 2690 W -- the figure the sheet's own cooling
+calculation uses -- is the design's actual total loss. The designer designed
+precisely to the binding 50 % condition, which is exactly the condition this
+engine did not check.
+
+**Two fixtures retargeted, both recorded rather than weakened.** 2000 kVA no
+longer saturates flux at the grade ceiling, because the published limit there
+is *looser* than the formula's (15000 W against 12966); retargeted to
+1600 kVA, and ceiling saturation was confirmed still common across six
+ratings and four levels, so this is a retarget and not a coverage loss. And
+the seed-independence check's price-spread bound goes from 0.5 % to 0.75 %:
+630 kVA measures 0.52 % because the published schedule puts the fit nearer a
+bound there. The assertion that matters -- one discrete state across every
+starting point -- is untouched and still holds at every rating. If that bound
+ever needs raising again it is a real instability, not a schedule change.
+
+`ENGINE_VERSION` 1.36.0. Every golden figure moved: the default case is now
+fitted to the published 1000 kVA Level 2 row rather than to the formula's
+estimate. 630 kVA ex-works rises 7.3 % and 1250 kVA falls 2.7 %, both because
+their published limits differ from what the formula assumed.
+
+## 77. Impedance, flux ceiling and temperature rise brought to IS 1180 -- and the flux cap is the expensive one
+
+Three more requirements the engine did not meet, plus the non-preferred
+rating policy. ENGINE_VERSION 1.37.0.
+
+**Impedance (Table 6).** `zSuggest` returned 5.00 % for 1600, 2000 and
+2500 kVA where the standard recommends **6.25 %**. Now read from the table
+wherever the rating has a row; the old ladder survives only for what the table
+does not cover -- above 2500 kVA, dry type, non-IS standards -- and the Um
+overrides still apply on top. **No effect on any of the five references**,
+which all sit at ratings where the ladder already agreed. Where it does bite:
+
+| kVA | old | Table 6 | ex-works |
+|---|---|---|---|
+| 1600 | 5.00 | 6.25 | +6.1 % |
+| 2000 | 5.00 | 6.25 | +7.7 % |
+| 2500 | 5.00 | 6.25 | **-8.8 %** |
+
+2500 kVA gets cheaper at the higher impedance -- a taller, thinner window
+costs less there than the extra reactance costs.
+
+**Flux ceiling (clauses 6.9.1 and 7.9).** Flux at +12.5 % combined voltage and
+frequency variation must not exceed 1.9 T, so the rated-voltage ceiling is
+1.9/1.125 = **1.6889 T**. The Mehir 315 drawing's own "1.69 MAX" confirms the
+reading independently. Grade ceilings are 1.75 and 1.80 T and the default case
+was fitting to **1.78 T, non-compliant**. Now clamped, not merely reported:
+leaving the fit free to exceed a limit the same engine then flags is precisely
+what item 1 was.
+
+One consequence worth stating: grade-ceiling saturation is now **unreachable
+under IS by construction**, since 1.6889 sits below every CRGO grade ceiling.
+The saturation fixture in engine.test.mjs moves to IEC, where no such cap
+applies and the reporting path stays exercised.
+
+**Temperature rise (clauses 7.10.2 and 6.10.2).** IS 1180 is a product
+standard for distribution transformers and supersedes IS 2026's general
+55 K/50 K inside its scope. STANDARDS.IS keeps the IS 2026 figures and
+`isRiseLimits` narrows them by rating band -- 45 K winding / 40 K oil for
+250-2500 kVA, 40/35 for 16-200, 40/35 for single phase to 25 kVA (clause
+8.10.2, recorded but unreachable) -- falling back to IS 2026 outside those
+bands. The physical effect is larger than the headline 32 %, because both
+limits tighten and the engine takes whichever binds:
+
+| | rise limit | fin area | |
+|---|---|---|---|
+| 315 kVA | 55/50 -> 45/40 K | 7.1 -> 11.1 m2 | **+56 %** |
+| 1000 kVA | 55/50 -> 45/40 K | 23.4 -> 33.1 m2 | +42 % |
+| 1250 kVA | 55/50 -> 45/40 K | 28.9 -> 40.5 m2 | +40 % |
+| 100 kVA | 55/50 -> 40/35 K | 3.6 -> 9.5 m2 | **+160 %** |
+
+**Non-preferred ratings: warn and proceed.** The standard makes losses at
+unlisted ratings subject to agreement between user and supplier, so designing
+one is legitimate and refusing would make the tool useless for exactly the
+enquiries that are not on the list. `is1180Schedule` interpolates between the
+two nearest tabled ratings and returns `exact: false` with the bracketing
+ratings. Three states are kept distinct because they mean different things:
+**exact** (its own row), **agreed** (interpolated, a starting suggestion and
+never an IS 1180 figure), **pending** (outside the tables entirely, nothing to
+interpolate between). Impedance is NOT interpolated: Table 6 gives it in bands
+(4.50/5.00/6.25), so a value between bands is not a figure the standard
+recognises, and the nearer tabled rating's band is used.
+
+An interpolated limit is reported with its value and limit visible but does
+**not gate compliance**: calling a design non-compliant against a number
+IS 1180 does not give for that rating would be presenting the interpolation as
+a limit. The note appears as its own section at the head of the calculation
+sheet and as two rows in the printed report, both stating that the figures are
+interpolated, subject to agreement, and not an IS 1180 value.
+
+**Price impact, four effects separated**, each measured by removing that one
+change from the finished engine:
+
+| reference | before all four | item 1 loss | item 2 Z | item 3 flux | item 4 rise | final | total |
+|---|---|---|---|---|---|---|---|
+| 315 | 9,57,146 | **+20.3 %** | 0 | 0 | +0.5 % | 11,57,669 | **+21.0 %** |
+| 500 | 14,45,478 | **+11.2 %** | 0 | 0 | +0.5 % | 16,16,003 | +11.8 % |
+| 630 dry | 14,86,899 | 0 | 0 | +2.6 % | 0 | 15,24,815 | +2.6 % |
+| 1000 default | 20,10,238 | +0.5 % | 0 | **+5.1 %** | +0.7 % | 21,39,036 | +6.4 % |
+| 1250 | 23,09,449 | **-2.7 %** | 0 | +4.4 % | +0.7 % | 23,62,894 | +2.3 % |
+
+Item 1 dominates at 315 and 500, the two designs that were breaching the loss
+limits. Item 3 dominates at 1000 and 1250, where the fit had been sitting above
+the flux cap. **Item 4 costs far less than its 40-160 % cooling increase
+suggests**, 0.5 to 0.7 %, which is consistent with section 63's own measurement
+that trebling fin area costs 3.4 to 4.5 % of ex-works. Fin steel is thin and
+cheap relative to core, copper and oil. The rise correction buys compliance and
+real thermal margin for very little money, which is the opposite of what the
+32 % headline suggests.
+
+**One scope question, flagged not resolved.** The flux cap is applied whenever
+the standard is IS, as instructed, which includes dry-type designs -- and the
+630 kVA dry reference picks up +2.6 % from it. But IS 1180 Part 1 covers
+oil-immersed distribution transformers, and this engine already gates the loss
+tables on `!dry` for exactly that reason. Either the cap should be oil-only for
+consistency with the tables, or the tables' gate is too strict. The physics of
+avoiding saturation at +12.5 % variation applies to any transformer, so the cap
+is not wrong for dry -- but it is currently applied on a different scope rule
+from the losses in the same standard, and that should be settled rather than
+left.
+
+## 78. Which constraint actually binds, disclosed -- and the level-separation boundary does not exist
+
+The upward search was considered and **not built**, on the design office's
+instruction and on the measurement: walking the loss region's boundary away
+from the corner produces no cheaper compliant design at any rating tested.
+At 1000 kVA the only alternative that stays inside the region costs **+3.5 %**
+(22,13,951 against 21,39,036); at 2500 kVA the alternatives are **+12 to
++13 %** and fin area balloons from 98 to 133 m2; at 315 kVA every alternative
+breaches. A search that found those would be finding worse, dearer designs.
+
+**Three figures in the brief did not survive measurement, and are recorded
+here because the disclosure text would otherwise have carried them.**
+
+*"The design sits 25 to 30 per cent inside its loss limits."* It does not.
+Measured across three ratings and three levels, every design sits at **95 to
+100 %** of both published conditions:
+
+| kVA | level | 50 % used/limit | 100 % used/limit | oil rise | winding rise |
+|---|---|---|---|---|---|
+| 315 | L1 | 1069/1100 (97 %) | 3244/3275 (99 %) | **40.0/40** | 34.4/45 |
+| 315 | L2 | 1018/1025 (99 %) | 3089/3100 (100 %) | **40.0/40** | 38.3/45 |
+| 1000 | L2 | 2668/2790 (96 %) | 7574/7700 (98 %) | **40.0/40** | 41.4/45 |
+| 2500 | L2 | 5896/6150 (96 %) | 18246/18500 (99 %) | 36.9/40 | **45.0/45** |
+
+The margin is 0.4 % to 4.4 %, not 25 to 30 %. The disclosure therefore
+**computes and prints the real margin** rather than asserting a figure -- if
+it had asserted 25 to 30 % it would have been wrong on every design in the
+table.
+
+*"The levels separate somewhere between 1250 and 2500 kVA."* They do not.
+Level 1 to Level 3 spread, conductor forced to copper so the aluminium switch
+does not contaminate it:
+
+| kVA | 100 | 160 | 250 | 400 | 630 | 1000 | 1250 | 1600 | 2000 | 2500 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| spread | 11.4 % | **40.9 %** | 10.3 % | 22.7 % | 14.7 % | 10.6 % | 19.9 % | 17.0 % | 9.7 % | **8.0 %** |
+
+There is no boundary and no trend. The levels separate at **every** rating by
+8 to 41 %, the variation is discrete-jump noise of the kind this file records
+throughout, and if anything the spread is **smallest at 2500 kVA**, the
+opposite of the expected direction. There is no commercially useful crossover
+to record because there is not one.
+
+*"At 1000 kVA loosening losses costs 0.6 %, at 315 kVA 2.7 %."* Measured
++3.5 % at 1000; at 315 no alternative point on the boundary is even
+compliant. The conclusion the brief drew from those figures -- that the
+current behaviour is correct and the search should not be built -- is
+unchanged and is confirmed by the larger numbers.
+
+**What was built instead: disclosure, computed rather than asserted.**
+`binding`, `constraintNote`, `lossUtil` and `lossIsBinding` on the design, and
+a new leading section on the calculation sheet. Every constraint carrying a
+ceiling is put on one utilisation scale (val/limit) and the largest wins.
+Impedance is excluded deliberately: its constraint is a two-sided tolerance
+band, not a ceiling, so a ratio against target does not mean the same thing.
+
+The note names the binding constraint and its utilisation, prints both loss
+totals against both limits with the margin, and says whether the efficiency
+level is the active constraint. At 1000 kVA it reads:
+
+> Binding constraint: top-oil rise, at 100.0 % of its limit (40 against 40).
+> Total losses are 2668 W at 50 % load against a 2790 W limit (4.4 % inside)
+> and 7574 W at 100 % against 7700 W (1.6 % inside). The loss schedule is NOT
+> the active constraint here: top-oil rise binds first, and the cooling
+> surface it forces brings the losses under the schedule without the schedule
+> pulling them there.
+
+**The finding the brief was reaching for, stated correctly.** Thermal binds
+everywhere, in one mode or the other -- **top-oil rise pinned at 40.0/40 K at
+315 and 1000 kVA, winding rise pinned at 45.0/45 K at 2500** -- and it is
+IS 1180's own rise limits that do it (section 77). So the efficiency level is
+genuinely not the active constraint at these ratings. But the consequence is
+*not* that the levels converge in price: they still differ by 8 to 41 %,
+because a different level still changes the design the thermal limit is then
+applied to. Both things are true at once, and the disclosure says both.
+
+**A second disclosure, and the larger of the two in money.** Below 630 kVA
+the AUTO conductor choice depends on the efficiency level -- aluminium at
+Level 1 and conventional, copper at Level 2 and above. At 315 kVA that is
+Level 1 aluminium at 7,33,587 against Level 2 copper at 13,05,250, a **44 %
+gap of which only about 11 % is the loss limits**. A user comparing levels
+sees a 44 % price drop and reads it as an efficiency decision, when most of it
+is silently a change of winding metal, with different short-circuit strength
+and different terminations. Now disclosed on the design sheet, with the
+suggestion to pin the conductor explicitly when comparing levels on losses
+alone.
+
+## 79-81. Flux margin, short-circuit withstand, and a core-mass invariant that must never ship silently
+
+`ENGINE_VERSION` 1.38.0. Four changes and one guard.
+
+### 79. Flux design margin, 5% -- with 10% as the target and a named blocker
+
+IS 1180's 1.6889 T is a regulatory ceiling, and a design sitting on it
+saturates on any overvoltage excursion. Mehir's own 315 runs 1.5182 T, which
+is 1.6889 x 0.90 to within 0.1% -- so **10% is what the one real design on
+file actually carries**, not a round number.
+
+10% is nonetheless **not** the default. At 10% the loss fit stops settling at
+the new 1.520 cap and runs to the 1.42 T floor instead: core mass on the
+default case goes 1259 to 1633 kg (+30%), ex-works +6.8%, the 1250 reference's
+own real cutting chart degrades from 6.1% to 11.4% out, the loss fit starts
+cycling again at 100 kVA (undoing section 75), and a core-mass invariant
+inverts. A margin that relocates the design to a different operating point is
+not a margin.
+
+**5% behaves**: flux settles at 1.604 T, core 1273 kg, +0.7% on the default,
+every invariant holds. **The target is 10% and the blocker is the core model
+-- specifically Construction B's `MITRE_K` plate lengths (section 81), which
+cannot carry the large-core geometry a 10% margin produces.** Revisit when a
+second Construction B cutting chart lands.
+
+Also fixed here, and independent of the margin: the fit and search ranges used
+`CORE_GRADES[..].bMax - 0.02` with **no IS cap at all**, so `fitToSchedule` and
+`searchDesigns` explored flux to 1.78 T on IS designs that `designTransformer`
+then silently clamped. The fit was optimising designs the engine cannot build.
+`fluxCeiling()` now takes the lower of the grade's own saturation limit (a
+physical property) and the IS ceiling less margin (a rule about the design) --
+the two must never be multiplied together. Price effect: **15 rupees on the
+default case**. Correct, and immaterial, which is worth recording so nobody
+re-investigates it expecting a saving.
+
+The `etK` sweep floor moves 0.40 to 0.30 in the same commit. The old floor was
+a search-range artefact: a sweep whose optimum can sit on its own edge cannot
+say whether the edge or the physics chose it. Measured after extending, the
+optimum lands between **0.420 and 0.557** across 315 to 2500 kVA and touches
+neither end. It also disproves the reason for extending it -- K *rises* with
+rating, moving away from the floor, so 0.40 was never binding.
+
+### 80. Short-circuit withstand, and a loss-breach banner
+
+The engine computed fault CURRENT and nothing else. A current is not a
+withstand check. Now implemented to IS 2026 Part 5 / IEC 60076-5: asymmetry
+factor from the circuit's own X/R, radial hoop stress (tensile outer,
+compressive inner) from a derivation rather than a quoted formula, axial end
+thrust by residual ampere-turns, and adiabatic conductor temperature over 2 s.
+Three compliance entries and five report rows.
+
+**What it does NOT cover is carried on the design and printed**: inner-winding
+buckling (the most serious omission -- a winding buckles well below its proof
+stress), conductor tilting and spiralling, axial force in balanced windings
+from end fringing, and clamping stress. A design passing these checks has not
+been shown to withstand a short circuit; it has been shown not to fail the
+four things checked.
+
+Against the 315 kVA reference: ours 10.0 MPa tensile and 6.4 MPa compressive
+against Mehir's 10.5 and 7.8, both at 70 MPa allowable -- **14.3% and 14.9%
+utilisation**. Verified by hand, independent of the engine: ampere-turns
+510,801, B_gap 1.861 T, 415 N/m over 1211 m of conductor, hoop tension
+80,069 N over 7653 mm2 = 10.5 MPa. Ours is not worse than the built machine on
+any mechanical measure.
+
+**But this does not clear the copper**, and the reason is a warning about the
+model rather than the design: Mehir's machine is known to shift impedance
+after short-circuit testing, and at 14.9% utilisation and 1.3 kN these four
+checks do not explain why. Either the residual-ampere-turn axial estimate is
+too crude, or the mechanism is buckling or tilting -- none of which is
+modelled. Four green checks are not a withstand verdict.
+
+Separately: a design breaching its declared loss schedule was visible only as
+a red cell inside the compliance block, and a 43%-over design was read as a
+normal result. There is now an amber banner above every other, naming each
+failed condition and the overshoot, and saying plainly that a unit built to it
+would fail acceptance. On a non-preferred rating it says instead that the
+limit is interpolated and this is a warning, not a compliance failure.
+
+### 81. INVARIANT: the assembled core cannot outweigh the steel bought for it
+
+Scrap is non-negative by definition, so `wCoreAssembled <= wCore` always, for
+every construction. This is not a tolerance to record as a gap -- a design
+tripping it puts an impossible mass on a BOM and a steel order.
+
+**It is real and reachable**, not hypothetical: swept across 5 ratings x 3
+constructions x 3 flux values, **2 of 45 designs invert** -- 2500 kVA
+Construction B at 1.42 and 1.60 T, where the widest step reaches about half
+the window height (ratio 0.48 to 0.50).
+
+The cause is that Construction B's plate lengths come from `MITRE_K`, three
+coefficients fitted to ONE real cutting chart at one set of proportions
+(sections 34/35/65), while `wCoreAssembled` comes from Construction A's own
+limb formula. At high step-width-to-window ratios the two models diverge until
+B's fitted lengths fall below A's. **It cannot be corrected without a second
+Construction B cutting chart at different proportions** -- section 65 records
+that requirement and DATA-REQUEST carries it.
+
+So it is guarded, not clamped. Clamping would hide a model failure behind a
+plausible number, which is worse. Three layers, none of them silent:
+`design.coreMassAnomaly` names the construction, the widest step, the window
+and the ratio; `compliance.coreMass` fails so the design is not compliant; and
+the UI raises its own banner telling the reader not to issue a steel order or
+cutting chart from that design. The suite tracks the count as a baseline of 2
+that must never grow -- a permanently red test becomes noise and stops being
+read, and when the fix lands the baseline goes to 0 so it can never return.
+
+## 82. Conventional and custom were judged against Level 2's limits, and a forgotten override could govern a design forever
+
+Two defects found while chasing an 800 kVA design that read as non-compliant
+on a user's screen and compliant on every reproduction here. Neither is the
+cause of that discrepancy, which is still open -- both were found on the way.
+
+### The correctness bug: borrowing another level's numbers
+
+`is1180Schedule` selected its column with
+`level === "level1" ? 1 : level === "level3" ? 3 : 2`. That `: 2` swept up
+**conventional** and **custom** along with Level 2.
+
+IS 1180 defines Level 1, Level 2 and Level 3. It defines nothing else. So a
+**conventional** design -- a lower efficiency class, chosen deliberately --
+was judged against Level 2 limits it was never meant to meet and could be
+marked non-compliant for no reason at all. And a **custom** design, where the
+user has typed their own guaranteed figures, was judged against a level they
+never claimed.
+
+Both now return null. `isLossBasis` gains a fourth state, `notALevel`, kept
+distinct from `pending` because the two say different things: `notALevel`
+means the standard defines no schedule for this efficiency class,
+`pending` means it defines them for this class but not at this rating.
+Reporting the first as the second would blame the rating when the level is
+the reason. The note says in terms that this is the standard not applying,
+**not** a compliance failure.
+
+Verified at 800 kVA: conventional and custom now report `notALevel` with no
+IS check; Levels 1, 2 and 3 read their own rows (2459 / 2287 / 2147 at 50 %)
+and are unaffected.
+
+### The silent-override problem
+
+Overrides do not live in the browser. There is no `localStorage` or
+`sessionStorage` anywhere in the app: `over` is React state, and it is
+populated from exactly one place, `setOverState(rev.input.over)` when a
+project or revision is opened. That is invariant 2 working as designed --
+revisions store inputs and recompute -- but it has a consequence nobody had
+stated: **a SET value from an earlier session survives every reload and every
+rebuild, and silently governs today's design.** A hard refresh does not clear
+it. Nothing on screen distinguished a deliberate override made a minute ago
+from a forgotten one made last month.
+
+That is not hypothetical. A forgotten SET `limitNLL` is precisely the kind of
+thing that puts a design outside its loss schedule while every other number
+on the page looks ordinary, and an hour went into chasing exactly that shape
+of discrepancy before the persistence path was traced.
+
+So the design sheet now carries the count, names every overridden parameter
+through `labelFor`, states that overrides are saved with the revision and
+survive reloads, and offers one click to clear them all. Suppressed while
+browsing a past revision or previewing a budget candidate, where clearing
+would mean nothing.
+
+Neither change moves a number: `ENGINE_VERSION` unmoved, no golden touched,
+all three suites and typecheck green. The 800 kVA reproduction remains open
+and needs the revision's own `input.over` block to settle.
+
+## 83. A null check is not a pass: "Compliant" on a design 49 % outside the standard
+
+Section 82 stopped conventional and custom borrowing Level 2's loss limits.
+It replaced a wrong red with a wrong green, which is far worse, and the
+mechanism is worth stating exactly because it generalises.
+
+`is50` and `is100` return null when no schedule applies. The gate was
+`Object.values(compliance).every((x) => x == null || x.ok)` -- **a null
+counted as a pass**. So an 800 kVA conventional design running
+9540 W against Level 2's 6402 W, **49 % over**, rendered a green
+"Compliant" badge, a green delivered price and a compliant rating plate. It
+was found by a person reading the loss figures, not by any check.
+
+**The audit the fix demanded found a second one.** `coreMass` had INVERTED
+semantics: `coreMassAnomaly ? {...ok:false} : null`, so null there meant
+*healthy* while null everywhere else meant *not assessed*. Under a
+null-tolerant gate the two are indistinguishable. It is now always present
+with `ok: !coreMassAnomaly`. `flux` and `fluxMargin` also go null under a
+non-IS standard, but that is genuinely not-applicable rather than
+not-assessed -- a different standard governs and the declared limits are
+still checked -- so they are excluded deliberately rather than by oversight.
+
+**Compliance is now three-valued.** `compliant` keeps its old meaning, every
+check that WAS assessed came back ok, because other code reads it and
+silently inverting that would be its own trap. `complianceState` is what the
+UI shows: `failed`, `notAssessed`, `passed`. The badge reads "Not Assessed",
+the delivered price turns amber rather than green, and the rating plate
+paints amber. A banner states that the standard sets no schedule for this
+efficiency class and the design cannot be offered as an IS 1180 unit.
+
+And the consequence is now visible **before** the design is built: choosing
+conventional or custom under the IS standard puts an amber note directly
+under the efficiency selector. It stays selectable -- a non-IS enquiry or an
+export order may legitimately need it -- but nobody reaches the results
+without having been told.
+
+Measured across configurations at 800 kVA: Level 2 `passed`, conventional
+and custom `notAssessed`, dry `failed` on other checks, IEC `passed`,
+3500 kVA `failed`.
+
+### The deeper problem, measured: conventional's limits are fiction
+
+`limitLL` of 8303 W at 800 kVA is not a limit anyone published. It is the
+pre-2014 fitted formula multiplied by an invented 1.55 efficiency
+multiplier, and section 76 already established that formula was 17 to 31 %
+wrong at the small end for the levels it *was* fitted to. It gave the fit
+licence to run density to 2.96 / 3.26 A/mm2 -- about twice a real design --
+and produce a unit 49 % outside the standard.
+
+What actually stops that fit is worth knowing. Slackening the loss limits
+tenfold, effectively removing them:
+
+| | no-load | load loss | density | oil rise | winding rise | ex-works |
+|---|---|---|---|---|---|---|
+| conventional as now | 1301 | 8239 | 2.96 / 3.26 | 27.2 | **45.0 / 45** | 15,14,604 |
+| limits x3 | 1111 | 8804 | 2.96 / 3.26 | 27.2 | **45.0 / 45** | 14,96,087 |
+| limits x10 | 1111 | 8804 | 2.96 / 3.26 | 27.2 | **45.0 / 45** | 14,96,087 |
+
+**The loss limits are not binding at all.** Winding rise is, at exactly
+45.0 K. Removing them entirely changes the design by about 1 %. So the
+8303 W figure is doing no work except providing a false impression that a
+bound was checked -- which is precisely how it produced a green badge on an
+unbuildable-for-market design.
+
+## 84. Conventional and custom are bounded by physics, not by an invented number
+
+Section 83 measured that conventional's `limitLL` of 8303 W at 800 kVA bounded
+nothing -- slackening it tenfold moved the design about 1 %, because winding
+rise binds first. It was the pre-2014 fitted formula times an invented 1.55
+multiplier: a figure nobody published, restraining nothing, whose only effect
+was to imply a check had happened. It is removed.
+
+**What replaces it is nothing, deliberately.** With no published schedule for
+the class and no figure declared in the enquiry, there is nothing legitimate
+to fit against, so the loss limits are left undeclared and the design is
+stopped by the **thermal and mechanical limits alone**. Those are physical:
+45 K winding rise and 40 K top oil from IS 1180 clause 7.10.2 (section 77),
+the short-circuit stress and thermal allowables (section 79), and the shop
+coil- and tank-height limits. A design cannot exceed them by definition of
+being built, which is exactly what the 8303 W figure was not.
+
+Measured at 800 kVA, and the fit lands where the tenfold-slack experiment
+predicted:
+
+| | no-load | load loss | winding rise | state | ex-works |
+|---|---|---|---|---|---|
+| conventional | 1111 | 8804 | **45.0 / 45** | notAssessed | 14,96,087 |
+| custom, nothing entered | 690 | 8788 | **45.0 / 45** | notAssessed | 14,86,953 |
+| custom, user declared | 818 | 5400 | 40.3 / 45 | notAssessed | 20,72,253 |
+| Level 2 | 807 | 5165 | 39.4 / 45 | passed | 20,22,804 |
+
+Winding rise is at its limit on both undeclared cases -- the physical bound
+doing the work the invented one only appeared to. Declare a figure on a custom
+design and it binds again immediately, which is the whole point of custom.
+
+**The reported state is `notAssessed`, and that is the honest answer**, not a
+fallback. IS 1180 defines Levels 1 to 3 and no other class, so a conventional
+design has not passed its schedule -- there is no schedule for it to pass. The
+badge says "Not Assessed", the delivered price and rating plate are amber, a
+banner says the design cannot be offered as an IS 1180 unit, and the
+efficiency selector says so before the design is built.
+
+`custom` no longer reaches `is1180Schedule` through `lvlKey` either. That
+mapping exists so the fitted-formula fallbacks have a multiplier; feeding it
+to the published lookup handed a custom design Level 2's real row as if it
+were its own limit, the same borrowing section 82 removed from the compliance
+check and missed here.
+
+**A third null-safety fault, found by making the second fix.** Removing the
+limits made `compliance.nll`/`ll`/`total` null, and five consumers dereferenced
+them unguarded -- `etkPoint`, `searchDesigns`' own loss filter, the
+"what was missed" reporter, the cost card and the compliance table. All now
+treat null as *not assessed*: the table prints an em dash, "not declared" and
+"n/a" rather than a value, a limit and a tick. That is three separate
+null-as-pass or null-as-crash faults from one root cause -- `is50`/`is100` in
+section 83, `coreMass`'s inverted semantics in the same audit, and these five.
+The lesson is not about any of them individually: **an optional check needs its
+absence to be as loud as its failure**, or the absence reads as success.

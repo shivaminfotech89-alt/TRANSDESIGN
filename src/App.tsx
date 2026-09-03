@@ -653,8 +653,33 @@ export default function App() {
   // windowStraddle only when the closest achievable impedance falls outside
   // the standard's own tolerance -- at which point the design cannot be
   // built to its declared figure and the user has to change something.
+  // CALIBRATION.md section 80: a design breaching its declared loss schedule
+  // must be unmissable. Raised first, above every other banner, because it is
+  // the only one that says the unit cannot be delivered as tendered.
+  /* CALIBRATION.md section 82. Overrides live in a saved revision, not in the
+     browser, so a SET value from an earlier session survives every reload and
+     rebuild and silently governs today's design. Nothing on screen
+     distinguished a deliberate override made a minute ago from a forgotten one
+     made last month -- and a forgotten SET loss limit is exactly what sent an
+     800 kVA design out of its schedule while reading as a normal result. So
+     the count is stated, the parameters are named, and there is one click to
+     clear them. */
+  const shownOver: Record<string, any> = viewingRevision
+    ? (viewingRevision.input?.over || {})
+    : budgetPreview ? {} : over;
+  const overrideKeys = Object.keys(shownOver).filter((k) => shownOver[k] !== undefined);
+
+  const activeComplianceNote = viewingRevision ? viewedResult!.design.complianceNote : budgetPreview ? undefined : result.design.complianceNote;
+  const activeCoreAnomaly = viewingRevision ? viewedResult!.design.coreMassAnomaly : budgetPreview ? undefined : result.design.coreMassAnomaly;
+  const activeLossBreach = viewingRevision ? viewedResult!.design.lossBreach : budgetPreview ? undefined : result.design.lossBreach;
   const activeWindowNote = viewingRevision ? viewedResult!.design.windowNote : budgetPreview ? undefined : result.design.windowNote;
   const activeWindowStraddle = viewingRevision ? !!viewedResult!.design.windowStraddle : budgetPreview ? false : !!result.design.windowStraddle;
+
+  const handleResetOverrides = () => {
+    if (readOnlyLive) return;
+    setOverState({});
+    resetDesignState();
+  };
 
   const handleAdoptBudget = () => {
     if (!budgetPreview || readOnlyLive) return;
@@ -824,6 +849,53 @@ export default function App() {
               No Volts-Per-Turn Setting Meets Every Declared Limit
             </div>
             <p className="text-[11px] text-ink2">{activeEtkNote}</p>
+          </div>
+        )}
+
+        {overrideKeys.length > 0 && (
+          <div className="bg-white border border-amber rounded-[2px] px-4 py-3 print:hidden flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div>
+              <div className="text-[11px] font-display uppercase tracking-[0.14em] text-amber mb-1">
+                {overrideKeys.length} Parameter{overrideKeys.length === 1 ? '' : 's'} Overridden
+              </div>
+              <p className="text-[11px] text-ink2">
+                {overrideKeys.map(labelFor).join(', ')}. These are SET, not suggested, and they override the
+                engine on every recalculation. Overrides are saved with the revision, so one made in an earlier
+                session survives a reload and keeps governing this design until it is cleared.
+              </p>
+            </div>
+            {!viewingRevision && !budgetPreview && !readOnlyLive && (
+              <div className="flex gap-2 shrink-0">
+                <Button variant="secondary" onClick={handleResetOverrides}>Reset All To Suggested</Button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {activeCoreAnomaly && (
+          <div className="bg-white border border-amber rounded-[2px] px-4 py-3 print:hidden">
+            <div className="text-[11px] font-display uppercase tracking-[0.14em] text-amber mb-1">
+              Core Mass Is Physically Impossible
+            </div>
+            <p className="text-[11px] text-ink2">{activeCoreAnomaly}</p>
+          </div>
+        )}
+
+        {activeComplianceNote && (
+          <div className="bg-white border border-amber rounded-[2px] px-4 py-3 print:hidden">
+            <div className="text-[11px] font-display uppercase tracking-[0.14em] text-amber mb-1">
+              Not Assessed Against A Loss Schedule
+            </div>
+            <p className="text-[11px] text-ink2">{activeComplianceNote}</p>
+          </div>
+        )}
+
+        {activeLossBreach && (
+          <div className="bg-white border border-amber rounded-[2px] px-4 py-3 print:hidden">
+            <div className="text-[11px] font-display uppercase tracking-[0.14em] text-amber mb-1">
+              Declared Loss Schedule Not Met
+            </div>
+            <p className="text-[11px] text-ink2">{activeLossBreach}</p>
           </div>
         )}
 

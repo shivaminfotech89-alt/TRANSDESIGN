@@ -83,7 +83,8 @@ export function RatingPlate({ design, bom, params }: RatingPlateProps) {
           </div>
           <div
             className="text-[22px] font-mono mt-0.5"
-            style={{ color: design.compliant ? '#9FD3C4' : '#E3A08C' }}
+            // section 83: amber for a design nothing was assessed against
+            style={{ color: design.complianceState === 'passed' ? '#9FD3C4' : design.complianceState === 'notAssessed' ? '#D9B282' : '#E3A08C' }}
           >
             {inr(bom.withGst)}
           </div>
