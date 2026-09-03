@@ -621,6 +621,17 @@ export function ResultsDisplay({
           <DataRow label="Load Loss" value={String(Math.round(design.loadLoss))} unit="W" />
           <DataRow label="Impedance" value={design.pctZ.toFixed(2)} unit="%" tone={design.compliance.z.ok ? 'ink' : 'alert'} />
           <DataRow label="Target Impedance" value={params.targetZ.toFixed(2)} unit="%" />
+          {/* CALIBRATION.md section 86: the explanation belongs where the number
+              is read. A customer seeing 4.80 against a declared 5.00 asks why
+              here, not in a banner at the top of a different tab. */}
+          {design.windowNote && (
+            <p className="text-[10px] text-ink2 leading-snug py-1.5 border-t border-dashed border-line">
+              <span className={design.windowStraddle ? 'text-alert' : 'text-amber'}>
+                {design.windowStraddle ? 'Declared impedance is not achievable. ' : 'Declared impedance is not exactly achievable. '}
+              </span>
+              {design.windowNote}
+            </p>
+          )}
           <DataRow label="Efficiency, Full Load" value={design.eff100.toFixed(2)} unit="%" />
           <DataRow label="Current Density, LV" value={design.dLV.toFixed(2)} unit="A/mm²" />
           <DataRow label="Current Density, HV" value={design.dHV.toFixed(2)} unit="A/mm²" />
