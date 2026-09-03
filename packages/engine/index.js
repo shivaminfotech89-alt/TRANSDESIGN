@@ -2168,7 +2168,10 @@ function designTransformer(p) {
       rise: { val: dualOilRise, lim: riseLimit, ok: dualOilRise <= riseLimit + 0.5 },
       wRise: { val: dualWindRise, lim: wRiseLimit, ok: dualWindRise <= wRiseLimit + 0.5 },
     };
-    dualCompliant = Object.values(dualCompliance).every((x) => x.ok);
+    // section 85: same null-tolerant shape as the main gate, hardened before
+    // it can bite -- every entry is unconditional today, which is exactly when
+    // a latent null-as-pass is cheapest to remove.
+    dualCompliant = Object.values(dualCompliance).every((x) => x != null && x.ok);
   }
 
   return {
@@ -2338,6 +2341,44 @@ function resolveWindowNeighbourhood(build, seedHw, lo, hi, target, tolPct) {
     : `The closest reachable value is ${best.g.pctZ.toFixed(2)}%`;
   const note = `No window height gives the declared ${target.toFixed(2)}% impedance exactly: the winding configuration steps across it${step ? ` (${step})` : ""} and %Z steps with it. ${reach}; ${best.g.pctZ.toFixed(2)}% is used, at a ${Math.round(best.g.Hw)} mm window -- ${devPct.toFixed(1)}% from declared, ${breach ? `OUTSIDE the ${tolPct}% tolerance. This design cannot be built to its declared impedance: change the declared value, or a parameter that moves the winding.` : `within the ${tolPct}% tolerance. Reported rather than presented as a converged solve.`}`;
   return { g: best.g, solved: false, straddle: breach, note };
+}
+
+/* ============================================================
+   CALIBRATION.md section 85: non-finite guard at the display boundary.
+
+   A NaN or an unexpected Infinity reaching the UI produced a crash or a
+   silent "NaN" in a price field. The same reasoning that put a warning on a
+   BOM line with a missing rate applies here: a visible error is recoverable,
+   a crash is not, and a silently wrong number is worse than either.
+
+   Two things are deliberately NOT errors. `schFit.nll/ll` are Infinity by
+   design when no loss limit is declared (section 84) -- an unbounded limit is
+   the correct representation of "there is no limit", not a fault. And a
+   missing value (null/undefined) is absence, which the compliance work
+   already reports properly; this guard is only about numbers that ARE present
+   and are not real.
+
+   Reported rather than thrown, and named down to the field, so the message
+   says which quantity went wrong instead of which line of React noticed. */
+const NON_FINITE_EXEMPT = new Set(["schFit.nll", "schFit.ll"]);
+function nonFiniteReport(root, rootName) {
+  const found = [];
+  const seen = new WeakSet();
+  const walk = (v, path) => {
+    if (v == null || found.length >= 12) return;
+    if (typeof v === "number") {
+      if (!Number.isFinite(v) && !NON_FINITE_EXEMPT.has(path)) {
+        found.push({ path: `${rootName}.${path}`, value: Number.isNaN(v) ? "NaN" : String(v) });
+      }
+      return;
+    }
+    if (typeof v !== "object") return;
+    if (seen.has(v)) return;
+    seen.add(v);
+    for (const k of Object.keys(v)) walk(v[k], path ? `${path}.${k}` : k);
+  };
+  walk(root, "");
+  return found;
 }
 
 /* ============================================================
@@ -3335,10 +3376,34 @@ function impacts(a, ba, b, bb, p) {
      not just the aggregate `compliant` verdict above, which can stay the same
      while one check starts failing and another starts passing. */
   const complianceLabel = { nll: "No-load loss", ll: "Load loss", total: "Total loss", z: "Impedance", rise: "Top rise", wRise: "Winding rise", ratio: "Ratio error", volley: "Interlayer voltage" };
-  const flippedChecks = Object.keys(complianceLabel).filter((k) => a.compliance[k].ok !== b.compliance[k].ok);
+  /* CALIBRATION.md section 85: keys are indexed from a list defined elsewhere,
+     so this consumer never appeared in a grep for `compliance.nll` and survived
+     two null-safety audits. nll/ll/total go null when no loss limit is declared
+     (section 84), and comparing two designs across that boundary -- exactly what
+     switching efficiency level does -- dereferenced null and crashed the app.
+
+     A check appearing or disappearing is real information, not something to
+     suppress: "not assessed -> 807 W of 915 W" is what a user needs to see when
+     they move off conventional. So presence changes get their own row and only
+     checks present on BOTH sides are compared for a flip. */
+  const bothHave = (k) => a.compliance[k] && b.compliance[k];
+  const flippedChecks = Object.keys(complianceLabel).filter((k) => bothHave(k) && a.compliance[k].ok !== b.compliance[k].ok);
+  const appearedChecks = Object.keys(complianceLabel).filter((k) => !a.compliance[k] && b.compliance[k]);
+  const vanishedChecks = Object.keys(complianceLabel).filter((k) => a.compliance[k] && !b.compliance[k]);
+  if (appearedChecks.length || vanishedChecks.length) {
+    out.push({
+      k: "Loss schedule",
+      from: vanishedChecks.length ? vanishedChecks.map((k) => complianceLabel[k]).join(", ") + " checked" : "not assessed",
+      to: appearedChecks.length ? appearedChecks.map((k) => complianceLabel[k]).join(", ") + " checked" : "not assessed",
+      good: appearedChecks.length > 0,
+      body: appearedChecks.length
+        ? `This design is now assessed against a declared or published loss schedule where it was not before. ${appearedChecks.map((k) => `${complianceLabel[k]} ${Math.round(b.compliance[k].val)} W against ${Math.round(b.compliance[k].lim)} W`).join("; ")}.`
+        : `This design is no longer assessed against any loss schedule -- IS 1180 defines none for this efficiency class, and none is declared. It is now bounded by the thermal and mechanical limits alone, and cannot be offered as an IS 1180 unit.`,
+    });
+  }
   if (flippedChecks.length) {
     out.push({
-      k: "Compliance", good: b.compliant || (!a.compliant && flippedChecks.some((k) => !a.compliance[k].ok && b.compliance[k].ok)),
+      k: "Compliance", good: b.compliant || (!a.compliant && flippedChecks.some((k) => bothHave(k) && !a.compliance[k].ok && b.compliance[k].ok)),
       from: flippedChecks.map((k) => `${complianceLabel[k]} ${a.compliance[k].ok ? "passed" : "failed"}`).join(", "),
       to: flippedChecks.map((k) => `${complianceLabel[k]} ${b.compliance[k].ok ? "passes" : "fails"}`).join(", "),
       body: `${flippedChecks.length} check${flippedChecks.length > 1 ? "s" : ""} changed state. Overall verdict: ${a.compliant ? "was compliant" : "was not compliant"}, now ${b.compliant ? "compliant" : "not compliant"}.`,
@@ -4614,8 +4679,16 @@ export function computeDesign(core, over = {}, rates = DEFAULT_RATES, extras = [
   const finalFluxLimit = etkFitConverged !== undefined ? etkFitFluxLimit : autoFitFluxLimit;
   const finalResolutionNote = etkFitConverged !== undefined ? etkFitResolutionNote : fitResolutionNote;
   const finalBoundaryFound = etkFitConverged !== undefined ? etkFitBoundaryFound : fitBoundaryFound;
+  /* section 85: scanned once, here, at the boundary between the engine and
+     everything that displays it. A design that computes a NaN is broken, but
+     it should say which quantity broke rather than take the page down. */
+  const nonFinite = [...nonFiniteReport(design, "design"), ...nonFiniteReport(bom, "bom")];
+  const nonFiniteNote = nonFinite.length
+    ? `${nonFinite.length} computed value${nonFinite.length === 1 ? " is" : "s are"} not a real number: ${nonFinite.map((x) => `${x.path} = ${x.value}`).join(", ")}. This is an engine fault, not a design choice. The figures on this page cannot be trusted -- record what was set when it appeared. A NaN normally means a parameter was left blank or a rate is missing; an infinity normally means a divide by zero in a geometry or cost term.`
+    : null;
   return {
     spec, params: p, fitted: fittedAll, design, bom, engineVersion: ENGINE_VERSION, etkSearchNote,
+    nonFinite, nonFiniteNote,
     // CALIBRATION.md section 49: the plateau K itself sits inside, as a
     // range -- undefined when etK was locked (fitEtkToCost never ran) or
     // for a design with no autoFit at all, same conditionality as

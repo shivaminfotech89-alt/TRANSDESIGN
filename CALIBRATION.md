@@ -6556,3 +6556,83 @@ null-as-pass or null-as-crash faults from one root cause -- `is50`/`is100` in
 section 83, `coreMass`'s inverted semantics in the same audit, and these five.
 The lesson is not about any of them individually: **an optional check needs its
 absence to be as loud as its failure**, or the absence reads as success.
+
+## 85. A crash on changing efficiency level, and a guard so the next one is a message
+
+### The crash
+
+`impacts()` threw `TypeError: Cannot read properties of null (reading 'ok')`
+when the efficiency level changed. Reproduced exactly: build 800 kVA at
+conventional, switch to Level 2.
+
+```js
+const complianceLabel = { nll: ..., ll: ..., total: ..., z: ..., ... };
+const flippedChecks = Object.keys(complianceLabel)
+  .filter((k) => a.compliance[k].ok !== b.compliance[k].ok);
+```
+
+Section 84 made `nll`, `ll` and `total` null when no loss limit is declared.
+`impacts()` compares two designs, so it is the one consumer that straddles
+that boundary -- and switching efficiency level is exactly how a user crosses
+it. A conventional design sitting still never crashed; changing to or from one
+always did.
+
+**Why two null-safety audits missed it.** Section 83 swept
+`Object.values(compliance)` for null-as-pass. Section 84 swept direct
+`compliance.nll` dereferences. This consumer does neither: it indexes by a key
+list **defined elsewhere**, so it never appeared in a grep for the accessor.
+The audit method was wrong, not just incomplete -- searching for an access
+pattern finds only the consumers that spell it out.
+
+A check appearing or disappearing is now its own impact row rather than
+something to suppress. "not assessed -> No-load loss, Load loss, Total loss
+checked" is what a user needs when they move off conventional, and the reverse
+says the design is no longer assessed against any schedule and cannot be
+offered as an IS 1180 unit. `dualCompliance`'s own gate was hardened at the
+same time -- every entry is unconditional today, which is precisely when a
+latent null-as-pass is cheapest to remove.
+
+### The pin sweep: nothing else became reachable
+
+All eight Class B targets were evaluated on a conventional design, where the
+loss limits are undeclared and the fit runs to the thermal bound, and on a
+Level 2 design where they are not. Every target is finite in both:
+
+| | no-load | load loss | core dia | LV turns | conductor | impedance | rise | fin area |
+|---|---|---|---|---|---|---|---|---|
+| conventional | 1110.6 | 8804.0 | 225.6 | 19 | 360.4 | 5.0 | 27.2 | 79.0 |
+| Level 2 | 806.7 | 5165.0 | 224.7 | 19 | 640.0 | 4.8 | 40.0 | 25.0 |
+
+No pinnable lever can now reach a value it could not before, and none can
+produce a non-finite target.
+
+The one non-finite value the section 84 work does create is `schFit.nll/ll`,
+set to Infinity when no limit is declared. It never reaches the UI -- nothing
+in `src/` reads `schFit` -- and an unbounded limit is the correct
+representation of "there is no limit", not a fault. It is exempted from the
+guard below by name rather than by accident.
+
+### The guard: a visible error instead of a crash
+
+`nonFiniteReport()` walks the finished design and BOM at the engine boundary
+and names every value that is present but is not a real number, down to the
+field. Reported on the result as `nonFinite` and `nonFiniteNote`, raised by
+the UI in an alert-bordered banner.
+
+Proven by injecting the failure the way it actually happens -- a rate that is
+not a number:
+
+```
+rates.core = NaN  ->  12 values named, first bom.segments.0.rows.0.rate
+                      returned and reported; did not throw
+```
+
+Absence is deliberately not an error here: a missing value is null, which the
+compliance work already reports properly. This guard is only about numbers
+that are present and are not real. Same reasoning as the missing-rate warning
+on a BOM line -- a visible error is recoverable, a crash is not, and a silent
+"NaN" in a price field is worse than either.
+
+The regression test compares **all 20 ordered pairs** of efficiency levels in
+both directions, because this was a transition fault that no single-design
+test could ever have caught.
