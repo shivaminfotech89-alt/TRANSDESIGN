@@ -252,3 +252,24 @@ tank drawing or cost sheet that states the fabricated size.
 
 If only some of these are available right now, send what you have — each
 closes a separate, independent gap, so partial data is still useful.
+
+## Item 0b. Measured LV-HV clearance and design top-oil rise, any reference
+
+CALIBRATION.md section 91. `gapScales` sweeps 0.9/1.0/1.12 times the derived
+`lvHvClr`, and `riseTargets` sweeps the design's own top-oil target and two
+5 K steps below it. These are the only two search dimensions that are windows
+around a suggested value rather than absolute ranges, so a wrong suggestion
+moves what the search can reach -- exactly the failure mode section 90 warned
+about.
+
+Every other swept parameter has been audited against the four reference
+designs and every real value falls inside its range. These two cannot be:
+no sheet we hold records a measured LV-HV gap or the top-oil rise the design
+was built to.
+
+Needed, from any one reference build:
+  - the LV-HV clearance as built, in mm
+  - the top-oil temperature rise the design was targeted at, in K
+    (not the guaranteed limit -- the figure the designer sized cooling to)
+
+One reference is enough to tell whether the suggestion is centred or biased.

@@ -6973,3 +6973,76 @@ design's own target and two 5 K steps below it), and stage 2's
 `windowAround` on etK. Each of those is a multiplicative or additive window
 around a derived value, and each would miss an optimum sitting outside it.
 That is where to look, not at flux.
+
+## 91. Impedance is not near the edge, and every swept range already contains the references
+
+Two questions, both answered by measurement, and both premises moved by it.
+
+**Impedance at 1250 kVA.** Reported as 4.51 % against 5.00 declared, a 9.8 %
+deviation with almost nothing left of the +/-10 % tolerance. It is not: the
+design lands at **4.87 %, a 2.57 % deviation, 26 % of the tolerance**. Across
+31 compliant designs swept over K 0.42-0.60 and five flux settings, the worst
+deviation found anywhere is **3.75 %**, and there are zero straddles. Nothing
+at this rating is near the edge. Across five ratings the largest deviation
+seen is 3.97 % (800 kVA); 315, 630 and 1000 all land at 0.00 %.
+
+**But the pattern underneath the question is real.** At 1250:
+
+    mean deviation, cheapest quartile   3.17 %
+    mean deviation, the rest            0.60 %
+    cheapest design                     23,49,354  dev 3.75 %
+    cheapest with deviation <= 2 %      24,74,208  dev 0.00 %
+    cost of holding deviation <= 2 %    1,24,853   (+5.31 %)
+
+Cheaper designs do sit systematically further from the declared impedance, and
+an exact 5.00 % design costs 5.31 % more. So the instinct is sound even though
+the numbers were not.
+
+**Recommendation: do not re-rank.** A tighter default band would be a fix for
+something that has not happened -- the worst case measured uses 37.5 % of the
+allowance -- and it would silently make every quotation dearer. The lever
+already exists and is per-enquiry: `zTol` is a settable parameter, range
+5-10 in 0.5 steps, and `BudgetTab` already passes `zTol: params.zTol` into the
+search. A works that wants a tighter band sets it and the search honours it.
+
+What was missing is that the results table showed price, delivered price,
+no-load and load loss, and **no impedance at all** -- so the one number that
+distinguishes these candidates was invisible at the moment of choosing.
+Section 87's shape again. Added as a column, with the percentage of tolerance
+used, ambered past 70 %.
+
+**The swept-range audit.** Every reference value we hold sits INSIDE every
+range we sweep. None outside, none at an edge:
+
+| ref | etK real / suggested | steps real / suggested | flux real / suggested |
+|---|---|---|---|
+| 1250 oil | 0.544 / 0.506, +7.5 % | 15 / 15, 0 % | not recorded |
+| 630 dry | 0.623 / 0.475, **+31.1 %** | not recorded | not recorded |
+| 315 oil | 0.542 / 0.443, **+22.3 %** | 16 / 9, **+77.8 %** | 1.518 / 1.420, +6.9 % |
+| 500 oil | 0.466 / 0.414, +12.5 % | 17 / 11, **+54.5 %** | 1.395 / 1.604, -13.1 % |
+
+So the ranges are wide enough, and a wrong suggestion does not put the optimum
+outside the window for any of these -- etK, steps and flux are swept or fitted
+over absolute ranges, not windows around their own suggestions. The risk
+recorded at the end of section 90 is real but does not bite here.
+
+**What the audit did find is a systematic bias in the suggestions themselves.**
+`etkSuggest` is low on all four references, every one the same direction,
+by 7.5 to 31.1 %. `stepsSuggest` is 55-78 % low at 315 and 500 while exact at
+1250. Neither changes what is reachable; both change where every fit and every
+stage-2 window starts, which is the mechanism section 90 measured as 2-6 % of
+path-dependent cost. That makes the suggestion bias a probable contributor to
+it, and worth fixing on its own evidence -- four references, one direction.
+
+**And one genuine unreachable, not caught by the range check.** The 500's real
+flux is 1.3947 T, below the 1.42 T CRGO fit floor. The slider reaches it
+(range 1.20-1.80) but `autoFit` cannot: a user can build that design, the fit
+will never find it. That is the one case where a real reference sits outside
+what the engine can reach on its own, and it is the fit band, not the sweep.
+
+**Not auditable, and now a data request.** `gapScales` (0.9/1.0/1.12 x
+`lvHvClr`) and `riseTargets` (the target and two 5 K steps below) are the two
+parameters that genuinely are swept relative to a derived suggestion -- and no
+reference records a measured LV-HV clearance or a design top-oil rise target.
+They cannot be audited against reality until one does. Added to
+DATA-REQUEST-2026-08-11.md rather than guessed at.
