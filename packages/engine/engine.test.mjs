@@ -1081,5 +1081,41 @@ console.log("\ncardCostModel panel count follows tank type, not finLayout regard
   else console.log(`  ok   panel count (${cardPanels.qty}) does not match finLayout's fin-wall count (${finPanels})`);
 }
 
+
+/* CALIBRATION.md section 85. impacts() crashed switching efficiency level,
+   because it indexes compliance by a key list defined elsewhere and so never
+   appeared in either null-safety audit. It is a TRANSITION fault -- no
+   single-design test could catch it -- so every ordered pair of levels is
+   compared here, both directions. */
+console.log("\nimpacts() across every efficiency-level transition (CALIBRATION.md section 85)");
+{
+  const levels = ["conventional", "level1", "level2", "level3", "custom"];
+  const built = {};
+  for (const l of levels) built[l] = E.computeDesign({ ...E.ESSENTIALS, kva: 800, effLevel: l }, {}, E.DEFAULT_RATES, []);
+  let pairs = 0, broke = 0;
+  for (const a of levels) for (const b of levels) {
+    if (a === b) continue;
+    pairs++;
+    try { E.impacts(built[a].design, built[a].bom, built[b].design, built[b].bom, built[b].params); }
+    catch (e) { broke++; failures++; console.log(`  FAIL impacts() ${a} -> ${b}: ${e.message}`); }
+  }
+  if (!broke) console.log(`  ok   ${pairs} level transitions, none threw`);
+
+  /* section 85: a non-finite value must be REPORTED, not thrown and not
+     silently printed into a price. Injected the way it really happens -- a
+     rate that is not a number. */
+  const badRates = { ...E.DEFAULT_RATES, core: NaN };
+  let rep = null;
+  try { rep = E.computeDesign({ ...E.ESSENTIALS, kva: 800 }, {}, badRates, []); }
+  catch (e) { failures++; console.log(`  FAIL a NaN rate threw instead of reporting: ${e.message}`); }
+  if (rep) {
+    if (!rep.nonFinite || !rep.nonFinite.length) { failures++; console.log("  FAIL a NaN rate produced no nonFinite report"); }
+    else console.log(`  ok   NaN rate reported, not thrown: ${rep.nonFinite.length} values named, first ${rep.nonFinite[0].path}`);
+  }
+  const clean = E.computeDesign({ ...E.ESSENTIALS, kva: 800, effLevel: "conventional" }, {}, E.DEFAULT_RATES, []);
+  if (clean.nonFinite.length) { failures++; console.log(`  FAIL a healthy conventional design reports non-finite values: ${clean.nonFinite.map((x) => x.path).join(", ")}`); }
+  else console.log("  ok   healthy conventional design reports no non-finite values (schFit infinities exempt by design)");
+}
+
 console.log(failures ? `\n${failures} FAILURES` : "\nall passed");
 process.exit(failures ? 1 : 0);

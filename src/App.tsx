@@ -669,6 +669,10 @@ export default function App() {
     : budgetPreview ? {} : over;
   const overrideKeys = Object.keys(shownOver).filter((k) => shownOver[k] !== undefined);
 
+  // CALIBRATION.md section 85: a NaN or unexpected infinity is reported here,
+  // named down to the field, instead of crashing the page or printing "NaN"
+  // into a price. Same reasoning as the missing-rate warning on a BOM line.
+  const activeNonFinite = viewingRevision ? viewedResult!.nonFiniteNote : budgetPreview ? undefined : result.nonFiniteNote;
   const activeComplianceNote = viewingRevision ? viewedResult!.design.complianceNote : budgetPreview ? undefined : result.design.complianceNote;
   const activeCoreAnomaly = viewingRevision ? viewedResult!.design.coreMassAnomaly : budgetPreview ? undefined : result.design.coreMassAnomaly;
   const activeLossBreach = viewingRevision ? viewedResult!.design.lossBreach : budgetPreview ? undefined : result.design.lossBreach;
@@ -878,6 +882,15 @@ export default function App() {
               Core Mass Is Physically Impossible
             </div>
             <p className="text-[11px] text-ink2">{activeCoreAnomaly}</p>
+          </div>
+        )}
+
+        {activeNonFinite && (
+          <div className="bg-white border border-alert rounded-[2px] px-4 py-3 print:hidden">
+            <div className="text-[11px] font-display uppercase tracking-[0.14em] text-alert mb-1">
+              Engine Fault: A Computed Value Is Not A Real Number
+            </div>
+            <p className="text-[11px] text-ink2">{activeNonFinite}</p>
           </div>
         )}
 
