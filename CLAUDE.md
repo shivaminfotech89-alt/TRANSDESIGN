@@ -108,8 +108,8 @@ Default case: 1000 kVA, 11 kV / 433 V, Dyn11, IS, Level 2, copper, ONAN, fin tan
 
 | Quantity | Value |
 |---|---|
-| Ex-works | ₹21,53,803 |
-| Delivered incl. GST | ₹25,41,488 |
+| Ex-works | ₹21,85,597 |
+| Delivered incl. GST | ₹25,79,005 |
 | Tank length | 1580 mm |
 | No-load loss | 1025 W |
 | Load loss | 6547 W |
@@ -117,6 +117,17 @@ Default case: 1000 kVA, 11 kV / 433 V, Dyn11, IS, Level 2, copper, ONAN, fin tan
 | Efficiency | 99.25 % |
 | Core mass | 1273 kg |
 | Stepped core utilisation | 3 steps 0.8510, 9 steps 0.9483, 13 steps 0.9642 |
+
+Current as of ENGINE_VERSION 1.39.0 (CALIBRATION.md section 95): the BOM's
+conductor lines price the FINISHED COIL at its covered weight
+(`wLVCovered`/`wHVCovered`), not bare conductor mass, because a works buys a
+coil by what it weighs and the `condCu`/`condAl` rate is a bought-in
+finished-coil rate, not a bare metal price. The lines are renamed to say so
+and the BOM carries a `rateBasisNote`, because the old names said "winding"
+against a bare mass at a finished rate and the mismatch was invisible in both
+the number and the label. Covered mass is 2.92% above bare on the default
+case; ex-works moves +1.48%. Only prices move -- no geometry, no losses, no
+compliance figure.
 
 Current as of ENGINE_VERSION 1.38.0 (CALIBRATION.md sections 79-81): a 5%
 flux design margin below the IS 1180 ceiling (1.604 T against 1.689), the
