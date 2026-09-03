@@ -8,7 +8,7 @@
  * without bumping it, or old quotations stop reproducing.
  */
 
-export const ENGINE_VERSION = "1.38.0";
+export const ENGINE_VERSION = "1.39.0";
 
 /* CALIBRATION.md section 79. cp (specific heat, J/kg.K), scTemp (maximum
    permitted conductor temperature after a short circuit, IEC 60076-5 /
@@ -2476,12 +2476,17 @@ function buildBOM(d, r, extras = []) {
 
   const A = [
     { code: "CR-01", desc: `Core lamination \u2013 ${d.grade.name}, ${d.ct.name}`, qty: d.wCoreAssembled, unit: "kg", rate: coreRate, rk: "core" },
-    { code: "WD-01", desc: `LV winding \u2013 ${d.cLV.name}`, qty: d.wLV, unit: "kg", rate: condRate(p.condLV, r), rk: rkCond(p.condLV) },
-    { code: "WD-02", desc: `HV winding \u2013 ${d.cHV.name}, ${d.hvConstruction === "layer" ? `${d.layers} layers` : d.hvConstruction === "crossover" ? `${d.numGroups} crossover coils, ${d.layers} layers each` : `${d.numGroups} discs, ${d.layers} turns each`}`, qty: d.wHV, unit: "kg", rate: condRate(p.condHV, r), rk: rkCond(p.condHV) },
+    /* CALIBRATION.md section 95: a works buys a finished coil and pays for
+       what it weighs, covering included. These lines priced BARE conductor
+       mass (wLV/wHV) at a rate that is a finished-coil rate, under a name
+       that said "winding" -- so the mismatch was invisible in both the
+       number and the label. Now covered mass, named as what it is. */
+    { code: "WD-01", desc: `LV finished coil – ${d.cLV.name}, covered weight`, qty: d.wLVCovered, unit: "kg", rate: condRate(p.condLV, r), rk: rkCond(p.condLV) },
+    { code: "WD-02", desc: `HV finished coil \u2013 ${d.cHV.name}, ${d.hvConstruction === "layer" ? `${d.layers} layers` : d.hvConstruction === "crossover" ? `${d.numGroups} crossover coils, ${d.layers} layers each` : `${d.numGroups} discs, ${d.layers} turns each`}, covered weight`, qty: d.wHVCovered, unit: "kg", rate: condRate(p.condHV, r), rk: rkCond(p.condHV) },
     { code: "IN-01", desc: `Insulation for ${p.bilHV} kVp LI / ${p.acHV} kV AC, class ${p.insClass}`, qty: d.wIns, unit: "kg", rate: r.insulation, rk: "insulation" },
     { code: "FR-01", desc: "Core clamping frame, tie rods, MS fabricated", qty: d.wFrame, unit: "kg", rate: r.frameMS, rk: "frameMS" },
   ];
-  if (d.dry) A.push({ code: "RS-01", desc: `${d.dryT.name} \u2013 resin, moulds, process`, qty: d.wLV + d.wHV, unit: "kg", rate: r.resin, rk: "resin" });
+  if (d.dry) A.push({ code: "RS-01", desc: `${d.dryT.name} \u2013 resin, moulds, process`, qty: d.wLVCovered + d.wHVCovered, unit: "kg", rate: r.resin, rk: "resin" });
 
   const Bseg = d.dry
     ? [
@@ -2596,6 +2601,13 @@ function buildBOM(d, r, extras = []) {
     labour, material, labourCost, scrap, overhead, freight: r.freight,
     factory, works, margin, exFactory, gst, withGst: exFactory + gst, energy,
     tco: exFactory + energy.total, warnings,
+    /* section 95: stated on the BOM because the rate key is shared with
+       every other surface that prices a conductor, and a bare metal price
+       entered against it under-costs by far more than the covering itself. */
+    rateBasisNote: `Conductor lines WD-01/WD-02 price the FINISHED COIL at its covered weight. `
+      + `The ${rkCond(p.condLV)} rate is a bought-in finished-coil rate per kg, including the covering and the `
+      + `drawing, annealing and covering conversion -- it is NOT a bare metal price. Entering an LME or bare `
+      + `copper figure here will under-cost the transformer by far more than the covering mass alone.`,
   };
 }
 
@@ -2616,12 +2628,10 @@ function ownershipCost(d, p) {
        if a project's rate card changes them; nothing here duplicates or
        forks those figures.
      - LT/HT weight are priced on COVERED conductor mass (wLVCovered/
-       wHVCovered), not the bare mass buildBOM's WD-01/WD-02 lines use --
-       the sheet is pricing what is actually wound and goes in the tank,
-       paper included. This is the one place the two models genuinely
-       disagree on quantity, not just on markup structure, and that is
-       deliberate: asked directly, this is the more physically honest
-       basis for a coil that already has its covering on.
+       wHVCovered), the same basis buildBOM's WD-01/WD-02 lines now use
+       (CALIBRATION.md section 95). The two models agreed on markup
+       structure and disagreed on quantity until 1.39.0; the card was
+       right and the BOM was pricing bare mass at a finished-coil rate.
      - The panel row (PSR/radiator/fin, "No's" not kg) has no equivalent
        in buildBOM at all, which prices cooling surface by mass
        (TK-02, r.fin/r.radiator per kg). Panel count comes from finLayout,

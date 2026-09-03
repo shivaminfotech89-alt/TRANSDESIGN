@@ -323,8 +323,8 @@ const r = E.computeDesign(E.ESSENTIALS, {}, E.DEFAULT_RATES, []);
 // no-load figure. Re-verified directly against computeDesign, not
 // hand-adjusted -- CLAUDE.md's own golden-numbers table updated in the
 // same commit.
-eq("ex-works", Math.round(r.bom.exFactory), 2153803, 800);
-eq("delivered", Math.round(r.bom.withGst), 2541488, 900);
+eq("ex-works", Math.round(r.bom.exFactory), 2185597, 800);
+eq("delivered", Math.round(r.bom.withGst), 2579005, 900);
 eq("tank length mm", Math.round(r.design.tankL), 1580, 2);
 eq("no-load loss W", Math.round(r.design.noLoad), 1025, 5);
 eq("load loss W", Math.round(r.design.loadLoss), 6541, 30);
@@ -784,7 +784,7 @@ console.log("\nfit resolution: the fitted density is actively resolved to its ch
   // bracket-sensitivity cascade section 51's own note already describes
   // for a loss-moving change. Re-verified directly against computeDesign,
   // not hand-adjusted.
-  for (const [kva, ex] of [[630, 1854827], [1000, 2153803], [1250, 2420586]]) {
+  for (const [kva, ex] of [[630, 1888667], [1000, 2185597], [1250, 2452101]]) {
     const r = E.computeDesign({ ...E.ESSENTIALS, kva }, { coreConstruction: "A" }, E.DEFAULT_RATES, []);
     if (!r.fitBoundaryFound || !r.fitResolutionNote) {
       failures++; console.log(`  FAIL ${kva} kVA: expected fitBoundaryFound/fitResolutionNote, got fitBoundaryFound=${r.fitBoundaryFound}`);

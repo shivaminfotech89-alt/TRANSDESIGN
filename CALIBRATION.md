@@ -7241,3 +7241,63 @@ left factual on purpose: DRAWINGS.md now records why a compliance state must
 never be engraved on a plate, so the next person applying this audit
 mechanically does not add one. The compliance band sits on the name plate
 PAGE, above the drawing, qualifying the document without altering the plate.
+
+## 95. The BOM priced bare conductor at a finished-coil rate
+
+A works buys a finished coil and pays for what it weighs, covering included.
+`buildBOM`'s WD-01/WD-02 lines priced BARE conductor mass (`wLV`/`wHV`) at
+`condCu`/`condAl` -- which are bought-in finished-coil rates, not bare metal
+prices -- under descriptions that said "LV winding" and "HV winding". The
+number and the label were both wrong in the same direction, which is why it
+stayed invisible: nothing on the line said which basis it was on.
+
+The card model had it right all along, and this file's own comment on
+`cardCostModel` already said so, calling the covered basis "the more
+physically honest basis for a coil that already has its covering on" and
+recording the disagreement as deliberate. It was the BOM that needed moving,
+not the card. That comment is corrected here: the two models no longer
+disagree on quantity.
+
+**Three changes, not one.** Switching the number alone would have left the
+same trap for the next person:
+
+  1. `qty` is now `wLVCovered`/`wHVCovered`, and RS-01 (dry-type resin, which
+     is applied to the wound coil) follows the same mass.
+  2. The lines are renamed "LV/HV finished coil ... covered weight".
+  3. `bom.rateBasisNote` states that the conductor rate is a bought-in
+     finished-coil rate per kg, including the covering and the drawing,
+     annealing and covering conversion, and that entering an LME or bare
+     copper figure against it under-costs the transformer by far more than
+     the covering mass alone. That last point is the real hazard: the
+     covering is worth 2-6 % of mass, but the conversion premium inside
+     Rs 1415/kg against a bare copper price is several times that.
+
+**Effect.** Only prices move -- no geometry, no losses, no compliance figure,
+no impedance. The correction is largest at small ratings, where covering is a
+bigger fraction of a thinner conductor:
+
+| kVA | was | now | change | covered/bare |
+|---|---|---|---|---|
+| 315 | 13,05,250 | 13,47,698 | +3.25 % | 1.0579 |
+| 630 | 18,54,827 | 18,88,667 | +1.82 % | 1.0336 |
+| 800 | 20,22,804 | 20,56,877 | +1.68 % | 1.0292 |
+| 1000 | 21,53,803 | 21,85,597 | +1.48 % | 1.0272 |
+| 1250 | 24,20,586 | 24,52,101 | +1.30 % | 1.0244 |
+
+Two figures in the request did not survive measurement. The covered/bare ratio
+is **2.92 %** at 800 kVA, not 4.5 % -- it reaches 5.79 % at 315 and falls with
+rating. And ex-works did not need to be brought above the card total: it was
+already far above it (20,22,804 against 1,376,196 with Extra unset) and always
+had been at this rating. The card being lower is not evidence of this bug; it
+is what a material-only total with no Extra looks like (section 93).
+
+**Fit to Budget is unmoved in preference.** Copper carries more covering mass
+than aluminium in absolute terms but the ratio is similar, so the correction
+scales both nearly equally: cheapest aluminium 11,62,192 against cheapest
+copper 20,75,183, and aluminium is still preferred, by the same margin as
+before. No candidate changed rank in the top five. A 1.3-3.3 % correction
+applied to the dominant material in every candidate moves all of them
+together.
+
+ENGINE_VERSION 1.39.0. The golden table in CLAUDE.md is updated in this same
+commit, per the rule at the head of that table.
