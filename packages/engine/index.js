@@ -2059,6 +2059,10 @@ function designTransformer(p) {
      here: flux and fluxMargin go null under a non-IS standard, where a
      different standard governs and the declared limits are still checked, so
      those are genuinely not applicable rather than not assessed. */
+  const isLossBasis = !(p.standard === "IS") || dry ? "n/a"
+    : isSch ? (isSch.exact ? "exact" : "agreed")
+    : !["level1", "level2", "level3"].includes(p.effLevel) ? "notALevel"
+    : "pending";
   const assessed = Object.values(compliance).filter((x) => x != null);
   const compliant = assessed.every((x) => x.ok);
   const notAssessed = [];
@@ -2071,10 +2075,27 @@ function designTransformer(p) {
           : `IS 1180 (Part 1) : 2014 lists no ${p.kva} kVA row and the rating falls outside its tables, so no total-loss limit was checked.`
     );
   }
-  const complianceState = !compliant ? "failed" : notAssessed.length ? "notAssessed" : "passed";
+  /* CALIBRATION.md section 87: a fourth state. An INTERPOLATED limit is not a
+     standard figure -- IS 1180 makes losses at non-preferred ratings subject to
+     agreement between user and supplier -- so passing against one is not
+     passing against the standard, and a green "Compliant" badge is a false
+     claim about a number the standard does not give. Same wrong-green shape as
+     section 83, one level further in: there the check was skipped, here it runs
+     against a limit that was invented by interpolation.
+
+     Ordered by how much they claim: failed < notAssessed < byAgreement <
+     passed. byAgreement means every check passed but at least one was measured
+     against a limit that requires agreement to be binding. */
+  const byAgreement = isLossBasis === "agreed";
+  const complianceState = !compliant ? "failed"
+    : notAssessed.length ? "notAssessed"
+    : byAgreement ? "byAgreement"
+    : "passed";
   const complianceNote = notAssessed.length
     ? `${notAssessed.join(" ")} Every other check was applied and passed, but this design has NOT been assessed against a loss schedule -- do not read the result as approval against IS 1180.`
-    : null;
+    : byAgreement && compliant
+      ? `IS 1180 (Part 1) : 2014 lists no ${p.kva} kVA row, so the total-loss limits this design was checked against were INTERPOLATED between the neighbouring listed ratings. The standard makes losses at a non-preferred rating subject to agreement between user and supplier, so this is a proposed limit, not a published one. Agree it in writing before quoting against it.`
+      : null;
 
   /* CALIBRATION.md section 78: which constraint is ACTUALLY binding, and how
      much room is left against the loss schedule.
@@ -2210,10 +2231,7 @@ function designTransformer(p) {
        efficiency class at all; "pending" means it defines them for this class
        but not at this rating. Reporting the first as the second would say the
        rating is the problem when the level is. */
-    isLossBasis: !(p.standard === "IS") || dry ? "n/a"
-      : isSch ? (isSch.exact ? "exact" : "agreed")
-      : !["level1", "level2", "level3"].includes(p.effLevel) ? "notALevel"
-      : "pending",
+    isLossBasis,
     isLossNote: !(p.standard === "IS") || dry ? null
       : isSch && isSch.exact ? null
       : !isSch && !["level1", "level2", "level3"].includes(p.effLevel)
@@ -3484,8 +3502,8 @@ function calcSheet(d, bom) {
   if (d.constraintNote || d.condNote) {
     sec("0. Which constraint is binding", "IS 1180 (Part 1) : 2014", [
       ...(d.constraintNote ? [row("Binding constraint", "n/a", `${d.binding.key} at ${(d.binding.util * 100).toFixed(1)}% of limit`, d.constraintNote, `${Math.round(d.binding.val)} / ${Math.round(d.binding.lim)}`, "IS 1180 (Part 1) : 2014", "losses, rise limits, shop limits")] : []),
-      ...(d.compliance.is50 ? [row("Total losses at 50% load", "P₅₀", "no-load + 0.25 x load loss", `= ${Math.round(d.noLoad)} + 0.25 x ${Math.round(d.loadLoss)}`, `${Math.round(d.compliance.is50.val)} W of ${Math.round(d.compliance.is50.lim)} W (${(100 * (1 - d.compliance.is50.val / d.compliance.is50.lim)).toFixed(1)}% inside)`, "IS 1180 (Part 1) : 2014", "losses")] : []),
-      ...(d.compliance.is100 ? [row("Total losses at 100% load", "P₁₀₀", "no-load + load loss", `= ${Math.round(d.noLoad)} + ${Math.round(d.loadLoss)}`, `${Math.round(d.compliance.is100.val)} W of ${Math.round(d.compliance.is100.lim)} W (${(100 * (1 - d.compliance.is100.val / d.compliance.is100.lim)).toFixed(1)}% inside)`, "IS 1180 (Part 1) : 2014", "losses")] : []),
+      ...(d.compliance.is50 ? [row("Total losses at 50% load", "P₅₀", "no-load + 0.25 x load loss", `= ${Math.round(d.noLoad)} + 0.25 x ${Math.round(d.loadLoss)}`, `${Math.round(d.compliance.is50.val)} W of ${Math.round(d.compliance.is50.lim)} W ${d.compliance.is50.ok ? `(${(100 * (1 - d.compliance.is50.val / d.compliance.is50.lim)).toFixed(1)}% inside)` : `-- OVER by ${(100 * (d.compliance.is50.val / d.compliance.is50.lim - 1)).toFixed(1)}%, this design does not meet the schedule`}`, "IS 1180 (Part 1) : 2014", "losses")] : []),
+      ...(d.compliance.is100 ? [row("Total losses at 100% load", "P₁₀₀", "no-load + load loss", `= ${Math.round(d.noLoad)} + ${Math.round(d.loadLoss)}`, `${Math.round(d.compliance.is100.val)} W of ${Math.round(d.compliance.is100.lim)} W ${d.compliance.is100.ok ? `(${(100 * (1 - d.compliance.is100.val / d.compliance.is100.lim)).toFixed(1)}% inside)` : `-- OVER by ${(100 * (d.compliance.is100.val / d.compliance.is100.lim - 1)).toFixed(1)}%, this design does not meet the schedule`}`, "IS 1180 (Part 1) : 2014", "losses")] : []),
       ...(d.condNote ? [row("Conductor choice depends on level", "n/a", "auto-selection below 630 kVA", d.condNote, d.cLV.name, "deriveSpec", "rating, efficiency level")] : []),
     ]);
   }
