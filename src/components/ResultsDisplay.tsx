@@ -297,9 +297,11 @@ export function ResultsDisplay({
                   </thead>
                   <tbody>
                     {[
-                      ['No-Load Loss (W)', design.compliance.nll],
-                      ['Load Loss (W)', design.compliance.ll],
-                      ['Total Loss (W)', design.compliance.total],
+                      ['Total Losses at 50% Load (W)', design.compliance.is50],
+                      ['Total Losses at 100% Load (W)', design.compliance.is100],
+                      ['No-Load Loss, Component (W)', design.compliance.nll],
+                      ['Load Loss, Component (W)', design.compliance.ll],
+                      ['Total Loss, Declared (W)', design.compliance.total],
                       ['Impedance (%)', design.compliance.z],
                       ['Top Rise (K)', design.compliance.rise],
                       ['Winding Rise (K)', design.compliance.wRise],
@@ -317,6 +319,17 @@ export function ResultsDisplay({
                     ))}
                   </tbody>
                 </table>
+                {/* CALIBRATION.md section 93: a reader seeing "Load Loss 5099 W"
+                    above "Losses at 100% load 5882 W" reads a contradiction. They
+                    are a component and a total, and which of them the standard
+                    actually constrains is the thing nobody knows unless told. */}
+                <p className="text-[10px] text-ink2 leading-snug mt-2">
+                  IS 1180 (Part 1) : 2014 constrains the two <span className="font-semibold">totals</span> -- no-load plus
+                  load loss, at 50% and at 100% of rated load -- and sets no separate no-load or load-loss limit. The two
+                  component rows below them are this design's own declared figures, and their limits are the corner of the
+                  IS 1180 region rather than published values: any split of the total inside that region is equally
+                  compliant. A design may trade core against copper freely so long as both totals hold.
+                </p>
               </Card>
 
               {design.dualCompliance && (
@@ -481,7 +494,7 @@ export function ResultsDisplay({
               previewed budget option or a viewed revision), unlike Fit to
               Budget below which deliberately always uses the live ones. */}
           {activeTab === 'card' && (
-            <CostCardTab design={design} params={params} rates={effectiveRates} onCardExtraChange={onCardExtraChange} readOnly={pricingLocked} />
+            <CostCardTab design={design} params={params} rates={effectiveRates} bom={bom} onCardExtraChange={onCardExtraChange} readOnly={pricingLocked} />
           )}
 
           {/* FIT TO BUDGET -- searches and previews against the live design,

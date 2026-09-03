@@ -7,6 +7,10 @@ interface CostCardTabProps {
   design: any;
   params: any;
   rates: Record<string, number>;
+  /** CALIBRATION.md section 93: the live BOM, shown beside the card total
+   *  purely so the two figures are never mistaken for each other. The card
+   *  is material only; ex-works is the full BOM. */
+  bom: any;
   onCardExtraChange: (value: number) => void;
   readOnly?: boolean;
 }
@@ -20,8 +24,9 @@ const kg = (n: number) => `${fmtMoney(n)} Kg`;
  *  replacement. Reads straight off the live design/params/rates, nothing
  *  stored here except cardExtra, which is a design parameter like any
  *  other override (CLAUDE.md invariant 2) -- there is no formula for it. */
-export function CostCardTab({ design: d, params: p, rates, onCardExtraChange, readOnly }: CostCardTabProps) {
+export function CostCardTab({ design: d, params: p, rates, bom, onCardExtraChange, readOnly }: CostCardTabProps) {
   const cost = cardCostModel(d, rates, DEFAULT_CARD_RATES, p.cardExtra || 0);
+  const extraUnset = !(p.cardExtra > 0);
   const cond = conductorSchedule(d, p);
   // CALIBRATION.md section 24: finLayout is fin-tank-only -- a radiator
   // design reads radiatorLayout instead, not finLayout wearing a
@@ -91,7 +96,10 @@ export function CostCardTab({ design: d, params: p, rates, onCardExtraChange, re
               <tfoot>
                 <tr className="bg-sheetAlt">
                   <td className={tdCls} colSpan={5}>
-                    <span className="text-[11px] font-display uppercase tracking-[0.12em] text-copper">Total</span>
+                    <span className="text-[11px] font-display uppercase tracking-[0.12em] text-copper">Total, Material Only</span>
+                    <div className="text-[10px] text-ink2 mt-0.5 normal-case tracking-normal">
+                      Bought-in material at per-kg rates, plus Extra. No labour, scrap, overhead, freight, margin or GST.
+                    </div>
                   </td>
                   <td className={`${tdCls} text-right font-mono text-[13px] font-bold text-copper`}>{fmtMoney(cost.total)}</td>
                 </tr>
@@ -102,24 +110,67 @@ export function CostCardTab({ design: d, params: p, rates, onCardExtraChange, re
               This total is not the BOM &amp; Cost tab's ex-works price and is not meant to reconcile with it: LT/HT
               weight above is covered conductor mass, that tab's WD-01/WD-02 lines price bare.
             </p>
+            {/* CALIBRATION.md section 93: the card total and ex-works were being
+                read as two prices for one design -- 14,01,844 against 16,16,114.
+                They are two costing models, and the gap is mostly the markup
+                chain the card does not carry plus an Extra nobody has entered.
+                Both figures are now stated together, with which is quotable. */}
+            <div className="mt-3 border border-line rounded-[2px] px-3 py-2 bg-sheetAlt">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <div className="text-[10px] font-display uppercase tracking-[0.1em] text-ink2">Card Total, Material Only</div>
+                  <div className="font-mono text-[15px] font-semibold text-copper">{fmtMoney(cost.total)}</div>
+                </div>
+                <div>
+                  <div className="text-[10px] font-display uppercase tracking-[0.1em] text-ink2">Ex-Works, Full BOM, Excludes GST</div>
+                  <div className="font-mono text-[15px] font-semibold text-ink">{fmtMoney(bom.exFactory)}</div>
+                </div>
+              </div>
+              <p className="text-[10px] text-ink2 leading-snug mt-2">
+                <span className="font-semibold">Quote the ex-works figure, not this card.</span> The two are different
+                costing models and are not meant to reconcile: the card is bought-in material at per-kg rates, ex-works
+                is the full BOM with labour, scrap, overhead, freight and margin on top.
+              </p>
+              {extraUnset && (
+                <p className="text-[10px] text-amber leading-snug mt-1.5">
+                  Extra is not set, so this card total is material alone and is understated as an estimate of anything.
+                  The one real costing card held for comparison, the 630 kVA Mehir sheet, carried an Extra of
+                  Rs 75,000 on a Rs 10,52,191 material subtotal -- 7.13% of the subtotal, 6.65% of its own total.
+                  That is the only measured figure available; it is guidance for the order of magnitude, not a formula.
+                </p>
+              )}
+            </div>
           </div>
 
           {/* Right column: losses + Drawing & GTP Data */}
           <div className="space-y-4">
             <div>
               <div className="text-[11px] font-display uppercase tracking-[0.14em] text-copper mb-2">Losses</div>
-              <DataRow label="Losses at 50% load" value={f(lossAt50, 0)} unit="Watts" />
-              <DataRow label="Losses at 100% load" value={f(lossAt100, 0)} unit="Watts" />
-              <DataRow label="No load loss required" value={d.compliance.nll ? f(d.compliance.nll.lim, 0) : "not declared"} unit={d.compliance.nll ? "Watts" : ""} />
-              <DataRow label="Max load losses achieved" value={f(d.loadLoss, 0)} unit="Watts" />
-              <DataRow label="No load losses" value={f(d.noLoad, 0)} unit="Watts" />
-              <DataRow label="Load losses" value={f(d.loadLoss, 0)} unit="Watts" />
+              <DataRow label="TOTAL losses at 50% load" value={f(lossAt50, 0)} unit="Watts" />
+              <DataRow label="TOTAL losses at 100% load" value={f(lossAt100, 0)} unit="Watts" />
+              <DataRow label="No-load loss limit, derived" value={d.compliance.nll ? f(d.compliance.nll.lim, 0) : "not declared"} unit={d.compliance.nll ? "Watts" : ""} />
+              <DataRow label="Load loss limit, derived" value={f(d.loadLoss, 0)} unit="Watts" />
+              <DataRow label="No-load loss, component" value={f(d.noLoad, 0)} unit="Watts" />
+              <DataRow label="Load loss, component" value={f(d.loadLoss, 0)} unit="Watts" />
               <DataRow label="% Impedance" value={f(d.pctZ, 2)} unit="%" tone="copper" />
               <DataRow label="Quoted resistance, LV" value={d.rLV.toExponential(2)} unit="ohms" />
               <DataRow label="Quoted resistance, HV" value={f(d.rHV, 3)} unit="ohms" />
-              <p className="text-[9px] text-steel mt-1">
-                "No load loss required" is the declared/schedule limit (CLAUDE.md invariant 6 -- an estimate
-                unless you have entered your own guarantee); the rest are this design's own achieved figures.
+              {/* CALIBRATION.md section 93: these six lines were read as
+                  contradicting each other -- a load loss of 5099 W sitting above
+                  a "losses at 100% load" of 5882 W. They are a component and a
+                  total. Which is which, and which one the standard actually
+                  binds, has to be on the screen. */}
+              <p className="text-[10px] text-ink2 leading-snug mt-1.5">
+                The first two lines are <span className="font-semibold">totals</span> -- no-load plus load loss, at 50%
+                and at 100% of rated load. IS 1180 (Part 1) : 2014 constrains those two totals and nothing else: it
+                gives no separate no-load or load-loss limit. The four lines under them are components of those totals,
+                not independently limited figures.
+              </p>
+              <p className="text-[10px] text-ink2 leading-snug mt-1">
+                The two "derived" limits are not published values. They are the corner of the IS 1180 region, obtained by
+                solving its two total conditions together -- any split of the total inside that region is equally
+                compliant, and a design may trade core against copper freely so long as both totals hold. Outside the
+                ratings IS 1180 lists, they are the engine's own estimate (CLAUDE.md invariant 6), not a limit at all.
               </p>
             </div>
 
