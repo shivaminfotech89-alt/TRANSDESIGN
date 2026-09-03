@@ -3531,7 +3531,19 @@ function calcSheet(d, bom) {
     row("Final window height", "H\u1D65\u1D65", p.autoWindow !== false
       ? "bisection on H\u1D65\u1D65 until the calculated %Z equals the declared value"
       : "H\u1D65\u1D65 = H\u1D65\u1D65\u2080 (impedance not enforced)",
-      p.autoWindow !== false ? `target %Z = ${n(p.targetZ)} → ${d.windowStraddle ? "no window height reaches it, see the note" : d.solvedZ ? (d.windowResolved ? "resolved by neighbourhood search" : "converged") : "hit a bound"}` : "n/a",
+      /* CALIBRATION.md section 86: this said "hit a bound" for the commonest
+         outcome of all -- the neighbourhood search ran, found no window that
+         hits the declared value exactly, and deliberately chose the closest
+         one inside tolerance. That is not a bound being hit, and the sheet
+         contradicted its own note by saying so. Four states now, matching the
+         four the solve can actually produce. */
+      p.autoWindow !== false
+        ? `target %Z = ${n(p.targetZ)} → ${
+            d.windowStraddle ? "NOT reachable, see the note below"
+            : d.solvedZ ? (d.windowResolved ? "resolved by neighbourhood search, exact" : "converged exactly")
+            : d.windowResolved ? `closest reachable ${n(d.pctZ)} %, chosen deliberately -- see the note below`
+            : "hit a bound"}`
+        : "n/a",
       `${n(d.Hw, 0)} mm`, REFS.K + " \u00B7 leakage reactance control", "declared impedance, coil builds"),
     row("Window width, built", "W\u1D65\u1D65", "W\u1D65\u1D65 = C \u2212 d", `= ${n(d.cc, 0)} \u2212 ${n(d.dCore, 0)}`, `${n(d.Ww, 0)} mm`, REFS.S, "coil radial builds, clearances"),
     row("Limb centre distance", "C", "C = D\u2081\u2092 + phase clearance", `= ${n(d.hvOD, 0)} + ${n(p.phaseClr, 0)}`, `${n(d.cc, 0)} mm`, REFS.IEC3, "HV outer diameter, clearance"),
@@ -3596,6 +3608,8 @@ function calcSheet(d, bom) {
     row("Reactance component", "%X", "%X = X I\u2082\u209A\u2095 / V\u2082\u209A\u2095 \u00D7 100", `= ${n(d.X, 5)} \u00D7 ${n(d.iLV, 1)} / ${n(d.lvPh, 1)} \u00D7 100`, `${n(d.pctX)} %`, REFS.S, "reactance, current, voltage"),
     row("Impedance", "%Z", "%Z = \u221A(%R\u00B2 + %X\u00B2)", `= \u221A(${n(d.pctR)}\u00B2 + ${n(d.pctX)}\u00B2)`, `${n(d.pctZ)} %`, REFS.IS2026 + ` \u00B7 tolerance \u00B1${n(p.zTol, 1)}%`, "%R, %X"),
     row("Regulation", "\u03B5\u1D63", "\u03B5\u1D63 = %R cos\u03C6 + %X sin\u03C6", `= ${n(d.pctR)}\u00D7${n(p.pf)} + ${n(d.pctX)}\u00D7${n(Math.sqrt(Math.max(0, 1 - p.pf * p.pf)))}`, `${n(d.regFull)} %`, REFS.S, "%R, %X, power factor"),
+    ...(d.windowNote ? [row("Why %Z is not the declared value", "n/a", "discrete winding configuration",
+      d.windowNote, `${n(d.pctZ)} % against ${n(p.targetZ)} % declared`, "CALIBRATION.md section 73", "window height, winding configuration")] : []),
     row("System impedance", "Zₛ", "Zₛ = Uₘ² / Sᶠ", `= ${p.umHV}² / ${n(p.systemFaultMVA, 0)}`, `${n(d.zSys, 4)} Ω`, "IS 2026 Part V · clause 4.1", "system fault level, highest voltage"),
     row("Transformer impedance", "Zₜ", "Zₜ = (%Z/100) V² / S", `= (${n(d.pctZ)}/100) × ${n(p.hv / 1000, 1)}² / ${n(p.kva / 1000, 3)}`, `${n(d.zTx, 3)} Ω`, "IS 2026 Part V · clause 4.1", "impedance, rated voltage and rating"),
     row("Symmetrical fault current", "Iₛᴄ", "Iₛᴄ = V / (√3 (Zₛ + Zₜ))", `= ${n(p.hv, 0)} / (1.732 × (${n(d.zSys, 3)} + ${n(d.zTx, 3)}))`, `${n(d.iscHV, 0)} A HV, ${n(d.iscLV, 0)} A LV (line)`, "IS 2026 Part V · clause 4.1", "system fault level, impedance, rated current"),
@@ -4566,6 +4580,12 @@ function routineTestSchedule(d) {
       ref: `IS 1180 (Part 1) : 2014${d.isLossBasis === "exact" ? `, ${p.kva} kVA row` : ""}`,
       exp: `${f0(d.compliance.is100.val)} W`,
       lim: `${f0(d.compliance.is100.lim)} W${d.isLossBasis === "agreed" ? " (interpolated suggestion)" : " maximum"}`,
+    }] : []),
+    ...(d.windowNote ? [{
+      t: "Impedance, why the achieved value differs from the declared",
+      ref: "CALIBRATION.md section 73 · discrete winding configuration",
+      exp: `${f2(d.pctZ)} % achieved against ${f2(p.targetZ)} % declared, ${f1(Math.abs(d.pctZ - p.targetZ) / p.targetZ * 100)} % deviation`,
+      lim: `±${Math.min(p.zTol, d.std.zTol)} % tolerance — ${d.windowNote}`,
     }] : []),
     { t: "Short-circuit withstand, radial (outer winding tensile)", ref: "IS 2026 Part 5 / IEC 60076-5",
       exp: `${f1(d.shortCircuit.tensile)} MPa at ${f0(d.shortCircuit.iPeakHV)} A peak`, lim: `${f0(d.shortCircuit.allowStress)} MPa proof stress` },

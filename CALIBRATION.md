@@ -6636,3 +6636,48 @@ on a BOM line -- a visible error is recoverable, a crash is not, and a silent
 The regression test compares **all 20 ordered pairs** of efficiency levels in
 both directions, because this was a transition fault that no single-design
 test could ever have caught.
+
+## 86. The sheet contradicted its own note: "hit a bound" on a deliberately chosen window
+
+At 800 kVA the impedance card reads 4.80 % against a declared 5.00 %, and the
+calculation sheet said
+
+> `target %Z = 5.00 -> hit a bound`
+
+which is wrong, and wrong in the direction that makes the engine look broken.
+The window solve did not hit a bound. The section 73 neighbourhood search ran,
+found that no window height reaches 5.00 % because the winding configuration
+steps across it, and **deliberately chose** the closest reachable value inside
+tolerance. `windowNote` said exactly that. The sheet said something else on the
+same page.
+
+The cause was a three-way expression covering four states. `solvedZ` is only
+true when the solve lands ON the declared value, and `windowStraddle` only when
+the miss is outside tolerance -- so the commonest outcome of all, *resolved and
+within tolerance*, fell through to the `else` branch and printed "hit a bound".
+Four states now, matching the four the solve can produce: converged exactly,
+resolved exactly, closest reachable and chosen deliberately, or hit a bound.
+
+**And the explanation now appears where the number is read.** `windowNote` was
+reaching exactly one place -- a banner in `App.tsx` -- and nowhere near the
+impedance itself. A customer reading 4.80 against a declared 5.00 asks why at
+the impedance, not on another tab. It is now on three surfaces:
+
+- **The impedance card**, directly under Target Impedance, prefixed "Declared
+  impedance is not exactly achievable" in amber, or "is not achievable" in
+  alert red when the miss breaches tolerance.
+- **The calculation sheet**, as its own row in the impedance section: "Why %Z
+  is not the declared value", carrying the note and `4.80 % against 5.00 %
+  declared`.
+- **The printed report**, as a routine-test row: `4.80 % achieved against
+  5.00 % declared, 4.0 % deviation` against `+/-10 % tolerance` followed by the
+  note itself.
+
+All three are conditional on `windowNote` existing, so a design that converges
+exactly -- 1000 kVA, %Z 5.00 -- shows none of them. Verified both ways.
+
+The note itself already carried what was needed: it names the two achievable
+states (4.80 % and 5.30 %), which was chosen, at what window (668 mm), the
+deviation (4.0 %) and the tolerance it sits inside (10 %). The fault was never
+the content. It was that the content lived in one place nobody reads and the
+place everybody reads printed a contradiction.
