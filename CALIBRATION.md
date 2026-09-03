@@ -7112,3 +7112,57 @@ not `nonFiniteNote`. Everything section 87 put on screen stops at the screen.
 The impedance warning reaches print only because it is embedded in a calc
 sheet row's own result text. The document that actually goes to a customer is
 the one surface none of that work covered. Not fixed here; named so it is next.
+
+## 93. Two right numbers reading as one wrong one, twice
+
+Neither of these was a calculation error. Both were screens where correct
+figures sat next to each other with nothing saying they measure different
+things, which is the same family as sections 86, 87 and 92.
+
+**The card total against ex-works.** 14,01,844 on the Cost Card tab and
+16,16,114 on BOM & Cost, one design. Two costing models: the card is
+bought-in material at per-kg rates plus an estimator's Extra, with no labour,
+scrap, overhead, freight, margin or GST; ex-works is the full BOM with the
+whole markup chain. A note below the table did say they are not meant to
+reconcile, in 10px grey, after the reader had already seen two totals.
+
+Both figures are now shown together in one block, with the ex-works figure
+named as the quotable one, and the card total relabelled "Total, Material
+Only" with what it excludes stated on the row itself rather than below the
+table.
+
+**Extra unset makes it worse, and is now called out.** With `cardExtra` at 0
+the card total is material alone -- not an estimate of anything, and
+understated against every real cost. The warning cites the only measured
+figure we hold: the 630 kVA Mehir sheet's Extra of Rs 75,000 on a Rs
+10,52,191 material subtotal, **7.13 % of the subtotal, 6.65 % of its own
+total**. One correction of record: this is the 630 sheet, not the 315 -- no
+315 costing card exists in our references, and the 6.7 % figure is the 630's
+share of total rather than of subtotal. Stated as order-of-magnitude
+guidance, never as a formula: section 9 records that Extra is never computed
+and never will be.
+
+**Load loss against total loss.** "Load Loss 5099 W" above "Losses at 100 %
+load 5882 W" reads as a contradiction. It is a component and a total. Six
+lines on the Cost Card and three rows in the Compliance table were all
+labelled as though they were the same kind of quantity. Relabelled: TOTAL
+losses at 50 % and 100 % load first, then the components explicitly marked as
+components.
+
+**The thing a reader cannot know unless told**, now stated on both surfaces:
+IS 1180 (Part 1) : 2014 constrains the two TOTALS and nothing else. It gives
+no separate no-load or load-loss limit. A design may trade core against copper
+freely so long as both totals hold -- which is section 76's whole finding, and
+until now it lived only in this file.
+
+**And the derived limits are labelled as derived.** "No load loss required
+915 W" reads as a stated requirement. It is not: at 800 kVA Level 2 the
+published pair is 2287 W at 50 % and 6402 W at 100 %, and 915 + 5487 = 6402
+with 915 + 0.25 x 5487 = 2287 -- the 915 is one corner of that region,
+obtained by solving the two conditions together, not a figure IS 1180 gives.
+Now labelled "No-load loss limit, derived", with the corner explained and the
+out-of-table case (invariant 6, an estimate) carried with it.
+
+The Compliance table also gained the two rows that actually matter and did not
+appear in it at all: `is50` and `is100`. It was listing the components the
+standard does not constrain while omitting the totals it does.
