@@ -55,6 +55,14 @@ function describeCandidate(r: any): string {
   return `${grade} · ${r.d.B.toFixed(2)} T · ${tank}`;
 }
 
+/** How much of the declared impedance tolerance a candidate's own deviation
+ *  uses, as a percentage. 100 means it is exactly at the edge. */
+function zUse(r: any) {
+  const tol = Math.min(r.inputs.zTol ?? 10, 10);
+  const dev = 100 * Math.abs(r.d.pctZ - r.inputs.targetZ) / r.inputs.targetZ;
+  return tol > 0 ? (100 * dev) / tol : 0;
+}
+
 function ResultRow({ r, current, activePreviewKey, onSelectPreview, showMaterial }: {
   r: any; current: any; activePreviewKey: string | null;
   onSelectPreview: (c: any | null) => void; showMaterial: boolean;
@@ -70,6 +78,15 @@ function ResultRow({ r, current, activePreviewKey, onSelectPreview, showMaterial
       <td className={`${tdCls} text-right font-mono text-[11px] text-ink hidden md:table-cell`}>{inr(r.bom.withGst)}</td>
       <td className={`${tdCls} text-right font-mono text-[11px] text-steel hidden lg:table-cell`}>{Math.round(r.d.noLoad)} W</td>
       <td className={`${tdCls} text-right font-mono text-[11px] text-steel hidden lg:table-cell`}>{Math.round(r.d.loadLoss)} W</td>
+      {/* CALIBRATION.md section 91: cheaper candidates sit systematically
+          further from the declared impedance -- at 1250 kVA the cheapest
+          quartile averages 3.17% deviation against 0.60% for the rest. Every
+          design measured is still well inside tolerance, so this is not a
+          reason to re-rank; it is a reason to let a works see which candidate
+          it is buying before it quotes one. */}
+      <td className={`${tdCls} text-right font-mono text-[11px] hidden lg:table-cell ${zUse(r) >= 70 ? 'text-amber' : 'text-steel'}`}>
+        {r.d.pctZ.toFixed(2)}% <span className="text-ink2">({zUse(r).toFixed(0)}%)</span>
+      </td>
       <td className={`${tdCls} text-right font-mono text-[11px] text-steel hidden xl:table-cell`}>{inr(r.tco)}</td>
       <td className={`${tdCls} text-right font-mono text-[11px] ${diff <= 0 ? 'text-good' : 'text-ink'}`}>
         {diff <= 0 ? '-' : '+'}{inr(Math.abs(diff))}
@@ -103,6 +120,7 @@ function ResultsTable({ rows, current, activePreviewKey, onSelectPreview, showMa
           <th className={`${thCls} text-right hidden xl:table-cell`}>20-Yr Ownership</th>
           <th className={`${thCls} text-right`}>Vs Current</th>
           <th className={thCls}></th>
+            <th className={`${thCls} text-right hidden lg:table-cell`} title="Impedance, and how much of the declared tolerance the deviation uses">Z (tol used)</th>
         </tr>
       </thead>
       <tbody>
