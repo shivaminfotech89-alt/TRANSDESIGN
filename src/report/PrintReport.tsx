@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { ComplianceBand, ProvenanceBand, ValueQualifications } from './Qualifications';
 import QRCode from 'qrcode';
 import {
   calcSheet, buildBOM, documentRegister, routineTestSchedule,
@@ -107,6 +108,19 @@ export function PrintReport({ project, revision, result }: PrintReportProps) {
     return () => { delete (window as any).__showSection; };
   }, []);
 
+  /* CALIBRATION.md section 94: one wording per qualification, taken from the
+     engine fields the screen already renders. What is print-specific is only
+     WHERE each one goes -- reportPdf.ts captures one PDF per data-section, so
+     a qualification must be emitted inside the section holding its own value
+     or it lands on another page, and a reader holding a page cannot scroll. */
+  const over = revision.input?.over || {};
+  const bands = (
+    <>
+      <ComplianceBand design={design} />
+      <ProvenanceBand design={design} over={over} rateCardId={revision.rateCardId} result={result} />
+    </>
+  );
+
   const sheet = calcSheet(design, bom);
   const register = documentRegister(revision.input.core, design, bom, meta);
   const tests = routineTestSchedule(design);
@@ -156,6 +170,7 @@ export function PrintReport({ project, revision, result }: PrintReportProps) {
         </div>
 
         <div style={{ position: 'relative', zIndex: 1 }}>
+          {bands}
           <RatingPlate design={design} bom={bom} params={params} />
         </div>
       </div>
@@ -163,6 +178,8 @@ export function PrintReport({ project, revision, result }: PrintReportProps) {
       {/* Calculation sheet */}
       <div className="report-page-break p-6 max-w-[1000px] mx-auto" data-section="calculations">
         <div className="text-[11px] font-display uppercase tracking-[0.18em] text-copper mb-3">Design Calculation Sheet</div>
+        {bands}
+        <ValueQualifications design={design} result={result} show="all" />
         {sheet.map((section: any) => (
           <Section key={section.title} title={section.title} subtitle={section.ref}>
             <table className="w-full">
@@ -193,6 +210,7 @@ export function PrintReport({ project, revision, result }: PrintReportProps) {
 
       {/* Bill of materials */}
       <div className="report-page-break p-6 max-w-[1000px] mx-auto" data-section="bom">
+        {bands}
         <div className="text-[11px] font-display uppercase tracking-[0.18em] text-copper mb-3">Bill of Materials &amp; Cost</div>
         {bom.warnings?.map((w: any) => (
           <div key={w.code} className="bg-white border border-alert rounded-[2px] px-4 py-3 mb-3">
@@ -246,6 +264,8 @@ export function PrintReport({ project, revision, result }: PrintReportProps) {
 
       {/* Manufacturing schedules */}
       <div className="report-page-break p-6 max-w-[1000px] mx-auto" data-section="manufacturing">
+        {bands}
+        <ValueQualifications design={design} result={result} show="all" />
         <div className="text-[11px] font-display uppercase tracking-[0.18em] text-copper mb-3">Manufacturing Schedules</div>
 
         {tap.rows.length > 0 && (
@@ -338,6 +358,7 @@ export function PrintReport({ project, revision, result }: PrintReportProps) {
 
       {/* Document register and routine tests */}
       <div className="report-page-break p-6 max-w-[1000px] mx-auto" data-section="register">
+        {bands}
         <Section title="Document Register">
           <table className="w-full">
             <thead>
@@ -380,6 +401,7 @@ export function PrintReport({ project, revision, result }: PrintReportProps) {
 
       {/* Name plate */}
       <div className="report-page-break p-6 max-w-[1000px] mx-auto" data-section="nameplate">
+        {bands}
         <NamePlateDrawing design={design} params={params} project={meta} />
       </div>
 

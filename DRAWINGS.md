@@ -548,3 +548,36 @@ alone deliberately: drawing 21 reports mass off the continuous stack depth,
 sheets, not a formula disagreement. Two documents in this tool disagreeing
 by double digits meant a shop could be quoted two different steel weights
 for the same core; a few per cent from counting whole sheets is not that.
+
+## Drawing 18, rating name plate: no compliance state, deliberately
+
+CALIBRATION.md section 94 carried every one of the app's qualifications into
+the printed report -- compliance state, loss breach, impedance straddle,
+tolerance edge, overrides, rate provenance, core mass anomaly, interpolated
+schedule. The name plate is the one surface that deliberately does NOT take
+the compliance state, and this note exists so that nobody adds it later by
+applying that audit mechanically.
+
+A rating plate is a factual record of what a unit IS. It states the rating,
+the vector group, the impedance, the losses and the masses of the transformer
+that was built. It is not a design report and it is not a status page.
+
+A compliance state stamped on it would be wrong whichever way it read:
+
+  - "Compliant" is a claim about a design against a schedule at the moment of
+    design, engraved onto a plate that will outlive the enquiry, the revision
+    and often the standard's edition. It would be read on site years later as
+    a statement about the unit in front of the reader, which it is not.
+  - "Not compliant" or "not assessed" on a plate that is riveted to a
+    delivered unit is worse: a plate is a permanent identification, and a
+    design-stage caveat engraved on it becomes a defect claim against a
+    machine that may well have passed every routine test it was given.
+
+The qualification belongs where the design is being decided and quoted, which
+is the report body -- and section 94 puts the compliance band on the name
+plate PAGE, above the drawing, where it qualifies the document without
+altering the plate. The plate's own content stays factual.
+
+What the plate does carry, and must: the standard it was designed to, the
+declared impedance and losses, and the tap range. What it must never carry:
+a design-office verdict.

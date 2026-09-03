@@ -1,5 +1,5 @@
 import React from 'react';
-import { APPS, STANDARDS, inr } from '@/packages/engine';
+import { APPS, COMPLIANCE_STATES, STANDARDS, inr } from '@/packages/engine';
 
 interface RatingPlateProps {
   design: any;
@@ -41,13 +41,7 @@ export function RatingPlate({ design, bom, params }: RatingPlateProps) {
      the schedule outright. The price colour alone carried the state, and a
      printed plate is often read in monochrome. So the claim itself is
      qualified, in the plate's own words, next to the standard it names. */
-  const stdNote = design.complianceState === 'failed'
-    ? 'does not meet the declared loss schedule'
-    : design.complianceState === 'notAssessed'
-      ? 'not assessed to IS 1180'
-      : design.complianceState === 'byAgreement'
-        ? 'losses subject to agreement, non-preferred rating'
-        : null;
+  const stdNote = COMPLIANCE_STATES[design.complianceState]?.plate ?? null;
 
   const totalMass = design.wCore + design.wLV + design.wHV + design.wIns
     + design.wFrame + design.wTank + design.wFin + design.wEnclosure

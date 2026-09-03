@@ -7166,3 +7166,78 @@ out-of-table case (invariant 6, an estimate) carried with it.
 The Compliance table also gained the two rows that actually matter and did not
 appear in it at all: `is50` and `is100`. It was listing the components the
 standard does not constrain while omitting the totals it does.
+
+## 94. Carrying the qualifications into the document that leaves the building
+
+Sections 86, 87, 92 and 93 put every qualification the engine produces next to
+the value it qualifies -- on screen. `PrintReport` referenced not one of them.
+Twenty-one fields checked by name, twenty-one absent; the only `over` matches
+in the file were the words "cover", "Overhead", "Covering" and "oversight".
+Three did reach print, buried in table cells, because they had been written
+into `calcSheet` and `routineTestSchedule` row text rather than into the
+report.
+
+**The test schedule first, because it corrupts a record rather than
+under-informing a reader.** The routine test sheet's impedance row gave the
+achieved value as expected and "impedance +/-zTol %" as the limit, naming no
+value the tolerance applies to. A test floor applies a band to the number in
+front of it. At the 800 kVA default that reads as +/-10 % of the achieved
+4.80, i.e. 4.32-5.28, where the standard's band around the DECLARED 5.00 is
+4.50-5.50. A measured 5.40 is recorded as a failure it is not; a measured
+4.40 as a pass it is not. Now stated absolutely, around the declared value,
+with the declared value named:
+
+    Impedance acceptance: 4.50 % to 5.50 % measured, i.e. +/-10 % of the
+    5.00 % DECLARED value, not of the calculated figure opposite.
+
+with the expected column marked "calculated design values, not measured", the
+tolerance-edge warning (section 92) escalating onto the same row when the
+design sits within 2 points of the band, and a straddle saying outright that
+the declared impedance is not achievable. The no-load row's limit is likewise
+labelled as the works declared figure and the derived corner of the IS 1180
+pair, NOT a published no-load limit -- section 93's point, but on a test sheet
+it had become a pass/fail criterion the standard does not impose.
+
+**One wording, one place.** `COMPLIANCE_STATES` in the engine now holds the
+four states' `label`, `lead` and `plate` text. The screen badge, the rating
+plate's standard-line qualifier and the printed report's compliance band all
+read it. Before this the badge had its own strings, the plate had its own
+strings, and the report would have had a third set. A state cannot now be
+described one way on a screen and another way in the document that leaves the
+building. Everything else in `Qualifications.tsx` renders the engine's own
+note fields verbatim -- `complianceNote`, `lossBreach`, `windowNote`,
+`zEdgeNote`, `coreMassAnomaly`, `nonFiniteNote`, `constraintNote`,
+`etkSearchNote`, `autoFitCycleNote`, `fitResolutionNote`.
+
+**Placement is the print-specific part, and it is the whole difficulty.**
+`reportPdf.ts` captures one PDF per `data-section` and merges them, so a
+qualification emitted outside its own section lands on another page -- and a
+reader holding a page cannot scroll to find it. The compliance and provenance
+bands are therefore emitted inside all six sections, and the value-adjacent
+block inside the two that carry losses and geometry. Verified across the four
+states:
+
+    failed        failed       lossBreach present, badge "Not Compliant"
+    byAgreement   byAgreement  complianceNote present, "Subject To Agreement"
+    notAssessed   notAssessed  complianceNote present, "Not Assessed"
+    passed        passed       "Compliant"
+
+**Compliance in words, never colour.** The report's entire compliance signal
+was the rating plate's price colour plus section 87's parenthetical. A filed
+document is usually reproduced in monochrome, where a colour states nothing.
+
+**Overrides and rate provenance reach print for the first time.** Section 82
+exists because a forgotten SET sent an 800 kVA design out of its schedule, and
+a printed quotation carried no sign that any parameter was overridden.
+`revision.input.over` was already in scope and simply unused. Same for the
+rate card: the BOM page printed a full priced bill without saying whether the
+rates came from a real card or from `DEFAULT_RATES`.
+
+**And a second plate component was found.** Section 87 qualified
+`RatingPlate`'s standard line. The report's detachable name plate page does
+not use `RatingPlate` -- it goes through `NamePlateDrawing` to `NamePlate`, a
+different component, unqualified, also rendered on the Documents tab. It is
+left factual on purpose: DRAWINGS.md now records why a compliance state must
+never be engraved on a plate, so the next person applying this audit
+mechanically does not add one. The compliance band sits on the name plate
+PAGE, above the drawing, qualifying the document without altering the plate.
