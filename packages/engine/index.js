@@ -339,6 +339,22 @@ const IS1180_KVA = Object.keys(IS1180.three).map(Number).sort((a, b) => a - b);
    this part of the standard does not cover dry type. */
 function is1180Schedule(kva, level, dry, phase = "three") {
   if (dry) return null;
+  /* CALIBRATION.md section 82. IS 1180 defines Level 1, Level 2 and Level 3.
+     It defines nothing else, so nothing else has a row in these tables.
+
+     This used to read `level === "level1" ? 1 : level === "level3" ? 3 : 2`,
+     which quietly swept CONVENTIONAL and CUSTOM into the Level 2 column. A
+     conventional design -- a lower efficiency class than Level 1, chosen
+     deliberately -- was then judged against Level 2 limits it was never meant
+     to meet, and marked NON-COMPLIANT for no reason. A custom design, where
+     the user has typed their own guaranteed figures, was judged against a
+     level they never claimed.
+
+     Borrowing another level's numbers is exactly what "not applicable" is
+     for. Both now return null, which reports as not applicable and leaves
+     the declared limits (compliance.nll/ll) as the only thing binding --
+     which for both of these is the correct authority. */
+  if (level !== "level1" && level !== "level2" && level !== "level3") return null;
   const tbl = IS1180[phase] || IS1180.three;
   const idx = level === "level1" ? 1 : level === "level3" ? 3 : 2;
   const lvl = idx === 1 ? "level1" : idx === 3 ? "level3" : "level2";
@@ -1941,7 +1957,9 @@ function designTransformer(p) {
      Null when the standard is not IS, when the rating has no published row
      (the standard makes those subject to agreement -- reported pending, never
      extrapolated), or for dry type, which this part does not cover. */
-  const isSch = p.standard === "IS" ? is1180Schedule(p.kva, p.effLevel === "custom" ? "level2" : p.effLevel, dry) : null;
+  // section 82: the level is passed through as chosen. custom and conventional
+  // have no IS 1180 row and must not borrow Level 2's.
+  const isSch = p.standard === "IS" ? is1180Schedule(p.kva, p.effLevel, dry) : null;
   const is50 = noLoad + 0.25 * loadLoss;
   const is100 = noLoad + loadLoss;
 
@@ -2123,9 +2141,19 @@ function designTransformer(p) {
                     must never be presented as an IS 1180 value.
          - pending: outside the table's range entirely, nothing to
                     interpolate between. */
-    isLossBasis: !(p.standard === "IS") || dry ? "n/a" : isSch ? (isSch.exact ? "exact" : "agreed") : "pending",
+    /* section 82: four states, and the difference between the last two
+       matters. "notALevel" means IS 1180 defines no schedule for this
+       efficiency class at all; "pending" means it defines them for this class
+       but not at this rating. Reporting the first as the second would say the
+       rating is the problem when the level is. */
+    isLossBasis: !(p.standard === "IS") || dry ? "n/a"
+      : isSch ? (isSch.exact ? "exact" : "agreed")
+      : !["level1", "level2", "level3"].includes(p.effLevel) ? "notALevel"
+      : "pending",
     isLossNote: !(p.standard === "IS") || dry ? null
       : isSch && isSch.exact ? null
+      : !isSch && !["level1", "level2", "level3"].includes(p.effLevel)
+        ? `IS 1180 (Part 1) : 2014 defines loss schedules for Level 1, Level 2 and Level 3 only. "${EFF_LEVELS[p.effLevel] ? EFF_LEVELS[p.effLevel].name : p.effLevel}" is not one of them, so the standard sets no total-loss limit for this design and none is checked. The declared no-load and load-loss figures are the only limits binding here. This is NOT a compliance failure -- it is the standard not applying.`
       : isSch
         ? `${p.kva} kVA is not a preferred rating in IS 1180 (Part 1) : 2014. The loss figures shown are INTERPOLATED between the ${isSch.lo} kVA and ${isSch.hi} kVA rows as a starting suggestion. They are NOT an IS 1180 limit for this rating -- the standard makes losses at non-preferred ratings subject to agreement between user and supplier, and this design cannot be declared IS 1180 compliant on them until that agreement is recorded.`
         : `IS 1180 (Part 1) : 2014 does not cover ${p.kva} kVA and it falls outside the range of the tables, so there is nothing to interpolate between. The loss figures shown are the engine's own estimate, not a published or interpolated limit.`,

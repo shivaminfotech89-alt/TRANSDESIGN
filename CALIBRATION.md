@@ -6379,3 +6379,61 @@ the UI raises its own banner telling the reader not to issue a steel order or
 cutting chart from that design. The suite tracks the count as a baseline of 2
 that must never grow -- a permanently red test becomes noise and stops being
 read, and when the fix lands the baseline goes to 0 so it can never return.
+
+## 82. Conventional and custom were judged against Level 2's limits, and a forgotten override could govern a design forever
+
+Two defects found while chasing an 800 kVA design that read as non-compliant
+on a user's screen and compliant on every reproduction here. Neither is the
+cause of that discrepancy, which is still open -- both were found on the way.
+
+### The correctness bug: borrowing another level's numbers
+
+`is1180Schedule` selected its column with
+`level === "level1" ? 1 : level === "level3" ? 3 : 2`. That `: 2` swept up
+**conventional** and **custom** along with Level 2.
+
+IS 1180 defines Level 1, Level 2 and Level 3. It defines nothing else. So a
+**conventional** design -- a lower efficiency class, chosen deliberately --
+was judged against Level 2 limits it was never meant to meet and could be
+marked non-compliant for no reason at all. And a **custom** design, where the
+user has typed their own guaranteed figures, was judged against a level they
+never claimed.
+
+Both now return null. `isLossBasis` gains a fourth state, `notALevel`, kept
+distinct from `pending` because the two say different things: `notALevel`
+means the standard defines no schedule for this efficiency class,
+`pending` means it defines them for this class but not at this rating.
+Reporting the first as the second would blame the rating when the level is
+the reason. The note says in terms that this is the standard not applying,
+**not** a compliance failure.
+
+Verified at 800 kVA: conventional and custom now report `notALevel` with no
+IS check; Levels 1, 2 and 3 read their own rows (2459 / 2287 / 2147 at 50 %)
+and are unaffected.
+
+### The silent-override problem
+
+Overrides do not live in the browser. There is no `localStorage` or
+`sessionStorage` anywhere in the app: `over` is React state, and it is
+populated from exactly one place, `setOverState(rev.input.over)` when a
+project or revision is opened. That is invariant 2 working as designed --
+revisions store inputs and recompute -- but it has a consequence nobody had
+stated: **a SET value from an earlier session survives every reload and every
+rebuild, and silently governs today's design.** A hard refresh does not clear
+it. Nothing on screen distinguished a deliberate override made a minute ago
+from a forgotten one made last month.
+
+That is not hypothetical. A forgotten SET `limitNLL` is precisely the kind of
+thing that puts a design outside its loss schedule while every other number
+on the page looks ordinary, and an hour went into chasing exactly that shape
+of discrepancy before the persistence path was traced.
+
+So the design sheet now carries the count, names every overridden parameter
+through `labelFor`, states that overrides are saved with the revision and
+survive reloads, and offers one click to clear them all. Suppressed while
+browsing a past revision or previewing a budget candidate, where clearing
+would mean nothing.
+
+Neither change moves a number: `ENGINE_VERSION` unmoved, no golden touched,
+all three suites and typecheck green. The 800 kVA reproduction remains open
+and needs the revision's own `input.over` block to settle.
