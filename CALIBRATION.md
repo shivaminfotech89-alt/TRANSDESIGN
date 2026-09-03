@@ -6845,3 +6845,62 @@ load. It reads as a candidate only if `feasible` is not checked. A search
 that returned it would be section 83's wrong-green, not a fix. The cheapest
 genuinely compliant design at this rating remains 11,38,725 -- 11,38,751 as
 adoption reproduces it -- at 8.1 % and 7.1 % loss margins.
+
+## 89. The M5-at-1.42 T design is reproducible; it is just not cheap
+
+Nearly quoted: an M5 core at the 1.42 T flux floor, around 14.5 lakh at
+800 kVA Level 2. Built directly, five ways, full fit each time.
+
+    M5 1.42 T, Cu, densities x1.02 pinned   21,10,188  FAILS nll 1063/915
+    M5 1.42 T, Cu, baseline densities       21,63,338  FAILS nll 1072/915
+    M5 1.42 T, Cu, K and density fitted     23,36,439  passes every check
+    M5 1.42 T, Al, K 0.66                   14,17,298  FAILS nll 1896/915
+    M5, everything fitted                   23,42,511  passes every check
+
+**It converges every time.** `autoFitConverged` is true in all five, no
+cycle note, no unresolved neighbourhood. The design is not unstable and the
+engine reproduces it perfectly well. What does not exist is a version of it
+that is both cheap and compliant. M5 is the lossiest grade in the table
+(wRef 1.25 W/kg against zdkh's 0.78); at 1.42 T it needs a large core, and
+the only way to make that cheap is to shrink it and wind aluminium, which
+puts no-load loss at 1896 W against a 915 W limit -- 107 % over, with the
+50 % total at 3263 against 2287. Left free, the fit lands at 1.54/1.69
+A/mm2 and 23.4 lakh, passing, which is 16 % DEARER than the 20,22,804
+design already on the table. There is no 14.5 lakh M5 design. The price and
+the compliance are not simultaneously reachable.
+
+**The provenance, corrected.** The figure did not come from a sensitivity
+sweep stepping density without re-fitting. The density sweep was copper, at
+held K, its cheapest compliant point was 20,65,497, it re-fitted flux and
+the window on every point (`autoFitConverged` true throughout), and it
+printed the failing checks against every non-compliant row -- x1.03 `ll`,
+x1.05 `ll,total,is100`, and so on. The ~14.5 lakh figures came from
+`searchDesigns`, as `feasible false`, with their failures printed beside
+them.
+
+So the recordable lesson is not "sweeps produce designs the engine cannot
+reproduce" -- that would be false, and writing a false caution into this
+file to explain a real near-miss is the exact failure this file exists to
+prevent. The two real traps, both demonstrated:
+
+  1. **A price column read without its verdict column.** Every row carrying
+     one of these numbers also carried `feasible false` and the checks it
+     failed. Nothing was hidden; the compliance flag was simply not read.
+     A price is not a candidate. This is section 83's wrong-green in the
+     reader rather than in the code.
+  2. **A candidate rebuilt from its headline inputs is a different design.**
+     A budget row shows grade, material, core, tank, K and rise. Rebuilt
+     from those six alone, the cheapest 800 kVA candidate comes out at
+     11,23,008 with 3.9 % / 1.4 % loss margins; rebuilt with its own `flux`,
+     `deltaLV`, `deltaHV` and `lvHvClr` as well -- what adopting it in the
+     app actually copies, all fourteen `BUDGET_OVER_KEYS` -- it comes out at
+     11,38,751 with 8.1 % / 7.1 %. Same six headline inputs, two different
+     designs, one of them hard against its limits. Re-keying a budget option
+     by hand is not adopting it.
+
+**The rule that follows, which was the right instinct:** no figure from a
+sweep or a search is quotable until it has been rebuilt through
+`computeDesign` and reported its own `complianceState` and every failing
+check. Not because the engine is unreliable -- it reproduced all five of
+these exactly -- but because a price is the one number in this product that
+looks equally authoritative whether or not anything passed.
