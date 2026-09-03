@@ -6771,3 +6771,205 @@ No formula moved, so no golden number moves and `ENGINE_VERSION` does not
 change. `complianceState` gaining a fourth value is a reporting change: a
 quotation issued last year reprices to the identical figures, and would now
 describe its own basis more honestly than it did when issued.
+
+## 88. An empty budget band blamed on the band, when a pin had emptied it
+
+A user set a 10-16 lakh band at 800 kVA Level 2 and Fit to Budget returned
+nothing. Three explanations were proposed for it. Measurement supports none
+of them, and the real cause was already on screen in the least prominent
+text on the card.
+
+**What actually happened.** `searchDesigns` receives `opts.over` and holds a
+pinned flux or current density on every candidate -- section 42, deliberate,
+because a pin is the user saying they have a reason. With current density
+pinned at that project's own stale 2.13/2.34:
+
+    clean project          16 feasible, 4 in band, cheapest 11,48,843
+    density pinned         7 feasible, 0 in band, cheapest 20,27,627
+    flux pinned 1.78 T    11 feasible, 2 in band, cheapest 11,47,098
+    clean, copper only    12 feasible, 0 in band, cheapest 20,58,343
+
+Every in-band design at this rating is aluminium; copper's cheapest feasible
+is about 20.3 lakh, above the band either way. The pin stops any aluminium
+candidate being fitted, so the band empties. Same stale override behind the
+6080/2136 and 2273 W readings on the same project.
+
+**What the screen said instead.** The amber box told the user to "widen the
+band, or relax a constraint such as the impedance tolerance" -- advice that
+cannot work here. `guidance` had four branches and none considered a pin.
+`pinnedNote` carried the truth already, rendered at 10px in `text-steel`,
+below the controls, losing to a prominent wrong answer. Same shape as
+section 87: the qualification existed and did not reach the reader. Fixed by
+naming the pin first in `guidance` and raising `pinnedNote` to amber.
+
+**The three disproved explanations**, recorded because each sounded right:
+
+  - *"The swept ranges do not reach M5 at 1.42 T."* They do. The full grid
+    holds 570 M5 candidates, 6 feasible, all at exactly B 1.420. Flux is not
+    a swept dimension at all (section 27) -- it is fitted per candidate, so
+    1.42 T is where the fit lands, not a grid point that can be missed.
+  - *"Staging prunes the structural combination containing it."* The complete
+    unstaged grid, 2,460 candidates, gives the same picture: 474 feasible,
+    126 in band, all aluminium.
+  - *"Stage 1 ranks on cost regardless of feasibility."* That was true once
+    and is section 31's own fix, landed long ago. `stagedSearchDesigns` picks
+    each structural family's representative feasible-first, then sorts every
+    feasible family ahead of every infeasible one before the top-N cut. Nine
+    cheap infeasible combinations cannot crowd out a feasible one.
+
+**The one residual, measured.** Stage 1 assesses feasibility on a coarse
+sample -- 4 etK values, the middle gap scale, the first rise target -- so a
+family feasible only at an intermediate K could be sorted back as infeasible.
+And the top-N cut can still drop a genuinely feasible family when five
+cheaper feasible families outrank it. At this case that is 3 families. Both
+were tested rather than assumed:
+
+    stage 1                                    64 candidates, 17.3 s
+    families                                   16 total, 8 feasible
+    one stage-2 refinement                     13.2 s
+    current, 5 families                        83 s
+    every feasible family, 8                   123 s  (+48 %)
+
+    best from the 5 kept families              12,77,795
+    the 3 dropped feasible families refine to  20,71,235 / 22,27,056 / 22,57,146
+
+Dropping them costs nothing here: they are copper families, 62-77 % dearer
+than the kept optimum. Carrying every feasible family would buy no better
+design for a 48 % longer search. Left as it is, and recorded so the next
+person does not have to re-derive it.
+
+**And `enforceLimits` was not broken.** The 14,53,830-ish design is real but
+not compliant: M5/aluminium at B 1.420 prices at 14,45,105 with no-load loss
+1912 W against a 915 W limit, 109 % over, and 3189 W against 2287 at 50 %
+load. It reads as a candidate only if `feasible` is not checked. A search
+that returned it would be section 83's wrong-green, not a fix. The cheapest
+genuinely compliant design at this rating remains 11,38,725 -- 11,38,751 as
+adoption reproduces it -- at 8.1 % and 7.1 % loss margins.
+
+## 89. The M5-at-1.42 T design is reproducible; it is just not cheap
+
+Nearly quoted: an M5 core at the 1.42 T flux floor, around 14.5 lakh at
+800 kVA Level 2. Built directly, five ways, full fit each time.
+
+    M5 1.42 T, Cu, densities x1.02 pinned   21,10,188  FAILS nll 1063/915
+    M5 1.42 T, Cu, baseline densities       21,63,338  FAILS nll 1072/915
+    M5 1.42 T, Cu, K and density fitted     23,36,439  passes every check
+    M5 1.42 T, Al, K 0.66                   14,17,298  FAILS nll 1896/915
+    M5, everything fitted                   23,42,511  passes every check
+
+**It converges every time.** `autoFitConverged` is true in all five, no
+cycle note, no unresolved neighbourhood. The design is not unstable and the
+engine reproduces it perfectly well. What does not exist is a version of it
+that is both cheap and compliant. M5 is the lossiest grade in the table
+(wRef 1.25 W/kg against zdkh's 0.78); at 1.42 T it needs a large core, and
+the only way to make that cheap is to shrink it and wind aluminium, which
+puts no-load loss at 1896 W against a 915 W limit -- 107 % over, with the
+50 % total at 3263 against 2287. Left free, the fit lands at 1.54/1.69
+A/mm2 and 23.4 lakh, passing, which is 16 % DEARER than the 20,22,804
+design already on the table. There is no 14.5 lakh M5 design. The price and
+the compliance are not simultaneously reachable.
+
+**The provenance, corrected.** The figure did not come from a sensitivity
+sweep stepping density without re-fitting. The density sweep was copper, at
+held K, its cheapest compliant point was 20,65,497, it re-fitted flux and
+the window on every point (`autoFitConverged` true throughout), and it
+printed the failing checks against every non-compliant row -- x1.03 `ll`,
+x1.05 `ll,total,is100`, and so on. The ~14.5 lakh figures came from
+`searchDesigns`, as `feasible false`, with their failures printed beside
+them.
+
+So the recordable lesson is not "sweeps produce designs the engine cannot
+reproduce" -- that would be false, and writing a false caution into this
+file to explain a real near-miss is the exact failure this file exists to
+prevent. The two real traps, both demonstrated:
+
+  1. **A price column read without its verdict column.** Every row carrying
+     one of these numbers also carried `feasible false` and the checks it
+     failed. Nothing was hidden; the compliance flag was simply not read.
+     A price is not a candidate. This is section 83's wrong-green in the
+     reader rather than in the code.
+  2. **A candidate rebuilt from its headline inputs is a different design.**
+     A budget row shows grade, material, core, tank, K and rise. Rebuilt
+     from those six alone, the cheapest 800 kVA candidate comes out at
+     11,23,008 with 3.9 % / 1.4 % loss margins; rebuilt with its own `flux`,
+     `deltaLV`, `deltaHV` and `lvHvClr` as well -- what adopting it in the
+     app actually copies, all fourteen `BUDGET_OVER_KEYS` -- it comes out at
+     11,38,751 with 8.1 % / 7.1 %. Same six headline inputs, two different
+     designs, one of them hard against its limits. Re-keying a budget option
+     by hand is not adopting it.
+
+**The rule that follows, which was the right instinct:** no figure from a
+sweep or a search is quotable until it has been rebuilt through
+`computeDesign` and reported its own `complianceState` and every failing
+check. Not because the engine is unreliable -- it reproduced all five of
+these exactly -- but because a price is the one number in this product that
+looks equally authoritative whether or not anything passed.
+
+## 90. The flux window is not costing money; the fit's own path is
+
+Request: widen the flux sweep from 1.50 down to about 1.38, on the evidence
+that the three Mehir references run at 1.3947, 1.5182 and 1.534 T. Measured
+at five ratings before changing anything. The change would have done
+nothing, and the direction is backwards -- but the instinct that money is
+being left on the table is right, for a different reason.
+
+**`fluxRange` is dead code as far as the search is concerned.** Section 27
+removed flux as a swept dimension: each candidate calls `fitToSchedule`,
+which bisects flux continuously over [bMin, ceiling]. `fluxRange` survives
+as an export with no caller in the engine's search path and none in `src/`
+at all -- its only other mention is section 27's own comment saying the grid
+"used to enumerate flux (fluxRange)". Widening it changes no search at any
+rating. (It should probably be deleted; left for now so this is one finding
+rather than two.)
+
+**Nor is the optimum outside a window relative to a suggestion.** Flux is
+bisected over an absolute band, and `fluxSuggest` only seeds it. Proof from
+the grid itself: the full 800 kVA run holds 570 M5 candidates, 6 feasible,
+all landing at exactly B 1.420 -- the floor, far below M5's own 1.60
+suggestion at Level 2. (The suggestion is 1.60 there, not 1.70; 1.70 is the
+`conventional` figure.)
+
+**Extending the window downward finds compliant designs, all dearer.**
+Pinned flux, 1.38 to 1.70, at five ratings:
+
+| kVA | autoFit lands | cheapest compliant pin | at pin 1.38 | compliant below 1.42, cheapest |
+|---|---|---|---|---|
+| 315 | 1.4200, 13,05,250 | **1.5000, 12,79,780** (-1.95 %) | 13,28,893 | 13,20,506 |
+| 630 | 1.4200, 18,54,827 | **1.6044, 17,36,307** (-6.39 %) | 18,70,094 | 18,04,805 |
+| 800 | 1.6044, 20,22,804 | **1.6044, 19,61,214** (-3.04 %) | 21,88,236 | 21,64,035 |
+| 1000 | 1.6044, 21,53,803 | **1.6044, 20,68,075** (-3.98 %) | 23,48,227 | 22,86,354 |
+| 1250 | 1.5445, 24,20,586 | **1.6044, 23,49,324** (-2.94 %) | 28,24,157 | 26,34,700 |
+
+Sub-floor designs are compliant at every rating -- two points each -- and
+every one is more expensive than that rating's own cheapest. Cost falls
+monotonically as flux RISES, now confirmed at five ratings rather than the
+three of the earlier flux-floor work. A lower window cannot save money
+anywhere. The direction that saves money is up, and it is blocked by the IS
+1180 ceiling with the 5 % margin at 1.6044 T -- already at 100 % utilisation
+on the default case.
+
+**The real finding, which the request was half-right about.** At every one
+of the five ratings there IS a cheaper compliant design than `autoFit`
+lands on, by 1.95 to 6.39 %. But look at 800 and 1000: `autoFit` lands at
+1.6044 and the cheapest pin is ALSO 1.6044, three to four per cent cheaper
+at the same flux. Same flux, different price, so flux is not the variable.
+Pinning changes the fit's path -- which discrete winding configuration and
+window solve it settles on -- and the pinned path lands cheaper. At 630 the
+gap is 6.39 % and `autoFit` drives down onto the 1.42 floor when 1.6044 is
+both compliant and cheaper.
+
+So `autoFit` does not find the cheapest compliant design, even at its own
+flux. That is worth 2-6 % across the book and is a real target. It is the
+same discrete-geometry path dependence as sections 46, 49 and 51, showing up
+in the fit rather than in the K search. Not fixed here; recorded with
+numbers so it can be.
+
+**The general risk, stated accurately.** "A parameter swept relative to a
+suggestion puts the optimum outside the window when the suggestion is far
+from it" is a real hazard, but it does not apply to flux, which is bisected
+over an absolute band. It applies to the parameters that genuinely are
+relative: `gapScales` (0.9/1.0/1.12 x `lvHvClr`), `riseTargets` (the
+design's own target and two 5 K steps below it), and stage 2's
+`windowAround` on etK. Each of those is a multiplicative or additive window
+around a derived value, and each would miss an optimum sitting outside it.
+That is where to look, not at flux.

@@ -345,16 +345,33 @@ export function BudgetTab({ design, bom, params, over, rates, activePreviewKey, 
     return { min: Math.min(...prices), max: Math.max(...prices) };
   }, [feasible]);
 
+  /* CALIBRATION.md section 88: a pinned flux or current density is held on
+     every candidate (section 42 -- a pin is the user saying they have a
+     reason), which can empty a band on its own: with density pinned at an
+     800 kVA design's own 2.13/2.34, in-band results go from 4 to 0 and the
+     cheapest feasible design moves from 11.5 to 20.3 lakh, because no
+     aluminium candidate can be fitted around the pin. The box below was
+     then telling the user to widen the band or relax the impedance
+     tolerance -- advice that cannot work, while the real cause sat in a
+     10px grey line under the controls. Name the cause first. */
+  const PIN_LABELS: Record<string, string> = {
+    flux: 'flux density', deltaLV: 'LV current density', deltaHV: 'HV current density',
+  };
+  const heldPins = Object.keys(PIN_LABELS).filter((k) => over[k] !== undefined);
+
   let guidance: string | null = null;
   if (band && !inBand.length) {
+    const pinLead = heldPins.length
+      ? `The search held the design's pinned ${heldPins.map((k) => PIN_LABELS[k]).join(' and ')} on every candidate, so nothing was allowed to refit around ${heldPins.length > 1 ? 'them' : 'it'}. That alone can empty a band. Release ${heldPins.length > 1 ? 'those pins' : 'that pin'} on the Design tab to let the search explore freely, then run it again. `
+      : '';
     if (!achievable) {
-      guidance = 'No valid design was found at all under the current search settings. Try a wider impedance tolerance or a different tank type.';
+      guidance = pinLead + 'No valid design was found at all under the current search settings. Try a wider impedance tolerance or a different tank type.';
     } else if (band.max < achievable.min) {
-      guidance = `Every valid design for this rating costs at least ${inr(achievable.min)} ex-works. Raise the maximum, or take the cheapest option in the table above.`;
+      guidance = pinLead + `Every valid design for this rating costs at least ${inr(achievable.min)} ex-works. Raise the maximum, or take the cheapest option in the table above.`;
     } else if (band.min > achievable.max) {
-      guidance = `No valid design reaches ${inr(band.min)} ex-works; the most expensive valid design found is ${inr(achievable.max)}. Lower the minimum.`;
+      guidance = pinLead + `No valid design reaches ${inr(band.min)} ex-works; the most expensive valid design found is ${inr(achievable.max)}. Lower the minimum.`;
     } else {
-      guidance = `Designs for this rating range from ${inr(achievable.min)} to ${inr(achievable.max)} ex-works, but none of the searched combinations landed between ${inr(band.min)} and ${inr(band.max)}. Widen the band, or relax a constraint such as the impedance tolerance.`;
+      guidance = pinLead + `Designs for this rating range from ${inr(achievable.min)} to ${inr(achievable.max)} ex-works, but none of the searched combinations landed between ${inr(band.min)} and ${inr(band.max)}. Widen the band, or relax a constraint such as the impedance tolerance.`;
     }
   }
 
@@ -387,7 +404,7 @@ export function BudgetTab({ design, bom, params, over, rates, activePreviewKey, 
           <p className="text-[10px] text-alert px-1 pt-2">{excludedNote}</p>
         )}
         {pinnedNote && (
-          <p className="text-[10px] text-steel px-1 pt-2">{pinnedNote}</p>
+          <p className="text-[11px] text-amber px-1 pt-2 leading-snug">{pinnedNote}</p>
         )}
       </Card>
 
