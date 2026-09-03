@@ -2091,6 +2091,20 @@ function designTransformer(p) {
     : notAssessed.length ? "notAssessed"
     : byAgreement ? "byAgreement"
     : "passed";
+  /* CALIBRATION.md section 92: a design can pass the impedance check while
+     sitting a fraction of a point inside the tolerance, and a routine test
+     that measures slightly lower then fails. Passing is not the same as
+     safe to quote. Warn inside 2 percentage points of the allowance --
+     with the IS/IEC +/-10%, that is a deviation at or past 8%. Reported,
+     never gating: the design IS compliant, and the standard's tolerance is
+     the standard's to set, not ours to tighten silently (section 91). */
+  const zTolEff = Math.min(p.zTol, std.zTol);
+  const zDev = 100 * Math.abs(g.pctZ - p.targetZ) / p.targetZ;
+  const zNearEdge = compliance.z.ok && zDev >= zTolEff - 2;
+  const zEdgeNote = zNearEdge
+    ? `Calculated impedance ${g.pctZ.toFixed(2)}% deviates ${zDev.toFixed(2)}% from the ${p.targetZ}% declared, against a ${zTolEff}% tolerance -- inside the limit, but with only ${(zTolEff - zDev).toFixed(2)} points to spare. A routine test measuring slightly lower would fail. Do not quote this impedance without checking it against the works' own test scatter.`
+    : null;
+
   const complianceNote = notAssessed.length
     ? `${notAssessed.join(" ")} Every other check was applied and passed, but this design has NOT been assessed against a loss schedule -- do not read the result as approval against IS 1180.`
     : byAgreement && compliant
@@ -2197,7 +2211,7 @@ function designTransformer(p) {
 
   return {
     p, grade, ct, std, fluid, dryT, cls, dry, B, cLV, cHV, dLV, dHV, clr, refT, shape, solvedZ,
-    windowNote, windowStraddle, windowResolved,
+    windowNote, windowStraddle, windowResolved, zNearEdge, zEdgeNote, zDev, zTolEff,
     hvConn, lvConn, hvPh, lvPh, hvDesign, lvDesign, iLineHV, iLineLV, iHV, iLV,
     et, nLV, nHV, nHVmax, ratioErr, tapSteps, turnsPerStep,
     aNet: aNet * 1e4, aGross: aGross * 1e4, dCore, coreW, coreD, Hw, Ww: g.Ww, cc: g.cc,
@@ -3624,7 +3638,7 @@ function calcSheet(d, bom) {
     row("Effective coil height", "H\u2091\u1da0\u1da0", "H\u2091\u1da0\u1da0 = h \u00D7 Rogowski factor", `= ${n(Math.min(d.hLV, d.hHV), 0)} \u00D7 0.95`, `${n(d.hEff * 1000, 0)} mm`, REFS.K, "coil height"),
     row("Leakage reactance", "X", "X = 2\u03C0f\u03BC\u2080 N\u2082\u00B2 L\u2098\u209C \u0394 / H\u2091\u1da0\u1da0", `= 2\u03C0\u00D7${p.freq}\u00D74\u03C0\u00D710\u207B\u2077\u00D7${d.nLV}\u00B2\u00D7${n(d.lmtMean, 3)}\u00D7${n(d.dEff, 4)}/${n(d.hEff, 3)}`, `${n(d.X, 5)} \u03A9`, REFS.S + " \u00B7 " + REFS.K, "turns, geometry"),
     row("Reactance component", "%X", "%X = X I\u2082\u209A\u2095 / V\u2082\u209A\u2095 \u00D7 100", `= ${n(d.X, 5)} \u00D7 ${n(d.iLV, 1)} / ${n(d.lvPh, 1)} \u00D7 100`, `${n(d.pctX)} %`, REFS.S, "reactance, current, voltage"),
-    row("Impedance", "%Z", "%Z = \u221A(%R\u00B2 + %X\u00B2)", `= \u221A(${n(d.pctR)}\u00B2 + ${n(d.pctX)}\u00B2)`, `${n(d.pctZ)} %`, REFS.IS2026 + ` \u00B7 tolerance \u00B1${n(p.zTol, 1)}%`, "%R, %X"),
+    row("Impedance", "%Z", "%Z = \u221A(%R\u00B2 + %X\u00B2)", `= \u221A(${n(d.pctR)}\u00B2 + ${n(d.pctX)}\u00B2)`, `${n(d.pctZ)} %${d.zNearEdge ? ` -- only ${(d.zTolEff - d.zDev).toFixed(2)} points inside a ${d.zTolEff}% tolerance, a low test result would fail` : ""}`, REFS.IS2026 + ` \u00B7 tolerance \u00B1${n(p.zTol, 1)}%`, "%R, %X"),
     row("Regulation", "\u03B5\u1D63", "\u03B5\u1D63 = %R cos\u03C6 + %X sin\u03C6", `= ${n(d.pctR)}\u00D7${n(p.pf)} + ${n(d.pctX)}\u00D7${n(Math.sqrt(Math.max(0, 1 - p.pf * p.pf)))}`, `${n(d.regFull)} %`, REFS.S, "%R, %X, power factor"),
     ...(d.windowNote ? [row("Why %Z is not the declared value", "n/a", "discrete winding configuration",
       d.windowNote, `${n(d.pctZ)} % against ${n(p.targetZ)} % declared`, "CALIBRATION.md section 73", "window height, winding configuration")] : []),

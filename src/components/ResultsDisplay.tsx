@@ -642,6 +642,16 @@ export function ResultsDisplay({
           )}
           <DataRow label="Impedance" value={design.pctZ.toFixed(2)} unit="%" tone={design.compliance.z.ok ? 'ink' : 'alert'} />
           <DataRow label="Target Impedance" value={params.targetZ.toFixed(2)} unit="%" />
+          {/* CALIBRATION.md section 92: passing the impedance check is not the
+              same as being safe to quote. Inside 2 points of the tolerance a
+              routine test that measures slightly low fails, and the design
+              sheet said nothing -- the same shape as section 87's gaps. */}
+          {design.zEdgeNote && (
+            <p className="text-[10px] text-amber leading-snug py-1.5 border-t border-dashed border-line">
+              <span className="font-semibold">Impedance is close to its tolerance limit. </span>
+              {design.zEdgeNote}
+            </p>
+          )}
           {/* CALIBRATION.md section 86: the explanation belongs where the number
               is read. A customer seeing 4.80 against a declared 5.00 asks why
               here, not in a banner at the top of a different tab. */}

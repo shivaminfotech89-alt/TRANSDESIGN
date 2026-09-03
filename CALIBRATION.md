@@ -7046,3 +7046,69 @@ parameters that genuinely are swept relative to a derived suggestion -- and no
 reference records a measured LV-HV clearance or a design top-oil rise target.
 They cannot be audited against reality until one does. Added to
 DATA-REQUEST-2026-08-11.md rather than guessed at.
+
+## 92. The etK window is not binding: tested to 0.90 and closed
+
+Section 91 found `etkSuggest` low on all four references, every one the same
+direction. The question raised was whether the sweep window inherits that
+error the way a suggestion-relative window would. Tested directly rather than
+reasoned about, at five ratings, sweeping K from 0.30 to 0.90 -- well past the
+current 0.70 top edge:
+
+| kVA | compliant K band | optimum K | best in window | best above 0.70 |
+|---|---|---|---|---|
+| 315 | 0.32 - 0.42 | 0.42 | 13,05,250 | none compliant |
+| 630 | 0.40 - 0.50 | 0.50 | 17,86,280 | none compliant |
+| 800 | 0.38 - 0.52 | 0.46 | 20,26,586 | none compliant |
+| 1000 | 0.42 - 0.58 | 0.48 | 21,64,046 | none compliant |
+| 1250 | 0.42 - 0.56 | 0.50 | 24,20,586 | none compliant |
+
+**Not one compliant design exists above K 0.70 at any rating**, and the
+optimum is interior at all five. The compliant band's own top sits at 0.42 to
+0.58, so the window already carries 0.12 to 0.28 of unused headroom above the
+region that can be built at all. What bounds K here is the loss schedule, not
+the sweep. Widening the window finds nothing, at any rating. The question is
+closed on evidence.
+
+Three premises corrected in passing, because each sounded right:
+
+  - *"All three references sit at or beyond the top edge of the sweep."* They
+    do not. `ETK_RANGE` is an absolute 0.30-0.70, and the four reference
+    values are 0.466, 0.542, 0.544 and 0.623 -- all inside, the highest at
+    89 % of the way up. The +7.5 % to +31.1 % figures in section 91 are
+    distances from the SUGGESTION, not positions in the window, and etK is not
+    swept relative to its suggestion.
+  - *"The same shape as the flux bug we just corrected."* No flux bug was
+    corrected. Section 90 declined to change the flux range on measurement:
+    `fluxRange` has no caller, and extending the window downward finds only
+    dearer designs at all five ratings.
+  - *"Widen to roughly 0.95 to 1.30 relative."* That would NARROW it. At
+    800 kVA the suggestion is 0.465, so 0.95-1.30 relative is 0.44-0.60 --
+    strictly inside the 0.30-0.70 already swept.
+
+**What does keep recurring is section 90's path dependence.** At 630 the best
+pinned K is 17,86,280 against `autoFit`'s 18,54,827, -3.7 %. But at 800 and
+1000 `autoFit` beats every pinned K (20,22,804 against 20,26,586; 21,53,803
+against 21,64,046). It cuts both ways, which is what path dependence looks
+like and is not a bias to correct by moving a suggestion. The 2-6 % is real
+and still worth taking, but by making the fit search rather than by re-aiming
+where it starts.
+
+**Impedance edge warning, implemented.** A design can pass the impedance check
+while sitting a fraction of a point inside tolerance, and a routine test
+measuring slightly lower then fails. Passing is not the same as safe to quote.
+`zNearEdge`/`zEdgeNote` warn inside 2 percentage points of the allowance --
+with the IS/IEC +/-10 %, a deviation at or past 8 % -- shown against the
+impedance figure on the design sheet and carried into the printed report
+through the calc sheet's own impedance row. Reported, never gating: the design
+IS compliant, and the standard's tolerance is the standard's to set, not ours
+to tighten silently (section 91). No rating measured so far trips it; at the
+default 1250 the deviation is 2.57 % of a 10 % allowance. It exists for the
+enquiry that declares a tighter `zTol`, where it fires as designed.
+
+**A larger gap found while wiring it.** `PrintReport` renders no qualification
+notes at all -- not `complianceNote`, not `lossBreach`, not `windowNote`,
+not `nonFiniteNote`. Everything section 87 put on screen stops at the screen.
+The impedance warning reaches print only because it is embedded in a calc
+sheet row's own result text. The document that actually goes to a customer is
+the one surface none of that work covered. Not fixed here; named so it is next.
