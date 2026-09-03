@@ -7301,3 +7301,62 @@ together.
 
 ENGINE_VERSION 1.39.0. The golden table in CLAUDE.md is updated in this same
 commit, per the rule at the head of that table.
+
+## 96. Provenance inverted: unsourced by default
+
+`UNSOURCED_RATE_KEYS` was a deny-list of rate keys with no verified source.
+Section 36 emptied it when aluminium was confirmed, and it has been empty ever
+since. An empty deny-list admits everything and guards nothing. It worked only
+for as long as whoever added the next material remembered a convention nothing
+enforces -- the same shape as a stale `documentRegister` entry (invariant 7) or
+a drifted golden table: a safeguard that reads as active while doing nothing.
+
+Inverted. `RATE_PROVENANCE` records, per rate key, the figure and where it came
+from. A key with no entry is **unsourced by default**, and a conductor whose
+rate has no provenance and has not been overridden by the user cannot reach a
+recommendation. The failure mode is now "excluded until confirmed" rather than
+"included until someone remembers".
+
+| key | value | confirmed against |
+|---|---|---|
+| `condCu` | 1415 | designer's own supplier range 1350-1450 (section 36) |
+| `condAl` | 400 | designer's own supplier range 380-420 (section 36), replaced the 340 placeholder |
+| `core` | **240** | Mehir 630 kVA costing card (section 9), reproduces the sheet to the rupee |
+| `fluid` | 115 | Mehir 630 kVA costing card (section 9) |
+| `frameMS` | 70 | Mehir 630 kVA costing card (section 9) |
+| `tankMS` | 86 | Mehir 630 kVA costing card (section 9) |
+
+CCA is excluded on **manufacturability, not price** -- galvanic corrosion and
+creep, section 36 -- and no rate re-enables it. `condCca`'s 560 is left as a
+placeholder because nothing reads it for pricing, and it deliberately has no
+provenance entry.
+
+One correction of record: the core rate is **240**, not 250. It is the figure
+the card model reproduces the 630 sheet with, exactly.
+
+**A user's own rate still counts as sourced.** The gate is against shipping an
+unverified DEFAULT into a recommendation, not against a works' own figure, so
+`unsourcedConductorRate` returns false as soon as the entered rate differs from
+the default.
+
+**One reason per material.** Inverting the gate made `condCca` unsourced as
+well as manufacturability-excluded, and `unsourcedConductorNote` would then have
+told a user to "enter your own condCca rate to include it" -- a false
+instruction for a material no rate re-enables, and the exact defect class this
+run has spent its time removing. Manufacturability now wins and is reported
+alone.
+
+**And it caught a real fault while being proved.** Testing the inversion by
+adding a conductor with a rate and no provenance -- as a future person would --
+showed `rkCond("newmetal")` returning `"condCca"`. Both `rkCond` and `condRate`
+ended in an unguarded `: condCca` fallback, so ANY material that is not copper
+or aluminium was silently keyed and priced at copper-clad aluminium's own
+unverified placeholder. The new material was excluded, but for the wrong
+reason: it inherited CCA's missing provenance rather than lacking its own. Both
+functions now key from the material name, so a new material gets its own key,
+has no entry, and is excluded because of that. Re-verified: it reaches the
+search under `condNewmetal`, is excluded, and is reported with the correct
+instruction.
+
+Goldens unchanged -- copper and aluminium key exactly as before, so no price
+moves. No ENGINE_VERSION bump: no formula changed.

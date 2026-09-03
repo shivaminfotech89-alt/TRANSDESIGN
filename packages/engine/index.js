@@ -2447,8 +2447,16 @@ function nonFiniteReport(root, rootName) {
    COSTING
    ============================================================ */
 
-function rkCond(k) { return k === "copper" ? "condCu" : k === "aluminium" ? "condAl" : "condCca"; }
-function condRate(k, r) { return k === "copper" ? r.condCu : k === "aluminium" ? r.condAl : r.condCca; }
+/* CALIBRATION.md section 96. Both of these ended in an unguarded `: condCca`
+   fallback, so ANY material that is not copper or aluminium -- including one
+   added later -- was silently keyed and priced at copper-clad aluminium's
+   rate, which is itself a placeholder nothing has verified. Found while
+   proving the inverted provenance gate: a new conductor mapped to `condCca`
+   and was excluded for the right outcome by the wrong mechanism. Now keyed
+   from the material name, so a new material gets its own key, has no
+   provenance entry, and is excluded until someone records one. */
+const rkCond = (k) => (k === "copper" ? "condCu" : k === "aluminium" ? "condAl" : k === "cca" ? "condCca" : `cond${k.charAt(0).toUpperCase()}${k.slice(1)}`);
+const condRate = (k, r) => r[rkCond(k)];
 /* CALIBRATION.md section 56: the construction-specific processing surcharge
    added to the core rate -- see DEFAULT_RATES' own comment on
    coreProcMitre/coreProcVNotch/coreProcDiamond for why this replaces, not
@@ -2710,14 +2718,47 @@ const MATERIALS_EXCLUDED_FROM_SEARCH = new Set(["cca"]);
    confirms it against the designer's own supplier range (Rs 380-420/kg,
    set at 400) and it is no longer gated here. Kept as a general mechanism,
    not retired, since a future rate could equally go unsourced again. */
-const UNSOURCED_RATE_KEYS = new Set([]);
+/* CALIBRATION.md section 96. This was a DENY-list of unsourced rate keys,
+   and section 36 emptied it when aluminium was confirmed. An empty deny-list
+   admits everything, guards nothing, and works only for as long as whoever
+   adds the next material remembers a convention nobody enforces -- the same
+   shape as a stale documentRegister entry (CLAUDE.md invariant 7) or a
+   drifted golden table: a safeguard that reads as active while doing nothing.
+
+   Inverted. Provenance is now recorded explicitly, per rate key, and a key
+   with no entry here is UNSOURCED BY DEFAULT. A new material added to
+   CONDUCTORS cannot reach a recommendation until someone either records
+   where its rate came from or the user enters their own -- the failure mode
+   is now "excluded until confirmed" rather than "included until someone
+   remembers". `range` is the source range the figure was confirmed against,
+   kept so a later rate change can be checked against the same evidence. */
+const RATE_PROVENANCE = {
+  condCu: { value: 1415, range: [1350, 1450], source: "Designer's own supplier range, CALIBRATION.md section 36" },
+  condAl: { value: 400, range: [380, 420], source: "Designer's own supplier range, CALIBRATION.md section 36 (replaced the 340 placeholder)" },
+  core: { value: 240, range: null, source: "Mehir 630 kVA costing card, CALIBRATION.md section 9 -- reproduces the sheet to the rupee" },
+  fluid: { value: 115, range: null, source: "Mehir 630 kVA costing card, CALIBRATION.md section 9 -- reproduces the sheet to the rupee" },
+  frameMS: { value: 70, range: null, source: "Mehir 630 kVA costing card, CALIBRATION.md section 9" },
+  tankMS: { value: 86, range: null, source: "Mehir 630 kVA costing card, CALIBRATION.md section 9" },
+};
+
+/* True when this conductor's rate has no recorded provenance AND the user
+   has not entered one of their own. A rate the works has typed in is sourced
+   by the works -- the gate is against shipping an unverified DEFAULT into a
+   recommendation, not against a user's own figure. */
 function unsourcedConductorRate(cond, rates) {
   const rk = rkCond(cond);
-  return UNSOURCED_RATE_KEYS.has(rk) && rates[rk] === DEFAULT_RATES[rk];
+  if (RATE_PROVENANCE[rk]) return false;
+  return rates[rk] === DEFAULT_RATES[rk];
 }
 function unsourcedConductorNote(conds, rates) {
-  const excludedUnsourced = conds.filter((c) => unsourcedConductorRate(c, rates));
+  /* CALIBRATION.md section 96: manufacturability wins, and a material is
+     reported under ONE reason. Inverting the gate made condCca unsourced
+     too (it has no provenance entry and never will), which would have had
+     this note tell a user to enter a condCca rate to include a material no
+     rate re-enables -- a false instruction, and the exact defect class this
+     whole run has been removing. */
   const excludedMaterial = conds.filter((c) => MATERIALS_EXCLUDED_FROM_SEARCH.has(c));
+  const excludedUnsourced = conds.filter((c) => !MATERIALS_EXCLUDED_FROM_SEARCH.has(c) && unsourcedConductorRate(c, rates));
   const parts = [];
   if (excludedUnsourced.length) {
     const names = excludedUnsourced.map((c) => `${CONDUCTORS[c].name} (${rkCond(c)})`).join(", ");
@@ -4738,7 +4779,7 @@ export {
   deriveSpec, designTransformer, buildBOM, ownershipCost, searchDesigns, stagedSearchDesigns,
   impacts, calcSheet, stepWidths, stampingSchedule, finLayout, radiatorLayout, conservatorSize,
   documentRegister, routineTestSchedule, DOC_STATUS, REFS,
-  COMPLIANCE_STATES, inr, lakhs, bushMul, condRate, rkCond, fluxRange, bushHeight, parseVectorGroup,
+  COMPLIANCE_STATES, RATE_PROVENANCE, inr, lakhs, bushMul, condRate, rkCond, fluxRange, bushHeight, parseVectorGroup,
   etkCurve, fitEtkToCost, ETK_RANGE,
   tappingSchedule, conductorSchedule, hardwareSchedule, insulationPieceList, windingSchedule,
   cardCostModel, DEFAULT_CARD_RATES, coreCuttingChart,
