@@ -148,6 +148,36 @@ const INS_CLASS = {
   H: { name: "H, 180 \u00B0C", rise: 125, ref: 130 },
 };
 
+/* CALIBRATION.md section 94: the four compliance states, worded once. The
+   badge on screen, the rating plate's own standard-line qualifier and the
+   printed report's compliance band all read these, so a state cannot be
+   described one way on a screen and another way in the document that leaves
+   the building. `label` is the short form a badge shows; `lead` is the
+   sentence a reader who is not a design engineer needs; `plate` is the
+   parenthetical the rating plate puts beside the standard it names. */
+const COMPLIANCE_STATES = {
+  passed: {
+    label: "Compliant",
+    lead: "Every applicable check was assessed and met.",
+    plate: null,
+  },
+  failed: {
+    label: "Not Compliant",
+    lead: "This design does not meet a limit it is held to. It must not be offered as compliant.",
+    plate: "does not meet the declared loss schedule",
+  },
+  notAssessed: {
+    label: "Not Assessed",
+    lead: "This design was NOT assessed against a loss schedule. Do not read anything here as approval against IS 1180.",
+    plate: "not assessed to IS 1180",
+  },
+  byAgreement: {
+    label: "Subject To Agreement",
+    lead: "The loss limits this design was checked against were interpolated for a non-preferred rating. IS 1180 makes those subject to agreement between user and supplier, so they are proposed limits, not published ones.",
+    plate: "losses subject to agreement, non-preferred rating",
+  },
+};
+
 const STANDARDS = {
   IS: { name: "IS 2026 / IS 1180", oilRise: 50, windRise: 55, zTol: 10, lossTolTotal: 10, lossTolPart: 15 },
   IEC: { name: "IEC 60076", oilRise: 60, windRise: 65, zTol: 10, lossTolTotal: 10, lossTolPart: 15 },
@@ -4592,15 +4622,33 @@ function documentRegister(core, d, bom, project) {
 
 function routineTestSchedule(d) {
   const p = d.p;
+  /* CALIBRATION.md section 94. A routine test sheet is a record, not a
+     report: what it prints in the Limit column becomes the acceptance
+     criterion the test floor applies. Two of these were ambiguous in a way
+     that corrupts the record rather than merely under-informing it.
+
+     `zAccept` is the first. The row used to give the achieved impedance as
+     the expected value and "+/-zTol %" as the limit, naming no value the
+     tolerance applies to. A test floor reads the number in front of it and
+     applies the band to THAT -- at the 800 kVA default, +/-10 % of the
+     achieved 4.80 is 4.32-5.28, while the standard's band around the
+     DECLARED 5.00 is 4.50-5.50. A measured 5.40 is then recorded as a
+     failure it is not, and a measured 4.40 as a pass it is not. So the
+     window is stated in absolute terms, around the declared value, with the
+     declared value named. */
+  const zTolEff = Math.min(p.zTol, d.std.zTol);
+  const zLo = p.targetZ * (1 - zTolEff / 100), zHi = p.targetZ * (1 + zTolEff / 100);
+  const zAccept = `${f2(zLo)} % to ${f2(zHi)} % measured, i.e. +/-${zTolEff} % of the ${f2(p.targetZ)} % DECLARED value, not of the calculated figure opposite`;
   const rows = [
     { t: "Voltage ratio at all taps", ref: "IEC 60076-1", exp: `${f3((d.nHV / d.nLV))} turns ratio, error ${f3(d.ratioErr)} %`, lim: "\u00B10.5 % of declared" },
     { t: "Vector group and polarity", ref: "IEC 60076-1", exp: p.vector, lim: "As declared" },
     { t: "Winding resistance HV", ref: "IEC 60076-1", exp: `${f3(d.rHV)} \u03A9 per phase at ${d.refT} \u00B0C`, lim: "Record, correct to reference temperature" },
     { t: "Winding resistance LV", ref: "IEC 60076-1", exp: `${d.rLV.toExponential(3)} \u03A9 per phase at ${d.refT} \u00B0C`, lim: "Record" },
-    { t: "No-load loss and current at rated voltage", ref: "IEC 60076-1", exp: `${f0(d.noLoad)} W, ${f2(d.i0pct)} %`, lim: `${f0(d.sch.nll)} W guaranteed, +${d.std.lossTolPart} % on test` },
+    { t: "No-load loss and current at rated voltage", ref: "IEC 60076-1", exp: `${f0(d.noLoad)} W, ${f2(d.i0pct)} %`, lim: `${f0(d.sch.nll)} W guaranteed, +${d.std.lossTolPart} % on test. This is the works declared figure and the derived corner of the IS 1180 total-loss pair, NOT a published no-load limit -- IS 1180 constrains the two totals below, not the components.` },
     {
       t: `Load loss and impedance at principal tap${p.dualRating && p.kva2 > 0 ? `, stated at ${p.kva} kVA (${p.cooling}) only` : ""}`,
-      ref: "IEC 60076-1", exp: `${f0(d.loadLoss)} W, ${f2(d.pctZ)} %`, lim: `${f0(d.sch.ll)} W guaranteed, impedance \u00B1${p.zTol} %`,
+      ref: "IEC 60076-1", exp: `${f0(d.loadLoss)} W, ${f2(d.pctZ)} % (calculated design values, not measured)`,
+      lim: `${f0(d.sch.ll)} W guaranteed (the derived corner of the IS 1180 total-loss pair, not a published component limit), +${d.std.lossTolPart} % on test. Impedance acceptance: ${zAccept}.${d.zNearEdge ? ` WARNING: the calculated figure sits only ${(d.zTolEff - d.zDev).toFixed(2)} points inside that band -- a slightly low measurement will fail.` : ""}${d.windowStraddle ? " WARNING: the declared impedance is NOT achievable by this design. The band above is the declared one; this design does not reach it." : ""}`,
     },
     ...(d.compliance.is50 ? [{
       t: `Total losses at 50 % load${d.isLossBasis === "agreed" ? " -- INTERPOLATED, subject to agreement, NOT an IS 1180 figure for this rating" : ""}`,
@@ -4680,7 +4728,7 @@ export {
   deriveSpec, designTransformer, buildBOM, ownershipCost, searchDesigns, stagedSearchDesigns,
   impacts, calcSheet, stepWidths, stampingSchedule, finLayout, radiatorLayout, conservatorSize,
   documentRegister, routineTestSchedule, DOC_STATUS, REFS,
-  inr, lakhs, bushMul, condRate, rkCond, fluxRange, bushHeight, parseVectorGroup,
+  COMPLIANCE_STATES, inr, lakhs, bushMul, condRate, rkCond, fluxRange, bushHeight, parseVectorGroup,
   etkCurve, fitEtkToCost, ETK_RANGE,
   tappingSchedule, conductorSchedule, hardwareSchedule, insulationPieceList, windingSchedule,
   cardCostModel, DEFAULT_CARD_RATES, coreCuttingChart,

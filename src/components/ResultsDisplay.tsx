@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { calcSheet, inr } from '@/packages/engine';
+import { COMPLIANCE_STATES, calcSheet, inr } from '@/packages/engine';
 import { Card, DataRow, DerivedRow, CheckMark, Button, cardCls, cardHeaderCls, cardTitleCls, cardSubtitleCls, cardBodyCls, thCls, tdCls } from './ui';
 import { Drawings2D, CoreDrawing, CoreCrossSection, StampingSchedule } from './Drawings2D';
 import { LvWindingDrawing, HvWindingDrawing, TapWindingDrawing } from './drawings/WindingDrawings';
@@ -696,10 +696,7 @@ export function ResultsDisplay({
                 was assessed. "Compliant" on an unassessed design is the most
                 dangerous label this product can print. */}
             <span className={cardSubtitleCls}>
-              {design.complianceState === 'failed' ? 'Not Compliant'
-                : design.complianceState === 'notAssessed' ? 'Not Assessed'
-                : design.complianceState === 'byAgreement' ? 'Subject To Agreement'
-                : 'Compliant'}
+              {(COMPLIANCE_STATES[design.complianceState] || COMPLIANCE_STATES.notAssessed).label}
             </span>
           </div>
           <div className={cardBodyCls}>
