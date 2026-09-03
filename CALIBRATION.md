@@ -6681,3 +6681,93 @@ states (4.80 % and 5.30 %), which was chosen, at what window (668 mm), the
 deviation (4.0 %) and the tolerance it sits inside (10 %). The fault was never
 the content. It was that the content lived in one place nobody reads and the
 place everybody reads printed a contradiction.
+
+## 87. Qualifications that never reached the value they qualify, and one that outlived its cause
+
+Section 86 fixed one screen contradicting itself. That was not an isolated
+defect, so every reporting surface was audited the same way the compliance
+checks were audited in section 83: for each qualification the engine can
+produce, does it reach the surface where the value it qualifies is read?
+
+Seven gaps were found. Six are fixed here; the seventh (`autoFitFluxLimit`)
+was left deliberately, because the flux ceiling it reports is already stated
+against the flux value itself.
+
+**Gap 1, the worst: a green "Compliant" on an interpolated limit.** IS 1180
+(Part 1) : 2014 lists preferred ratings. At a rating it does not list, section
+76's `is1180Corner` interpolates between the neighbouring rows -- legitimately,
+because the standard makes losses at a non-preferred rating "subject to
+agreement between user and supplier". But passing against a number the
+standard does not publish is not passing against the standard, and a 900 kVA
+design was showing the same green badge, the same green delivered price and
+the same green rating plate as an 800 kVA design measured against a real
+published row.
+
+This is section 83's wrong-green one level further in. There the check was
+skipped; here it runs, against a limit that was invented by interpolation.
+So `complianceState` gains a fourth value, `byAgreement`, ordered by how much
+each claims: `failed` < `notAssessed` < `byAgreement` < `passed`. It is
+derived from `isLossBasis === "agreed"`, which already existed and was already
+correct -- it simply had no consumer above the calc sheet.
+
+    900 kVA (non-preferred)   basis agreed      byAgreement
+    800 kVA (listed)          basis exact       passed
+    1000 kVA conventional     basis notALevel   notAssessed
+    3500 kVA (off table)      basis pending     failed
+
+Carried to the badge ("Subject To Agreement"), the delivered price colour and
+the rating plate. `complianceNote` gains its own branch, so the banner says
+the limits were interpolated and must be agreed in writing before quoting.
+
+**Gap 3: a price built on default rates said so only in the rate editor.**
+The Price card is the most-read number in the product. `DEFAULT_RATES` is a
+seed, not anybody's costs. The Rate Card panel did say "not backed by a saved
+rate card", but it is a separate card further down a sidebar, and the price
+above it read as authoritative. The statement now sits at the price.
+
+**Gaps 2, 5, 6: the same shape.** A qualification computed, returned, and
+rendered nowhere near its value -- or nowhere at all.
+
+  - `lossBreach` was a banner at the top of the page while the no-load and
+    load loss figures, the two numbers actually quoted to a customer, read as
+    ordinary results. They are now toned and carry the breach beneath them.
+    The calc sheet's own total-loss rows said "3011 W of 2790 W (-7.9 %
+    inside)"; a negative "inside" is not a sentence anyone reads as a failure.
+    They now say "OVER by 7.9 %, this design does not meet the schedule".
+  - `autoFitCycleNote` reached no surface at all. It qualifies exactly the
+    flux density, current densities and losses the metrics card shows, so it
+    is rendered against them.
+  - `etkPlateauLo`/`etkPlateauHi` reached no surface at all. The K sweep marks
+    one best point, which reads as "the answer is exactly this K" when section
+    49's whole finding is that it is the midpoint of a band of K values giving
+    the same design at the same price. The band is now stated under the chart.
+
+**Gap 7: the rating plate printed a conformity claim unconditionally.** It
+printed "IS 2026 / IS 1180" on every design, including one never assessed
+against IS 1180, one whose limits were interpolated, and one that misses the
+schedule outright. Only the price colour carried the state, and a plate is
+often read in monochrome or in print. The claim is now qualified in the
+plate's own words next to the standard it names. A rating plate is the most
+load-bearing surface in the product: what it prints is what gets stamped on
+the unit.
+
+**The reverse direction.** The audit was then run the other way -- surfaces
+showing a qualification whose cause has passed. A stale warning trains people
+to ignore warnings, which is how a real one gets missed. Every engine-derived
+note recomputes per render and clears itself; `ratesAreFrozen` has a clear
+path on all nine of its transitions. One real case: the Design Impact Summary
+kept the previous summary on screen whenever `buildSummary` returned null, and
+whenever a design settled with no `lastAction` to attribute it to -- an
+enquiry-form edit, an adopted budget option, a discarded preview. The panel
+then described an edit the user had already moved past. A summary is only ever
+true of the transition that produced the design now on screen, so anything
+else now clears it.
+
+`copiedFromRev` was examined and left alone: "Copied forward from rev 3" is a
+statement about where a revision was seeded from, which stays true however
+much the design is then edited. It is provenance, not a claim of equality.
+
+No formula moved, so no golden number moves and `ENGINE_VERSION` does not
+change. `complianceState` gaining a fourth value is a reporting change: a
+quotation issued last year reprices to the identical figures, and would now
+describe its own basis more honestly than it did when issued.

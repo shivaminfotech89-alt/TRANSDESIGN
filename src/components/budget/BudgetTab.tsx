@@ -28,6 +28,12 @@ interface BudgetTabProps {
    *  flux or current density, the search holds that pin on every candidate
    *  instead of silently refitting around it. */
   over: Record<string, any>;
+  /** CALIBRATION.md section 87 gap 6: the plateau of K values that all
+   *  produce this same design (section 49). The sweep marks one best point,
+   *  which reads as "the answer is exactly this K" when it is really the
+   *  midpoint of a band. Undefined when etK was locked. */
+  etkPlateauLo?: number;
+  etkPlateauHi?: number;
   rates: Record<string, number>;
   activePreviewKey: string | null;
   onSelectPreview: (candidate: any | null) => void;
@@ -117,7 +123,7 @@ function ResultsTable({ rows, current, activePreviewKey, onSelectPreview, showMa
  *  live design's own values, the same isolation packages/engine's own
  *  etkCurve() is built for, so the line shows K's own effect on price
  *  rather than several dimensions moving at once. */
-function KSweepPanel({ params, rates }: { params: any; rates: Record<string, number> }) {
+function KSweepPanel({ params, rates, plateauLo, plateauHi }: { params: any; rates: Record<string, number>; plateauLo?: number; plateauHi?: number }) {
   const curve = useMemo(() => etkCurve(params, rates), [params, rates]);
   if (curve.length < 2) return null;
 
@@ -170,12 +176,23 @@ function KSweepPanel({ params, rates }: { params: any; rates: Record<string, num
           Flux, current density, steps, material and tank are held at the current design's own values -- only K
           moves along this line. Amber points miss the declared impedance, thermal or loss limit at that K.
         </p>
+        {/* CALIBRATION.md section 87 gap 6: the marked best point is the midpoint
+            of a plateau, not a unique minimum -- section 49's whole reason for
+            re-fitting there. Without this the chart claims a precision K does
+            not have, and a user reading K = 0.452 as exact would treat a
+            neighbouring value as a different design when it is the same one. */}
+        {plateauLo !== undefined && plateauHi !== undefined && plateauHi > plateauLo && (
+          <p className="text-[10px] text-steel px-1 pt-1">
+            Every K from {plateauLo.toFixed(3)} to {plateauHi.toFixed(3)} gives this same design and the same price. The
+            marked point is that band's midpoint, chosen so the answer does not depend on where the sweep sampled.
+          </p>
+        )}
       </div>
     </Card>
   );
 }
 
-export function BudgetTab({ design, bom, params, over, rates, activePreviewKey, onSelectPreview }: BudgetTabProps) {
+export function BudgetTab({ design, bom, params, over, rates, activePreviewKey, onSelectPreview, etkPlateauLo, etkPlateauHi }: BudgetTabProps) {
   const current = { design, bom, params };
   const [minLakh, setMinLakh] = useState(() => Math.max(0, Math.round((bom.exFactory / 1e5 - 2) * 100) / 100));
   const [maxLakh, setMaxLakh] = useState(() => Math.round((bom.exFactory / 1e5) * 100) / 100);
@@ -374,7 +391,7 @@ export function BudgetTab({ design, bom, params, over, rates, activePreviewKey, 
         )}
       </Card>
 
-      <KSweepPanel params={params} rates={rates} />
+      <KSweepPanel params={params} rates={rates} plateauLo={etkPlateauLo} plateauHi={etkPlateauHi} />
 
       {results.length > 0 && (
         <>

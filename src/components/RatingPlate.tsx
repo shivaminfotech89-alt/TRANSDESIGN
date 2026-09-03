@@ -32,6 +32,23 @@ export function RatingPlate({ design, bom, params }: RatingPlateProps) {
   const app = APPS[params.application]?.name || params.application;
   const std = STANDARDS[params.standard]?.name || params.standard;
 
+  /* CALIBRATION.md section 87 gap 7. A rating plate is the most load-bearing
+     surface in the product: what it prints is what gets stamped on the unit
+     and read back on site. It was printing "IS 2026 / IS 1180" as a flat
+     conformity claim on every design, including one that was never assessed
+     against IS 1180 at all (no schedule for its efficiency level), one whose
+     limits were interpolated for a non-preferred rating, and one that misses
+     the schedule outright. The price colour alone carried the state, and a
+     printed plate is often read in monochrome. So the claim itself is
+     qualified, in the plate's own words, next to the standard it names. */
+  const stdNote = design.complianceState === 'failed'
+    ? 'does not meet the declared loss schedule'
+    : design.complianceState === 'notAssessed'
+      ? 'not assessed to IS 1180'
+      : design.complianceState === 'byAgreement'
+        ? 'losses subject to agreement, non-preferred rating'
+        : null;
+
   const totalMass = design.wCore + design.wLV + design.wHV + design.wIns
     + design.wFrame + design.wTank + design.wFin + design.wEnclosure
     + design.fluidLitres * design.fluid.dens;
@@ -70,7 +87,7 @@ export function RatingPlate({ design, bom, params }: RatingPlateProps) {
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 px-4">
         <div>
           <div className="text-[10px] uppercase tracking-[0.34em] font-display text-plateEtch">
-            {app} Transformer &middot; {std}
+            {app} Transformer &middot; {std}{stdNote ? ` (${stdNote})` : ''}
           </div>
           <div className="text-[26px] font-display uppercase mt-1" style={{ color: '#E8B887' }}>
             {params.kva} kVA &middot; {params.hv / 1000} kV to {params.lv} V
@@ -84,7 +101,7 @@ export function RatingPlate({ design, bom, params }: RatingPlateProps) {
           <div
             className="text-[22px] font-mono mt-0.5"
             // section 83: amber for a design nothing was assessed against
-            style={{ color: design.complianceState === 'passed' ? '#9FD3C4' : design.complianceState === 'notAssessed' ? '#D9B282' : '#E3A08C' }}
+            style={{ color: design.complianceState === 'passed' ? '#9FD3C4' : design.complianceState === 'failed' ? '#E3A08C' : '#D9B282' }}
           >
             {inr(bom.withGst)}
           </div>

@@ -777,7 +777,17 @@ export default function App() {
   useEffect(() => {
     if (settled && prevSettledRef.current && lastAction) {
       const built = buildSummary(prevSettledRef.current.result, settled.result, lastAction);
-      if (built) setSummary(built);
+      /* CALIBRATION.md section 87, reverse direction: this used to keep the
+         previous summary on screen whenever buildSummary returned null, and
+         whenever a new design settled with no lastAction to attribute it to
+         (an enquiry-form edit, an adopted budget option, a discarded preview).
+         The panel then described an edit the user had already moved past --
+         a stale qualification, which is how people learn to stop reading the
+         panel at all. A summary is only ever true of the transition that
+         produced the design now on screen, so anything else clears it. */
+      setSummary(built);
+    } else if (settled) {
+      setSummary(null);
     }
     if (settled) prevSettledRef.current = settled;
     setLastAction(null);
@@ -1042,6 +1052,10 @@ export default function App() {
           </aside>
 
           <section>
+            {/* CALIBRATION.md section 87 gaps 5 and 6: qualifications that existed
+                in the engine and reached no surface at all. fitCycleNote and the
+                K plateau belong beside the values they qualify, so they go to the
+                cards that show those values rather than becoming more banners. */}
             <ResultsDisplay
               core={core} design={activeDesign} bom={activeBom} params={activeParams}
               liveDesign={settledResult.design} liveBom={settledResult.bom} liveParams={settledResult.params}
@@ -1061,6 +1075,9 @@ export default function App() {
               priceLocks={viewingRevision ? (viewingRevision.input.priceLocks || {}) : priceLocks}
               onTogglePriceLock={handleTogglePriceLock}
               itemsByRateKey={itemsByRateKey}
+              fitCycleNote={viewingRevision ? viewedResult!.autoFitCycleNote : budgetPreview ? undefined : result.autoFitCycleNote}
+              etkPlateauLo={viewingRevision ? viewedResult!.etkPlateauLo : budgetPreview ? undefined : result.etkPlateauLo}
+              etkPlateauHi={viewingRevision ? viewedResult!.etkPlateauHi : budgetPreview ? undefined : result.etkPlateauHi}
               activePreviewKey={activePreviewKey}
               onSelectPreview={(candidate) => { setViewingRevision(null); setBudgetPreview(candidate); }}
               onCardExtraChange={(value) => handleOverChange({ ...over, cardExtra: value })}

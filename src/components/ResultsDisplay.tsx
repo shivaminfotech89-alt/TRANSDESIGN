@@ -68,6 +68,16 @@ interface ResultsDisplayProps {
    *  line code (e.g. "AC-01"). Empty Map for a row with no matching item;
    *  the row shows nothing extra rather than inventing one. */
   itemsByRateKey: Map<string, { code: string; partNumber: string }>;
+  /** CALIBRATION.md section 87 gap 5: the loss fit's own cycle note. It
+   *  qualifies the flux density, the current densities and the losses on the
+   *  metrics card, so it is rendered against them rather than only in a
+   *  banner on another tab. Undefined when the fit settled cleanly. */
+  fitCycleNote?: string;
+  /** section 87 gap 6: the K plateau the chosen etK sits at the midpoint of
+   *  (section 49). Shown on the K sweep, where K is read. Undefined when etK
+   *  was locked, so no plateau was searched for. */
+  etkPlateauLo?: number;
+  etkPlateauHi?: number;
   activePreviewKey: string | null;
   onSelectPreview: (candidate: any | null) => void;
   /** TASKS.md item 10: null/-1 while no project or no saved revision exists
@@ -156,6 +166,7 @@ function PriceSourceBadge({ source }: { source: PriceResolution | undefined }) {
 export function ResultsDisplay({
   core, design, bom, params, liveDesign, liveBom, liveParams, liveOver, project, rates, onRatesChange, effectiveRates,
   rateCard, onManageRateCards, pricingLocked, rateSources, priceLocks, onTogglePriceLock, itemsByRateKey,
+  fitCycleNote, etkPlateauLo, etkPlateauHi,
   activePreviewKey, onSelectPreview, onCardExtraChange, orgId, projectId, revision,
 }: ResultsDisplayProps) {
   const [activeTab, setActiveTab] = useState<Tab>('overview');
@@ -477,6 +488,7 @@ export function ResultsDisplay({
               never the currently previewed one, see ResultsDisplayProps note. */}
           {activeTab === 'budget' && (
             <BudgetTab
+              etkPlateauLo={etkPlateauLo} etkPlateauHi={etkPlateauHi}
               design={liveDesign} bom={liveBom} params={liveParams} over={liveOver} rates={effectiveRates}
               activePreviewKey={activePreviewKey} onSelectPreview={onSelectPreview}
             />
@@ -617,8 +629,17 @@ export function ResultsDisplay({
       {/* Right Sidebar */}
       <aside className="w-full lg:w-[320px] shrink-0 order-1 lg:order-2 flex flex-col gap-4 print:hidden">
         <Card title="Performance Metrics">
-          <DataRow label="No-Load Loss" value={String(Math.round(design.noLoad))} unit="W" />
-          <DataRow label="Load Loss" value={String(Math.round(design.loadLoss))} unit="W" />
+          <DataRow label="No-Load Loss" value={String(Math.round(design.noLoad))} unit="W" tone={design.lossBreach ? 'alert' : 'ink'} />
+          <DataRow label="Load Loss" value={String(Math.round(design.loadLoss))} unit="W" tone={design.lossBreach ? 'alert' : 'ink'} />
+          {/* CALIBRATION.md section 87 gap 2: the breach was stated in a banner
+              at the top of the page while these two numbers, the ones actually
+              quoted to a customer, read as ordinary results. Same reasoning as
+              the impedance note below. */}
+          {design.lossBreach && (
+            <p className="text-[10px] text-alert leading-snug py-1.5 border-t border-dashed border-line">
+              {design.lossBreach}
+            </p>
+          )}
           <DataRow label="Impedance" value={design.pctZ.toFixed(2)} unit="%" tone={design.compliance.z.ok ? 'ink' : 'alert'} />
           <DataRow label="Target Impedance" value={params.targetZ.toFixed(2)} unit="%" />
           {/* CALIBRATION.md section 86: the explanation belongs where the number
@@ -635,6 +656,14 @@ export function ResultsDisplay({
           <DataRow label="Efficiency, Full Load" value={design.eff100.toFixed(2)} unit="%" />
           <DataRow label="Current Density, LV" value={design.dLV.toFixed(2)} unit="A/mm²" />
           <DataRow label="Current Density, HV" value={design.dHV.toFixed(2)} unit="A/mm²" />
+          {/* section 87 gap 5: these values are the fit's own output. If the fit
+              was cycling between discrete winding configurations rather than
+              settling, that has to be legible here, not only on a banner. */}
+          {fitCycleNote && (
+            <p className="text-[10px] text-amber leading-snug py-1.5 border-t border-dashed border-line">
+              {fitCycleNote}
+            </p>
+          )}
         </Card>
 
         <div className={cardCls}>
@@ -646,17 +675,26 @@ export function ResultsDisplay({
             <span className={cardSubtitleCls}>
               {design.complianceState === 'failed' ? 'Not Compliant'
                 : design.complianceState === 'notAssessed' ? 'Not Assessed'
+                : design.complianceState === 'byAgreement' ? 'Subject To Agreement'
                 : 'Compliant'}
             </span>
           </div>
           <div className={cardBodyCls}>
             <div className="py-1.5">
               <div className="text-[10px] font-display uppercase tracking-[0.1em] text-ink2">Ex-Works, Excludes GST</div>
+              {/* CALIBRATION.md section 87: the price reads as authoritative and nothing
+                  beside it said the rates behind it are the engine's own defaults. The
+                  Rate Card panel says so, but it is a separate card the user may not read. */}
+              {!rateCard && (
+                <div className="text-[10px] text-amber leading-snug mt-0.5">
+                  Not backed by a saved rate card: priced on the engine's default rates, not your works' costs. Indicative only.
+                </div>
+              )}
               <div className="font-mono text-[20px] font-semibold text-copper">{inr(bom.exFactory)}</div>
             </div>
             <div className="py-1.5 border-t border-dashed border-line">
               <div className="text-[10px] font-display uppercase tracking-[0.1em] text-ink2">Delivered, Includes GST</div>
-              <div className={`font-mono text-[18px] font-semibold ${design.complianceState === 'passed' ? 'text-good' : design.complianceState === 'notAssessed' ? 'text-amber' : 'text-alert'}`}>{inr(bom.withGst)}</div>
+              <div className={`font-mono text-[18px] font-semibold ${design.complianceState === 'passed' ? 'text-good' : design.complianceState === 'failed' ? 'text-alert' : 'text-amber'}`}>{inr(bom.withGst)}</div>
             </div>
           </div>
         </div>
