@@ -6771,3 +6771,77 @@ No formula moved, so no golden number moves and `ENGINE_VERSION` does not
 change. `complianceState` gaining a fourth value is a reporting change: a
 quotation issued last year reprices to the identical figures, and would now
 describe its own basis more honestly than it did when issued.
+
+## 88. An empty budget band blamed on the band, when a pin had emptied it
+
+A user set a 10-16 lakh band at 800 kVA Level 2 and Fit to Budget returned
+nothing. Three explanations were proposed for it. Measurement supports none
+of them, and the real cause was already on screen in the least prominent
+text on the card.
+
+**What actually happened.** `searchDesigns` receives `opts.over` and holds a
+pinned flux or current density on every candidate -- section 42, deliberate,
+because a pin is the user saying they have a reason. With current density
+pinned at that project's own stale 2.13/2.34:
+
+    clean project          16 feasible, 4 in band, cheapest 11,48,843
+    density pinned         7 feasible, 0 in band, cheapest 20,27,627
+    flux pinned 1.78 T    11 feasible, 2 in band, cheapest 11,47,098
+    clean, copper only    12 feasible, 0 in band, cheapest 20,58,343
+
+Every in-band design at this rating is aluminium; copper's cheapest feasible
+is about 20.3 lakh, above the band either way. The pin stops any aluminium
+candidate being fitted, so the band empties. Same stale override behind the
+6080/2136 and 2273 W readings on the same project.
+
+**What the screen said instead.** The amber box told the user to "widen the
+band, or relax a constraint such as the impedance tolerance" -- advice that
+cannot work here. `guidance` had four branches and none considered a pin.
+`pinnedNote` carried the truth already, rendered at 10px in `text-steel`,
+below the controls, losing to a prominent wrong answer. Same shape as
+section 87: the qualification existed and did not reach the reader. Fixed by
+naming the pin first in `guidance` and raising `pinnedNote` to amber.
+
+**The three disproved explanations**, recorded because each sounded right:
+
+  - *"The swept ranges do not reach M5 at 1.42 T."* They do. The full grid
+    holds 570 M5 candidates, 6 feasible, all at exactly B 1.420. Flux is not
+    a swept dimension at all (section 27) -- it is fitted per candidate, so
+    1.42 T is where the fit lands, not a grid point that can be missed.
+  - *"Staging prunes the structural combination containing it."* The complete
+    unstaged grid, 2,460 candidates, gives the same picture: 474 feasible,
+    126 in band, all aluminium.
+  - *"Stage 1 ranks on cost regardless of feasibility."* That was true once
+    and is section 31's own fix, landed long ago. `stagedSearchDesigns` picks
+    each structural family's representative feasible-first, then sorts every
+    feasible family ahead of every infeasible one before the top-N cut. Nine
+    cheap infeasible combinations cannot crowd out a feasible one.
+
+**The one residual, measured.** Stage 1 assesses feasibility on a coarse
+sample -- 4 etK values, the middle gap scale, the first rise target -- so a
+family feasible only at an intermediate K could be sorted back as infeasible.
+And the top-N cut can still drop a genuinely feasible family when five
+cheaper feasible families outrank it. At this case that is 3 families. Both
+were tested rather than assumed:
+
+    stage 1                                    64 candidates, 17.3 s
+    families                                   16 total, 8 feasible
+    one stage-2 refinement                     13.2 s
+    current, 5 families                        83 s
+    every feasible family, 8                   123 s  (+48 %)
+
+    best from the 5 kept families              12,77,795
+    the 3 dropped feasible families refine to  20,71,235 / 22,27,056 / 22,57,146
+
+Dropping them costs nothing here: they are copper families, 62-77 % dearer
+than the kept optimum. Carrying every feasible family would buy no better
+design for a 48 % longer search. Left as it is, and recorded so the next
+person does not have to re-derive it.
+
+**And `enforceLimits` was not broken.** The 14,53,830-ish design is real but
+not compliant: M5/aluminium at B 1.420 prices at 14,45,105 with no-load loss
+1912 W against a 915 W limit, 109 % over, and 3189 W against 2287 at 50 %
+load. It reads as a candidate only if `feasible` is not checked. A search
+that returned it would be section 83's wrong-green, not a fix. The cheapest
+genuinely compliant design at this rating remains 11,38,725 -- 11,38,751 as
+adoption reproduces it -- at 8.1 % and 7.1 % loss margins.
