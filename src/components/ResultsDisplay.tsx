@@ -627,7 +627,14 @@ export function ResultsDisplay({
         <div className={cardCls}>
           <div className={cardHeaderCls}>
             <span className={cardTitleCls}>Price</span>
-            <span className={cardSubtitleCls}>{design.compliant ? 'Compliant' : 'Not Compliant'}</span>
+            {/* CALIBRATION.md section 83: three states, never green when nothing
+                was assessed. "Compliant" on an unassessed design is the most
+                dangerous label this product can print. */}
+            <span className={cardSubtitleCls}>
+              {design.complianceState === 'failed' ? 'Not Compliant'
+                : design.complianceState === 'notAssessed' ? 'Not Assessed'
+                : 'Compliant'}
+            </span>
           </div>
           <div className={cardBodyCls}>
             <div className="py-1.5">
@@ -636,7 +643,7 @@ export function ResultsDisplay({
             </div>
             <div className="py-1.5 border-t border-dashed border-line">
               <div className="text-[10px] font-display uppercase tracking-[0.1em] text-ink2">Delivered, Includes GST</div>
-              <div className={`font-mono text-[18px] font-semibold ${design.compliant ? 'text-good' : 'text-alert'}`}>{inr(bom.withGst)}</div>
+              <div className={`font-mono text-[18px] font-semibold ${design.complianceState === 'passed' ? 'text-good' : design.complianceState === 'notAssessed' ? 'text-amber' : 'text-alert'}`}>{inr(bom.withGst)}</div>
             </div>
           </div>
         </div>

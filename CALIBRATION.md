@@ -6437,3 +6437,67 @@ would mean nothing.
 Neither change moves a number: `ENGINE_VERSION` unmoved, no golden touched,
 all three suites and typecheck green. The 800 kVA reproduction remains open
 and needs the revision's own `input.over` block to settle.
+
+## 83. A null check is not a pass: "Compliant" on a design 49 % outside the standard
+
+Section 82 stopped conventional and custom borrowing Level 2's loss limits.
+It replaced a wrong red with a wrong green, which is far worse, and the
+mechanism is worth stating exactly because it generalises.
+
+`is50` and `is100` return null when no schedule applies. The gate was
+`Object.values(compliance).every((x) => x == null || x.ok)` -- **a null
+counted as a pass**. So an 800 kVA conventional design running
+9540 W against Level 2's 6402 W, **49 % over**, rendered a green
+"Compliant" badge, a green delivered price and a compliant rating plate. It
+was found by a person reading the loss figures, not by any check.
+
+**The audit the fix demanded found a second one.** `coreMass` had INVERTED
+semantics: `coreMassAnomaly ? {...ok:false} : null`, so null there meant
+*healthy* while null everywhere else meant *not assessed*. Under a
+null-tolerant gate the two are indistinguishable. It is now always present
+with `ok: !coreMassAnomaly`. `flux` and `fluxMargin` also go null under a
+non-IS standard, but that is genuinely not-applicable rather than
+not-assessed -- a different standard governs and the declared limits are
+still checked -- so they are excluded deliberately rather than by oversight.
+
+**Compliance is now three-valued.** `compliant` keeps its old meaning, every
+check that WAS assessed came back ok, because other code reads it and
+silently inverting that would be its own trap. `complianceState` is what the
+UI shows: `failed`, `notAssessed`, `passed`. The badge reads "Not Assessed",
+the delivered price turns amber rather than green, and the rating plate
+paints amber. A banner states that the standard sets no schedule for this
+efficiency class and the design cannot be offered as an IS 1180 unit.
+
+And the consequence is now visible **before** the design is built: choosing
+conventional or custom under the IS standard puts an amber note directly
+under the efficiency selector. It stays selectable -- a non-IS enquiry or an
+export order may legitimately need it -- but nobody reaches the results
+without having been told.
+
+Measured across configurations at 800 kVA: Level 2 `passed`, conventional
+and custom `notAssessed`, dry `failed` on other checks, IEC `passed`,
+3500 kVA `failed`.
+
+### The deeper problem, measured: conventional's limits are fiction
+
+`limitLL` of 8303 W at 800 kVA is not a limit anyone published. It is the
+pre-2014 fitted formula multiplied by an invented 1.55 efficiency
+multiplier, and section 76 already established that formula was 17 to 31 %
+wrong at the small end for the levels it *was* fitted to. It gave the fit
+licence to run density to 2.96 / 3.26 A/mm2 -- about twice a real design --
+and produce a unit 49 % outside the standard.
+
+What actually stops that fit is worth knowing. Slackening the loss limits
+tenfold, effectively removing them:
+
+| | no-load | load loss | density | oil rise | winding rise | ex-works |
+|---|---|---|---|---|---|---|
+| conventional as now | 1301 | 8239 | 2.96 / 3.26 | 27.2 | **45.0 / 45** | 15,14,604 |
+| limits x3 | 1111 | 8804 | 2.96 / 3.26 | 27.2 | **45.0 / 45** | 14,96,087 |
+| limits x10 | 1111 | 8804 | 2.96 / 3.26 | 27.2 | **45.0 / 45** | 14,96,087 |
+
+**The loss limits are not binding at all.** Winding rise is, at exactly
+45.0 K. Removing them entirely changes the design by about 1 %. So the
+8303 W figure is doing no work except providing a false impression that a
+bound was checked -- which is precisely how it produced a green badge on an
+unbuildable-for-market design.

@@ -1996,7 +1996,12 @@ function designTransformer(p) {
     scHoopTensile: { val: shortCircuit.tensile, lim: shortCircuit.allowStress, ok: shortCircuit.tensile <= shortCircuit.allowStress },
     scHoopCompressive: { val: shortCircuit.compressive, lim: shortCircuit.allowStress, ok: shortCircuit.compressive <= shortCircuit.allowStress },
     scThermal: { val: shortCircuit.tempMax, lim: shortCircuit.allowTemp, ok: shortCircuit.tempMax <= shortCircuit.allowTemp },
-    coreMass: coreMassAnomaly ? { val: wCoreAssembled, lim: wCore, ok: false } : null,
+    /* CALIBRATION.md section 83: always present, never null. This one had
+       INVERTED semantics -- null meant "healthy" here while null means "not
+       assessed" on every other entry -- and with a null-tolerant every() gate
+       the two are indistinguishable. Same shape as the bug that let a
+       conventional design read Compliant. */
+    coreMass: { val: wCoreAssembled, lim: wCore, ok: !coreMassAnomaly },
     is100: isSch ? { val: is100, lim: isSch.p100, ok: isSch.exact ? is100 <= isSch.p100 : true, advisory: !isSch.exact, met: is100 <= isSch.p100 } : null,
     z: { val: g.pctZ, lim: p.targetZ, ok: Math.abs(g.pctZ - p.targetZ) / p.targetZ <= Math.min(p.zTol, std.zTol) / 100 },
     rise: { val: dry ? windRise : oilRise, lim: riseLimit, ok: (dry ? windRise : oilRise) <= riseLimit + 0.5 },
@@ -2014,7 +2019,41 @@ function designTransformer(p) {
     tankHeight: { val: tankH, lim: p.tankHeightLimit, ok: tankH <= p.tankHeightLimit },
   };
   // is50/is100 are null when no published row applies; a null is not a failure.
-  const compliant = Object.values(compliance).every((x) => x == null || x.ok);
+  /* CALIBRATION.md section 83. A null check is NOT a pass. It used to be
+     counted as one, and that turned "IS 1180 defines no schedule for this
+     efficiency class" into a green Compliant badge on a design running 49%
+     outside the standard. A design with no applicable schedule has not passed
+     one.
+
+     So compliance is now three-valued. `compliant` keeps its old meaning --
+     every check that WAS assessed came back ok -- because other code reads it
+     and silently inverting that would be its own trap. `complianceState` is
+     the one the UI must show:
+       "failed"      an assessed check failed
+       "notAssessed" everything assessed passed, but something material was
+                     never assessed at all
+       "passed"      everything material was assessed and passed
+
+     Only IS-standard designs with no IS 1180 loss schedule count as material
+     here: flux and fluxMargin go null under a non-IS standard, where a
+     different standard governs and the declared limits are still checked, so
+     those are genuinely not applicable rather than not assessed. */
+  const assessed = Object.values(compliance).filter((x) => x != null);
+  const compliant = assessed.every((x) => x.ok);
+  const notAssessed = [];
+  if (p.standard === "IS" && !isSch) {
+    notAssessed.push(
+      dry
+        ? `IS 1180 (Part 1) : 2014 covers oil-immersed transformers, so it sets no loss schedule for this dry-type design and none was checked.`
+        : !["level1", "level2", "level3"].includes(p.effLevel)
+          ? `IS 1180 (Part 1) : 2014 defines loss schedules for Level 1, Level 2 and Level 3 only. "${EFF_LEVELS[p.effLevel] ? EFF_LEVELS[p.effLevel].name : p.effLevel}" is not one of them, so NO total-loss limit was checked. This design cannot be offered as an IS 1180 unit.`
+          : `IS 1180 (Part 1) : 2014 lists no ${p.kva} kVA row and the rating falls outside its tables, so no total-loss limit was checked.`
+    );
+  }
+  const complianceState = !compliant ? "failed" : notAssessed.length ? "notAssessed" : "passed";
+  const complianceNote = notAssessed.length
+    ? `${notAssessed.join(" ")} Every other check was applied and passed, but this design has NOT been assessed against a loss schedule -- do not read the result as approval against IS 1180.`
+    : null;
 
   /* CALIBRATION.md section 78: which constraint is ACTUALLY binding, and how
      much room is left against the loss schedule.
@@ -2127,7 +2166,8 @@ function designTransformer(p) {
     pctX: g.pctX, pctR: g.pctR, pctZ: g.pctZ, regFull, oilRise, windRise, grad, hotspot, hotspotAvg, lifeFactor,
     riseLimit, wRiseLimit, eff100: effAt(1), eff75: effAt(0.75), eff50: effAt(0.5), maxEffLoad,
     iscLV: iLineLV * iscMult, iscHV: iscHVline, iscMult, zSys, zTx, shortCircuit, noise, sch, compliance, compliant,
-    isSch, schFit, isScale, binding, constraintNote, lossBreach, coreMassAnomaly, lossUtil, lossIsBinding, condNote, condAutoLevelDependent,
+    isSch, schFit, isScale, binding, constraintNote, lossBreach, coreMassAnomaly,
+    complianceState, notAssessed, complianceNote, lossUtil, lossIsBinding, condNote, condAutoLevelDependent,
     /* CLAUDE.md invariant 5: an unlisted rating has no published limit, so
        the dependent output is pending and names what is missing, rather
        than being extrapolated from neighbouring rows. */

@@ -272,6 +272,17 @@ export function TransformerForm({
             </div>
             <CoreField label="Efficiency Level">
               <CoreSelect value={core.effLevel} onChange={(v) => setCore({ effLevel: v })} options={EFF_LEVEL_OPTS} />
+              {/* CALIBRATION.md section 83: the consequence must be visible
+                  BEFORE the design is built, not only in the results. Kept
+                  selectable -- a non-IS enquiry or an export order may
+                  legitimately need it -- but a user choosing it should know the
+                  design cannot be offered against IS 1180 at all. */}
+              {core.standard === 'IS' && !['level1', 'level2', 'level3'].includes(core.effLevel) && (
+                <p className="text-[10px] text-amber mt-1 leading-snug">
+                  IS 1180 defines Levels 1 to 3 only. This design has no total-loss schedule under the standard,
+                  is not assessed against one, and cannot be offered as an IS 1180 unit.
+                </p>
+              )}
             </CoreField>
             <CoreField label="Cooling Medium">
               <CoreSelect value={core.medium} onChange={(v) => setCore({ medium: v })} options={MEDIUM_OPTS} />
