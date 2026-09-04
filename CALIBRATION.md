@@ -7360,3 +7360,52 @@ instruction.
 
 Goldens unchanged -- copper and aluminium key exactly as before, so no price
 moves. No ENGINE_VERSION bump: no formula changed.
+
+## 97. The 1.42 T flux floor is empirical, and the sweep is here so nobody repeats it
+
+Section 90 established that cost falls monotonically as flux RISES, at five
+ratings, and that a lower flux window therefore cannot save money. The
+question came back in a sharper form: does the cheapest aluminium design
+terminate on the 1.42 T floor with loss budget unspent, i.e. is the floor a
+search artefact the way the etK window and `fluxRange` turned out to be?
+
+Measured on the cheapest compliant 800 kVA aluminium design (zdkh, fin,
+K 0.48), pinning flux through and below the floor:
+
+| pinned B | ex-works | headroom 50 % / 100 % | |
+|---|---|---|---|
+| 1.30 | 13,24,626 | 12.7 % / 8.9 % | **FAILS tankHeight** |
+| 1.35 | 13,01,703 | 14.2 % / 12.0 % | ok |
+| 1.42 (floor) | 12,24,121 | 7.1 % / 2.7 % | ok |
+| 1.50 | 11,64,594 | 6.5 % / 2.5 % | ok |
+| 1.55 | 11,36,931 | 5.4 % / 1.9 % | ok |
+| 1.60 | 11,10,701 | 4.6 % / 1.6 % | ok |
+| 1.6044 (margin ceiling) | **11,08,816** | 4.5 % / 1.6 % | ok |
+
+**A lower floor gives this design nothing.** Cost falls monotonically with
+rising flux here as it does everywhere else, so going below 1.42 T produces
+only dearer designs, and below about 1.35 T they start failing on tank height
+-- a lower flux needs a bigger core, and the tank has to grow to hold it. The
+floor is not a binding artefact; it is simply never approached from the
+cheap side.
+
+**And the design does not terminate on the floor at all.** The cheapest
+compliant aluminium design runs at **B = 1.6000 T**, at the top of its range
+against the 5 % design-margin ceiling of 1.6044, not the bottom. Its loss
+headroom is 8.1 % at 50 % load and 7.1 % at 100 %. What actually binds it is
+**top-oil rise, at 100.0 % of its limit** -- the same constraint that binds
+the copper design, and the same one section 91 found binding at 800 kVA
+generally.
+
+Three figures from the question did not survive measurement and are recorded
+so the file does not carry them: the aluminium tank is LARGER than copper's
+(1674 x 636 x 1424 mm and 459 kg against 1549 x 594 x 1304 and 392 kg, with
+1282 L of oil against 1028 -- it needs a taller window, `Hw` 756 against 637);
+the design terminates on the flux margin CEILING, not the floor; and its
+headroom is 7-8 %, not 33 %.
+
+So 1.42 T stands as an empirical floor. Section 90's finding that its stated
+economic justification is not supported by the cost model is unchanged and
+still open -- the bound is fine, the sentence explaining it is the part that
+needs rewriting. What is now closed is whether the floor costs anything: it
+does not, at this rating, in either material.

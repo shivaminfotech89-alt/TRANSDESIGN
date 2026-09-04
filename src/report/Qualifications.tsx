@@ -69,6 +69,17 @@ export function ProvenanceBand({ design, over, rateCardId, result }: {
   );
 }
 
+/** CALIBRATION.md section 97: the BOM's own basis note, on the page carrying
+ *  the priced conductor lines it qualifies. Added to the engine in
+ *  ENGINE_VERSION 1.39.0, AFTER section 94 carried the other qualifications
+ *  across, and so missed by it -- the same drift this run keeps finding, this
+ *  time in work of my own three commits old. A qualification added to the
+ *  engine has to be given a home in the report in the same commit. */
+export function BomBasisNote({ bom }: { bom: any }) {
+  if (!bom?.rateBasisNote) return null;
+  return <div className={plain}><span className="font-semibold text-ink">Conductor pricing basis. </span>{bom.rateBasisNote}</div>;
+}
+
 /** Qualifications that belong beside specific values, on the page carrying
  *  them. Each renders the engine's own string, unchanged. */
 export function ValueQualifications({ design, result, show }: { design: any; result?: any; show: 'losses' | 'geometry' | 'all' }) {

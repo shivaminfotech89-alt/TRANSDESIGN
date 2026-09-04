@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { ComplianceBand, ProvenanceBand, ValueQualifications } from './Qualifications';
+import { ComplianceBand, ProvenanceBand, ValueQualifications, BomBasisNote } from './Qualifications';
 import QRCode from 'qrcode';
 import {
   calcSheet, buildBOM, documentRegister, routineTestSchedule,
@@ -211,6 +211,7 @@ export function PrintReport({ project, revision, result }: PrintReportProps) {
       {/* Bill of materials */}
       <div className="report-page-break p-6 max-w-[1000px] mx-auto" data-section="bom">
         {bands}
+        <BomBasisNote bom={bom} />
         <div className="text-[11px] font-display uppercase tracking-[0.18em] text-copper mb-3">Bill of Materials &amp; Cost</div>
         {bom.warnings?.map((w: any) => (
           <div key={w.code} className="bg-white border border-alert rounded-[2px] px-4 py-3 mb-3">
